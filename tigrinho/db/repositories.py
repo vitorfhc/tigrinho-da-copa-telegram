@@ -130,6 +130,9 @@ class BetRepository:
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
+    def list_all(self) -> list[Bet]:
+        return list(self._session.execute(select(Bet).order_by(Bet.id)).scalars())
+
     def upsert(
         self,
         *,

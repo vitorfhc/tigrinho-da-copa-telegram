@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M8 complete** (… + live poll/auto-settle + scoreboard green) · _Created 2026-06-15_
+**Status: M0–M9 complete** (… + scoreboard + admin CLI green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -175,20 +175,20 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - [x] Board derivable purely from settled bets (`tigrinho/scoreboard.py`, CLI-rebuildable) + tests
   - **Done when:** `board_handlers.py` exists, its tests pass, all gates green. ✅ **DONE** (236 tests).
 
-- [ ] **M9 — Admin CLI**
-  - [ ] `cli.py` (Typer) sharing repository + domain code; readable tables; destructive commands
-        require a confirmation flag
-  - [ ] Group 1: CRUD games/bets/players (list/show/create/edit/delete)
-  - [ ] Group 2: manual result + re-settle (set/override 90′ score + first scorer, run/re-run
-        settlement — idempotent)
-  - [ ] Group 3: force sync; refresh/seed cached squads; print today's API request counter + remaining
-        budget
-  - [ ] Group 4: recalc/rebuild board from settled bets; export/dump the SQLite DB (or tables)
-  - [ ] `telegram-info` helper (resolved `@username`/id via `get_me`; echoes `group_chat_id`/
+- [x] **M9 — Admin CLI**
+  - [x] `cli.py` (Typer) sharing repository + domain code; plain aligned tables; destructive commands
+        require `--yes`
+  - [x] Group 1: CRUD games/bets/players (`games list/show/delete`, `players list/delete`,
+        `bets list/delete`)
+  - [x] Group 2: manual result + re-settle (`set-result <fixture> <home> <away> [--scorer]
+        [--advancing]`, idempotent via `settle_fixture`)
+  - [x] Group 3: `sync` (force); `squads seed/refresh` (provider+budget); `budget` (counter+remaining)
+  - [x] Group 4: `board [--weekly]` (rebuild from settled bets); `db [--table]` (JSON dump)
+  - [x] `telegram-info` helper (resolved `@username`/id via `get_me`; echoes `group_chat_id`/
         `admin_user_id`)
-  - [ ] CLI tests
+  - [x] CLI tests (CliRunner + monkeypatched `build_cli_context` + temp DB / FakeProvider)
   - **Done when:** `cli.py` exists with all four capability groups + `telegram-info`, its tests pass,
-    all gates green.
+    all gates green. ✅ **DONE** (246 tests).
 
 - [ ] **M10 — Deploy**
   - [ ] `docker/Dockerfile` — `python:3.12-slim`, non-root user, deps from `pyproject.toml`
@@ -370,9 +370,18 @@ match_result).
 Voided games excluded from the board. Toggle handler registered before catch-all (PTB stops at first
 matching handler in a group).
 
-**Next:** M9 — Admin CLI (Typer). Ground Typer (commands, options, `typer.confirm`/`--yes` flag).
-Build `cli.py` sharing repositories + `settlement_service` + `scoreboard`: (1) CRUD games/bets/players;
-(2) manual result + re-settle (idempotent, reuse `settle_fixture`); (3) force sync, seed/refresh squads
-(provider+budget), print API counter/remaining; (4) recalc/rebuild board, dump DB/tables;
-`telegram-info` (get_me + echo group/admin ids). Readable tables; destructive cmds need a confirm flag.
-Tests via Typer's CliRunner + temp DB + FakeProvider.
+### 2026-06-15 — M9 Admin CLI (DONE)
+
+Grounded Typer 0.26.7 (Annotated options, `add_typer`, `CliRunner`). `cli.py` shares repos +
+`settlement_service` + `scoreboard` + `board_data`. `build_cli_context()` is monkeypatchable for
+tests. Extracted `tigrinho/board_data.py` (telegram-free board-records loader) so the CLI doesn't
+import the bot layer; `BetRepository.list_all` added. `telegram-info` resolves `get_me` via an
+injectable `_get_me`. All four groups + telegram-info implemented and tested (CliRunner).
+
+**Next:** M10 — Deploy. `docker/Dockerfile` (`python:3.12-slim`, non-root, deps from pyproject via uv
+or pip), `docker/entrypoint.sh` (`alembic upgrade head` then launch), `docker-compose.yml` (1 bot
+service, `env_file: .env`, named `/data` volume, read-only `config.yaml` bind-mount,
+`CONFIG_PATH=/app/config.yaml`, `restart: unless-stopped`, no ports), a `__main__.py` /
+`python -m tigrinho` entry that builds AppContext + runs polling, and the full **README.md** (§15.1,
+14 sections). Need a real bot entrypoint (`tigrinho/__main__.py`) wiring config → engine → migrations
+are run by entrypoint → provider → budget → `build_application` → `run_polling`.

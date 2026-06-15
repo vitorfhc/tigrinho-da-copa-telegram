@@ -9,50 +9,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy.orm import Session
 from telegram import InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
+from tigrinho.board_data import load_board_records
 from tigrinho.bot.callbacks import BoardScope, BoardView, decode
 from tigrinho.bot.keyboards import board_toggle_keyboard
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
-from tigrinho.db.models import GameStatus
-from tigrinho.db.repositories import BetRepository, GameRepository, PlayerRepository
-from tigrinho.domain.bets import BetCategory
 from tigrinho.domain.text_pt import board_text
-from tigrinho.scoreboard import BetRecord, in_current_week, rank
+from tigrinho.scoreboard import rank
 
 _TOP_N = 15
-
-
-def _load_records(session: Session, *, weekly: bool, now_local: datetime) -> list[BetRecord]:
-    games = GameRepository(session)
-    players = PlayerRepository(session)
-    records: list[BetRecord] = []
-    for bet in BetRepository(session).list_settled():
-        if bet.points_awarded is None:
-            continue
-        game = games.get(bet.fixture_id)
-        if game is None or game.status is GameStatus.VOID:
-            continue
-        if weekly and not in_current_week(game.kickoff_local, now_local):
-            continue
-        player = players.get(bet.player_telegram_id)
-        if player is None:
-            continue
-        correct = bool(bet.is_correct)
-        records.append(
-            BetRecord(
-                telegram_id=player.telegram_id,
-                display_name=player.display_name,
-                created_at=player.created_at,
-                points=bet.points_awarded,
-                is_correct=correct,
-                is_exact_score_hit=correct and bet.category == BetCategory.EXACT_SCORE.value,
-            )
-        )
-    return records
 
 
 def _render(
@@ -61,7 +29,7 @@ def _render(
     weekly = scope == "semana"
     now_local = datetime.now(app_context.settings.tzinfo).replace(tzinfo=None)
     with app_context.session_factory() as session:
-        entries = rank(_load_records(session, weekly=weekly, now_local=now_local))
+        entries = rank(load_board_records(session, weekly=weekly, now_local=now_local))
     rows = [(e.rank, e.display_name, e.points) for e in entries[:_TOP_N]]
     caller_outside = None
     if caller_id is not None:
