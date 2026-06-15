@@ -429,3 +429,16 @@ asked to fix all P1 + P2. Done in 5 green commits (271 tests):
 
 P3 nits (indexes, N+1, minor security/arch) intentionally left as follow-ups — none are defects at
 one-group scale. DoD still holds.
+
+### 2026-06-15 — Product change: first-scorer → first **team** to score; squads removed
+
+User request. `FIRST_SCORER` (pick a player) → `FIRST_TEAM` (`{sel: HOME|AWAY}`, 3 pts). Removed all
+squad infrastructure: `/players/squads` pull (`get_squad`/`map_squad`), `SquadPlayer` value object,
+`squad_players` table + `SquadRepository`, the paginated squad keyboard, `ScorerInput`/`ScorerPage`
+callbacks, and the CLI `squads seed/refresh` commands. Added append-only migration `b0be15a80128`
+dropping `squad_players` (initial migration untouched, per guardrail). Grading reuses
+`first_genuine_scorer` (the goal timeline is still parsed — it tells which team scored first);
+`games.first_scorer_player_id` is still recorded from the goal event for display. Results message +
+`set-result --first-team home|away` are team-based. Spec (§5/§6/§7/§8.1/§8.2/§13/§15.1/§17/§19) +
+`/ajuda` + README updated per the §11 maintenance rule. 267 tests, all gates green, both migrations
+apply.

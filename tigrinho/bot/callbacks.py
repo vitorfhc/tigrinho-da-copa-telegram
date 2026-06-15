@@ -12,8 +12,7 @@ Opcodes:
   ``w:<fixture>:<H|D|A>``             winner selection
   ``t:<fixture>:<B|H|A|N>``           both-teams-to-score selection
   ``o:<fixture>:<O|U>``               over/under selection
-  ``p:<fixture>:<page>``              paginate the first-scorer squad keyboard
-  ``f:<fixture>:<player_id>``         first-scorer selection
+  ``f:<fixture>:<H|A>``               first-team-to-score selection
   ``x:<bet_id>``                      delete a bet
   ``q``                               cancel/close the wizard
   ``bv:<g|s>``                        scoreboard view toggle (Geral / Semana)
@@ -24,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, assert_never
 
-from tigrinho.domain.bets import BetCategory, BttsSel, OverUnderSel, WinnerSel
+from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 
 BoardScope = Literal["geral", "semana"]
 _BOARD_SCOPE_TO_CODE: dict[BoardScope, str] = {"geral": "g", "semana": "s"}
@@ -34,12 +33,15 @@ MAX_CALLBACK_BYTES = 64
 
 _CATEGORY_TO_CODE: dict[BetCategory, str] = {
     BetCategory.EXACT_SCORE: "E",
-    BetCategory.FIRST_SCORER: "F",
+    BetCategory.FIRST_TEAM: "F",
     BetCategory.BTTS: "B",
     BetCategory.WINNER: "W",
     BetCategory.OVER_UNDER: "O",
 }
 _CODE_TO_CATEGORY = {code: category for category, code in _CATEGORY_TO_CODE.items()}
+
+_FIRST_TEAM_TO_CODE: dict[FirstTeamSel, str] = {FirstTeamSel.HOME: "H", FirstTeamSel.AWAY: "A"}
+_CODE_TO_FIRST_TEAM = {code: sel for sel, code in _FIRST_TEAM_TO_CODE.items()}
 
 _WINNER_TO_CODE: dict[WinnerSel, str] = {
     WinnerSel.HOME: "H",
@@ -106,15 +108,9 @@ class OverUnderInput:
 
 
 @dataclass(frozen=True, slots=True)
-class ScorerPage:
+class FirstTeamInput:
     fixture_id: int
-    page: int
-
-
-@dataclass(frozen=True, slots=True)
-class ScorerInput:
-    fixture_id: int
-    player_id: int
+    sel: FirstTeamSel
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,8 +136,7 @@ CallbackData = (
     | WinnerInput
     | BttsInput
     | OverUnderInput
-    | ScorerPage
-    | ScorerInput
+    | FirstTeamInput
     | DeleteBet
     | Cancel
     | BoardView
@@ -165,10 +160,8 @@ def encode(data: CallbackData) -> str:
             result = f"t:{fixture_id}:{_BTTS_TO_CODE[sel]}"
         case OverUnderInput(fixture_id, sel):
             result = f"o:{fixture_id}:{_OVER_UNDER_TO_CODE[sel]}"
-        case ScorerPage(fixture_id, page):
-            result = f"p:{fixture_id}:{page}"
-        case ScorerInput(fixture_id, player_id):
-            result = f"f:{fixture_id}:{player_id}"
+        case FirstTeamInput(fixture_id, sel):
+            result = f"f:{fixture_id}:{_FIRST_TEAM_TO_CODE[sel]}"
         case DeleteBet(bet_id):
             result = f"x:{bet_id}"
         case Cancel():
@@ -201,10 +194,8 @@ def decode(data: str) -> CallbackData:
             return BttsInput(int(parts[1]), _CODE_TO_BTTS[parts[2]])
         if op == "o":
             return OverUnderInput(int(parts[1]), _CODE_TO_OVER_UNDER[parts[2]])
-        if op == "p":
-            return ScorerPage(int(parts[1]), int(parts[2]))
         if op == "f":
-            return ScorerInput(int(parts[1]), int(parts[2]))
+            return FirstTeamInput(int(parts[1]), _CODE_TO_FIRST_TEAM[parts[2]])
         if op == "x":
             return DeleteBet(int(parts[1]))
         if op == "q":

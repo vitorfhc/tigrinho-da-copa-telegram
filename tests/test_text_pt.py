@@ -8,7 +8,8 @@ from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
+    FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
     WinnerPayload,
@@ -47,17 +48,24 @@ def test_describe_bet_all_categories() -> None:
     assert describe_bet(WinnerPayload(sel=WinnerSel.DRAW)) == "Vencedor: Empate"
     assert describe_bet(BttsPayload(sel=BttsSel.NEITHER)) == "Ambas marcam: Nenhuma marca"
     assert "Mais de 2.5" in describe_bet(OverUnderPayload(sel=OverUnderSel.OVER))
-    assert describe_bet(FirstScorerPayload(player_id=7)) == "Primeiro a marcar: jogador #7"
     assert (
-        describe_bet(FirstScorerPayload(player_id=7), scorer_name="Neymar")
-        == "Primeiro a marcar: Neymar"
+        describe_bet(
+            FirstTeamPayload(sel=FirstTeamSel.HOME), home_team="Brasil", away_team="Argentina"
+        )
+        == "Primeira equipe a marcar: Brasil"
+    )
+    assert (
+        describe_bet(
+            FirstTeamPayload(sel=FirstTeamSel.AWAY), home_team="Brasil", away_team="Argentina"
+        )
+        == "Primeira equipe a marcar: Argentina"
     )
 
 
 def test_points_table_reflects_scoring() -> None:
     text = points_table_text()
     assert "Placar exato: <b>5</b> pts" in text
-    assert "Primeiro a marcar: <b>4</b> pts" in text
+    assert "Primeira equipe a marcar: <b>3</b> pts" in text
     assert "Mais/Menos 2.5 gols: <b>1</b> pts" in text
 
 
@@ -70,6 +78,7 @@ def test_help_text_covers_required_content() -> None:
     assert "fecham no apito" in text  # close-at-kickoff
     assert "privado" in text  # DM betting
     assert "Placar exato" in text  # categories present
+    assert "Primeira equipe a marcar" in text  # team-based first-scorer category
 
 
 def test_welcome_text_points_to_help() -> None:
@@ -107,18 +116,23 @@ def test_results_text_with_players() -> None:
         away="Argentina",
         home_goals=2,
         away_goals=1,
-        scorer_name="Neymar",
+        first_team_name="Brasil",
         players=[(42, "Alice", 7, [("Placar exato", True, 5), ("Vencedor", True, 2)])],
     )
     assert "Brasil 2 x 1 Argentina" in text
-    assert "Primeiro a marcar: Neymar" in text
+    assert "Primeira equipe a marcar: Brasil" in text
     assert "tg://user?id=42" in text
     assert "✓ Placar exato (+5)" in text
 
 
-def test_results_text_no_scorer_and_no_players() -> None:
+def test_results_text_no_team_and_no_players() -> None:
     text = results_text(
-        home="Brasil", away="Argentina", home_goals=0, away_goals=0, scorer_name=None, players=[]
+        home="Brasil",
+        away="Argentina",
+        home_goals=0,
+        away_goals=0,
+        first_team_name=None,
+        players=[],
     )
     assert "Sem gol válido" in text
     assert "Ninguém apostou" in text

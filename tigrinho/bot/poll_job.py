@@ -26,7 +26,7 @@ from tigrinho.bot.alerts import alert_cap_reached, notify_admin
 from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import GameStatus, utcnow
-from tigrinho.db.repositories import GameRepository, SquadRepository
+from tigrinho.db.repositories import GameRepository
 from tigrinho.domain.text_pt import CATEGORY_LABELS, escape, results_text
 from tigrinho.logging import get_logger
 from tigrinho.providers.budget import BudgetExceeded
@@ -145,10 +145,6 @@ async def _settle_and_announce(
         if game is None or game.settled_at is not None:
             return  # settled in between (idempotent guard) — don't double-post
         summary = settle_fixture(session, game, result)
-        scorer_name = None
-        if summary.first_scorer_player_id is not None:
-            scorer = SquadRepository(session).get(summary.first_scorer_player_id)
-            scorer_name = scorer.name if scorer is not None else None
         players = [
             (
                 player.telegram_id,
@@ -163,7 +159,7 @@ async def _settle_and_announce(
             away=summary.away_team_name,
             home_goals=summary.home_goals_90,
             away_goals=summary.away_goals_90,
-            scorer_name=scorer_name,
+            first_team_name=summary.first_scoring_team_name,
             players=players,
         )
         session.commit()

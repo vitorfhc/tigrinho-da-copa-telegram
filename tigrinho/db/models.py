@@ -38,7 +38,6 @@ __all__ = [
     "Game",
     "GameStatus",
     "Player",
-    "SquadPlayer",
     "Stage",
     "utcnow",
 ]
@@ -116,17 +115,6 @@ class Bet(Base):
 
     game: Mapped[Game] = relationship(back_populates="bets")
     player: Mapped[Player] = relationship(back_populates="bets")
-
-
-class SquadPlayer(Base):
-    """A cached squad member used for first-scorer selection (§6, seeded via CLI)."""
-
-    __tablename__ = "squad_players"
-
-    player_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
-    team_id: Mapped[int] = mapped_column(Integer, index=True)
-    name: Mapped[str] = mapped_column(String)
-    position: Mapped[str | None] = mapped_column(String, default=None)
 
 
 class ApiUsage(Base):

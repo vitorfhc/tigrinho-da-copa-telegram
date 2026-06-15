@@ -10,9 +10,8 @@ from tigrinho.bot.callbacks import (
     ChooseCategory,
     ChooseGame,
     ExactScore,
+    FirstTeamInput,
     HomeScore,
-    ScorerInput,
-    ScorerPage,
     WinnerInput,
     decode,
 )
@@ -22,13 +21,13 @@ from tigrinho.bot.keyboards import (
     btts_keyboard,
     category_keyboard,
     deep_link_url,
+    first_team_keyboard,
     games_keyboard,
     home_score_keyboard,
     over_under_keyboard,
-    squad_keyboard,
     winner_keyboard,
 )
-from tigrinho.domain.bets import WinnerSel
+from tigrinho.domain.bets import FirstTeamSel, WinnerSel
 from tigrinho.enums import Stage
 
 
@@ -100,12 +99,10 @@ def test_btts_and_over_under() -> None:
     assert len(_decoded(over_under_keyboard(1001))) == 2
 
 
-def test_squad_keyboard_pagination() -> None:
-    players = [(i, f"Player {i}") for i in range(20)]
-    first = _decoded(squad_keyboard(1001, players, 0))
-    assert sum(isinstance(d, ScorerInput) for d in first) == 8
-    assert [d for d in first if isinstance(d, ScorerPage)] == [ScorerPage(1001, 1)]
-
-    middle = {d for d in _decoded(squad_keyboard(1001, players, 1)) if isinstance(d, ScorerPage)}
-    assert ScorerPage(1001, 0) in middle  # prev
-    assert ScorerPage(1001, 2) in middle  # next
+def test_first_team_keyboard() -> None:
+    decoded = _decoded(first_team_keyboard(1001, "Brasil", "Argentina"))
+    sels = {d.sel for d in decoded if isinstance(d, FirstTeamInput)}
+    assert sels == {FirstTeamSel.HOME, FirstTeamSel.AWAY}
+    keyboard = first_team_keyboard(1001, "Brasil", "Argentina")
+    labels = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert labels == ["Brasil", "Argentina"]

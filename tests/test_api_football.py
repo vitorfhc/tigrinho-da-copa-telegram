@@ -16,7 +16,6 @@ from tigrinho.providers.api_football import (
     classify_stage,
     map_fixture,
     map_match_result,
-    map_squad,
     normalize_status,
     parse_goals,
 )
@@ -144,20 +143,6 @@ def test_map_match_result_uses_fulltime_not_extratime() -> None:
     assert result.status is GameStatus.FINISHED
     assert result.stage is Stage.KNOCKOUT
     assert result.advancing_team_id == 10
-
-
-def test_map_squad() -> None:
-    item: dict[str, Any] = {
-        "team": {"id": 10, "name": "Brasil"},
-        "players": [
-            {"id": 100, "name": "Alisson", "position": "Goalkeeper"},
-            {"id": 101, "name": "Neymar", "position": "Attacker"},
-            {"id": None, "name": "Ghost"},
-        ],
-    }
-    squad = map_squad(item)
-    assert [p.player_id for p in squad] == [100, 101]
-    assert squad[0].team_id == 10
 
 
 # --- httpx client (MockTransport) -----------------------------------------------------------
@@ -314,5 +299,5 @@ async def test_http_error_raises() -> None:
 
     provider = _provider(handler)
     with pytest.raises(httpx.HTTPStatusError):
-        await provider.get_squad(10)
+        await provider.get_match_result(10)
     await provider.aclose()

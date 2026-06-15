@@ -18,7 +18,7 @@ scoreboard.
   messages). Players reach the wizard by tapping **🎯 Apostar** on an announcement (a deep link) or
   by sending `/apostar` to the bot in private.
 - **No roles, no subscriptions:** everyone in the group already receives the bot's posts.
-- **Bet categories:** exact score (5 pts), first scorer (4), both teams to score (2), winner (2),
+- **Bet categories:** exact score (5 pts), first team to score (3), both teams to score (2), winner (2),
   over/under 2.5 (1). All graded on the **90-minute** regulation result; knockout "winner" is the
   team that advances (no draw).
 - **Self-hosted** with Docker; uses long polling (no public URL needed).
@@ -106,14 +106,10 @@ should show `startup_validated` and `starting`.
 
 ## 8. First-run setup
 
-Seed squads (required for the **first-scorer** bet) and optionally force a sync to populate games:
+No squad seeding is needed (the first-scorer market is **team-based**). Optionally force a sync now
+to populate games instead of waiting for the daily job:
 
 ```bash
-# seed one team's squad (repeat per team, or use refresh after games exist)
-docker compose exec bot python -m tigrinho.cli squads seed <TEAM_ID>
-# re-seed squads for every team already in the games table
-docker compose exec bot python -m tigrinho.cli squads refresh
-# force a fixtures sync now
 docker compose exec bot python -m tigrinho.cli sync
 ```
 
@@ -144,11 +140,10 @@ python -m tigrinho.cli players list
 python -m tigrinho.cli bets list --player <ID> --game <FIXTURE_ID>
 
 # Group 2 — manual result & re-settle (idempotent)
-python -m tigrinho.cli set-result <FIXTURE_ID> <HOME> <AWAY> --scorer <PLAYER_ID> --advancing <TEAM_ID>
+python -m tigrinho.cli set-result <FIXTURE_ID> <HOME> <AWAY> --first-team home --advancing <TEAM_ID>
 
-# Group 3 — sync & cache ops
+# Group 3 — sync & budget
 python -m tigrinho.cli sync
-python -m tigrinho.cli squads seed <TEAM_ID>
 python -m tigrinho.cli budget
 
 # Group 4 — board & DB dump

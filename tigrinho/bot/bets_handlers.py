@@ -29,24 +29,22 @@ from tigrinho.bot.callbacks import (
     ChooseGame,
     DeleteBet,
     ExactScore,
+    FirstTeamInput,
     HomeScore,
     OverUnderInput,
-    ScorerInput,
-    ScorerPage,
     WinnerInput,
     decode,
 )
 from tigrinho.bot.keyboards import (
     announcement_keyboard,
     away_score_keyboard,
-    back_or_cancel_keyboard,
     btts_keyboard,
     category_keyboard,
+    first_team_keyboard,
     games_keyboard,
     home_score_keyboard,
     my_bets_keyboard,
     over_under_keyboard,
-    squad_keyboard,
     winner_keyboard,
 )
 from tigrinho.bot.messaging import safe_edit_text
@@ -56,13 +54,12 @@ from tigrinho.db.repositories import (
     BetRepository,
     GameRepository,
     PlayerRepository,
-    SquadRepository,
 )
 from tigrinho.domain.bets import (
     BetCategory,
     BttsPayload,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
     OverUnderPayload,
     Payload,
     WinnerPayload,
@@ -90,32 +87,16 @@ def _game_label(game: Game) -> str:
     return f"{game.home_team_name} x {game.away_team_name}"
 
 
-def _combined_squad(session: Session, game: Game) -> list[tuple[int, str]]:
-    squads = SquadRepository(session)
-    players = squads.list_for_team(game.home_team_id) + squads.list_for_team(game.away_team_id)
-    return [(p.player_id, p.name) for p in players]
-
-
-def _scorer_name(session: Session, player_id: int) -> str | None:
-    squad_player = SquadRepository(session).get(player_id)
-    return squad_player.name if squad_player is not None else None
-
-
-def _describe_stored(session: Session, bet: Bet, game: Game) -> str:
+def _describe_stored(bet: Bet, game: Game) -> str:
     payload = parse_payload(BetCategory(bet.category), bet.payload_json)
-    scorer = None
-    if isinstance(payload, FirstScorerPayload):
-        scorer = _scorer_name(session, payload.player_id)
-    return describe_bet(
-        payload, home_team=game.home_team_name, away_team=game.away_team_name, scorer_name=scorer
-    )
+    return describe_bet(payload, home_team=game.home_team_name, away_team=game.away_team_name)
 
 
 def _existing_bets_text(session: Session, telegram_id: int, game: Game) -> str:
     bets = BetRepository(session).list_for_player_and_game(telegram_id, game.fixture_id)
     if not bets:
         return ""
-    lines = [f"• {_describe_stored(session, bet, game)}" for bet in bets]
+    lines = [f"• {_describe_stored(bet, game)}" for bet in bets]
     return "\n\n<b>Seus palpites neste jogo:</b>\n" + "\n".join(lines)
 
 
@@ -238,8 +219,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _step_payload(query, app_context, fixture_id, category)
         case HomeScore(fixture_id, value):
             await _step_away_score(query, app_context, fixture_id, value)
-        case ScorerPage(fixture_id, page):
-            await _step_scorer_page(query, app_context, fixture_id, page)
         case ExactScore(fixture_id, home, away):
             await _finalize(
                 query, app_context, update, fixture_id, ExactScorePayload(home=home, away=away)
@@ -250,10 +229,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _finalize(query, app_context, update, fixture_id, BttsPayload(sel=sel))
         case OverUnderInput(fixture_id, sel):
             await _finalize(query, app_context, update, fixture_id, OverUnderPayload(sel=sel))
-        case ScorerInput(fixture_id, player_id):
-            await _finalize(
-                query, app_context, update, fixture_id, FirstScorerPayload(player_id=player_id)
-            )
+        case FirstTeamInput(fixture_id, sel):
+            await _finalize(query, app_context, update, fixture_id, FirstTeamPayload(sel=sel))
         case DeleteBet(bet_id):
             await _delete_bet(query, app_context, user.id, bet_id)
 
@@ -306,19 +283,11 @@ async def _step_payload(
             await _edit(query, "🥅 Ambas as equipes marcam?", keyboard=btts_keyboard(fixture_id))
         elif category is BetCategory.OVER_UNDER:
             await _edit(query, "🔢 Total de gols (2.5)?", keyboard=over_under_keyboard(fixture_id))
-        else:  # FIRST_SCORER
-            squad = _combined_squad(session, game)
-            if not squad:
-                await _edit(
-                    query,
-                    "😕 Elencos ainda não cadastrados para este jogo — escolha outra categoria.",
-                    keyboard=back_or_cancel_keyboard(fixture_id),
-                )
-                return
+        else:  # FIRST_TEAM
             await _edit(
                 query,
-                "👟 Quem marca o primeiro gol?",
-                keyboard=squad_keyboard(fixture_id, squad, 0),
+                "👟 Qual equipe marca o primeiro gol?",
+                keyboard=first_team_keyboard(fixture_id, game.home_team_name, game.away_team_name),
             )
 
 
@@ -334,19 +303,6 @@ async def _step_away_score(
         query,
         f"⚽ Placar: <b>{home}</b> x ? — quantos gols o <b>{away_name}</b> faz?",
         keyboard=away_score_keyboard(fixture_id, home),
-    )
-
-
-async def _step_scorer_page(
-    query: CallbackQuery, app_context: AppContext, fixture_id: int, page: int
-) -> None:
-    with app_context.session_factory() as session:
-        game = await _guard_open(query, session, fixture_id)
-        if game is None:
-            return
-        squad = _combined_squad(session, game)
-    await _edit(
-        query, "👟 Quem marca o primeiro gol?", keyboard=squad_keyboard(fixture_id, squad, page)
     )
 
 
@@ -370,16 +326,8 @@ async def _finalize(
             category=payload.CATEGORY.value,
             payload_json=serialize_payload(payload),
         )
-        scorer = (
-            _scorer_name(session, payload.player_id)
-            if isinstance(payload, FirstScorerPayload)
-            else None
-        )
         description = describe_bet(
-            payload,
-            home_team=game.home_team_name,
-            away_team=game.away_team_name,
-            scorer_name=scorer,
+            payload, home_team=game.home_team_name, away_team=game.away_team_name
         )
         session.commit()
     await _edit(
@@ -426,7 +374,7 @@ async def minhas_apostas_handler(update: Update, context: ContextTypes.DEFAULT_T
             game = games_repo.get(bet.fixture_id)
             if game is None:
                 continue
-            description = _describe_stored(session, bet, game)
+            description = _describe_stored(bet, game)
             if _is_open(game):
                 open_lines.append(f"• {escape(_game_label(game))}: {description}")
                 open_buttons.append((bet.id, f"{_game_label(game)} — {description}"))

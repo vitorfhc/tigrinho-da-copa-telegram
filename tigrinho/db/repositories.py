@@ -8,13 +8,12 @@ Telegram bot and the Typer admin CLI.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import ApiUsage, Bet, Game, GameStatus, Player, SquadPlayer
+from tigrinho.db.models import ApiUsage, Bet, Game, GameStatus, Player
 
 
 class PlayerRepository:
@@ -207,28 +206,6 @@ class BetRepository:
         self._session.delete(bet)
         self._session.flush()
         return True
-
-
-class SquadRepository:
-    """Cached squad members (seeded/refreshed via the CLI; never fetched per game)."""
-
-    def __init__(self, session: Session) -> None:
-        self._session = session
-
-    def get(self, player_id: int) -> SquadPlayer | None:
-        return self._session.get(SquadPlayer, player_id)
-
-    def list_for_team(self, team_id: int) -> list[SquadPlayer]:
-        stmt = select(SquadPlayer).where(SquadPlayer.team_id == team_id).order_by(SquadPlayer.name)
-        return list(self._session.execute(stmt).scalars())
-
-    def count_for_team(self, team_id: int) -> int:
-        return len(self.list_for_team(team_id))
-
-    def upsert_many(self, players: Iterable[SquadPlayer]) -> None:
-        for player in players:
-            self._session.merge(player)
-        self._session.flush()
 
 
 class ApiUsageRepository:

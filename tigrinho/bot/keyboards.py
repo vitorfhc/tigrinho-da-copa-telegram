@@ -20,14 +20,13 @@ from tigrinho.bot.callbacks import (
     ChooseGame,
     DeleteBet,
     ExactScore,
+    FirstTeamInput,
     HomeScore,
     OverUnderInput,
-    ScorerInput,
-    ScorerPage,
     WinnerInput,
     encode,
 )
-from tigrinho.domain.bets import BttsSel, OverUnderSel, WinnerSel
+from tigrinho.domain.bets import BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 from tigrinho.domain.text_pt import (
     BTTS_LABELS,
     CATEGORY_LABELS,
@@ -36,7 +35,6 @@ from tigrinho.domain.text_pt import (
 )
 from tigrinho.enums import Stage
 
-SQUAD_PAGE_SIZE = 8
 MAX_SCORE_PER_SIDE = 10
 
 
@@ -130,41 +128,20 @@ def over_under_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def squad_keyboard(
-    fixture_id: int,
-    players: Sequence[tuple[int, str]],
-    page: int,
-    *,
-    page_size: int = SQUAD_PAGE_SIZE,
-) -> InlineKeyboardMarkup:
-    """Paginated first-scorer keyboard (combined squads). Each item: (player_id, name)."""
-    start = page * page_size
-    chunk = players[start : start + page_size]
-    rows = [[_button(name, ScorerInput(fixture_id, player_id))] for player_id, name in chunk]
-    nav: list[InlineKeyboardButton] = []
-    if page > 0:
-        nav.append(_button("◀️", ScorerPage(fixture_id, page - 1)))
-    if start + page_size < len(players):
-        nav.append(_button("▶️", ScorerPage(fixture_id, page + 1)))
-    if nav:
-        rows.append(nav)
-    return InlineKeyboardMarkup(rows)
+def first_team_keyboard(fixture_id: int, home_team: str, away_team: str) -> InlineKeyboardMarkup:
+    """Which team scores first — the two real team names (no squads needed)."""
+    return InlineKeyboardMarkup(
+        [
+            [_button(home_team, FirstTeamInput(fixture_id, FirstTeamSel.HOME))],
+            [_button(away_team, FirstTeamInput(fixture_id, FirstTeamSel.AWAY))],
+        ]
+    )
 
 
 def my_bets_keyboard(open_bets: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
     """A 🗑 Apagar button per still-open bet. Each item: (bet_id, label)."""
     rows = [[_button(f"🗑 Apagar: {label}", DeleteBet(bet_id))] for bet_id, label in open_bets]
     return InlineKeyboardMarkup(rows)
-
-
-def back_or_cancel_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
-    """A way out of a payload step: back to the category list, or cancel the wizard."""
-    return InlineKeyboardMarkup(
-        [
-            [_button("⬅️ Categorias", ChooseGame(fixture_id))],
-            [_button("✖️ Cancelar", Cancel())],
-        ]
-    )
 
 
 def board_toggle_keyboard(weekly: bool) -> InlineKeyboardMarkup:

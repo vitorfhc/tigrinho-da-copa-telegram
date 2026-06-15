@@ -15,7 +15,8 @@ from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
+    FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -28,7 +29,7 @@ from tigrinho.providers.base import GoalEvent
 # Single source of truth for the points table (§8.1) — trivially tunable.
 POINTS: dict[BetCategory, int] = {
     BetCategory.EXACT_SCORE: 5,
-    BetCategory.FIRST_SCORER: 4,
+    BetCategory.FIRST_TEAM: 3,
     BetCategory.BTTS: 2,
     BetCategory.WINNER: 2,
     BetCategory.OVER_UNDER: 1,
@@ -88,6 +89,18 @@ def _winner_outcome(ctx: GradingContext) -> WinnerSel | None:
     return WinnerSel.DRAW
 
 
+def _first_team_outcome(ctx: GradingContext) -> FirstTeamSel | None:
+    """Team that scored the first genuine (non-own-goal, ≤90′) goal; None on 0-0/own-goals-only."""
+    scorer = first_genuine_scorer(ctx.goals)
+    if scorer is None:
+        return None
+    if scorer.team_id == ctx.home_team_id:
+        return FirstTeamSel.HOME
+    if scorer.team_id == ctx.away_team_id:
+        return FirstTeamSel.AWAY
+    return None
+
+
 def _btts_outcome(ctx: GradingContext) -> BttsSel:
     home_scored = ctx.home_goals_90 > 0
     away_scored = ctx.away_goals_90 > 0
@@ -104,14 +117,14 @@ def is_correct(payload: Payload, ctx: GradingContext) -> bool:
     """Grade one bet against the 90′ result (PURE)."""
     if isinstance(payload, ExactScorePayload):
         return payload.home == ctx.home_goals_90 and payload.away == ctx.away_goals_90
-    if isinstance(payload, FirstScorerPayload):
-        scorer = first_genuine_scorer(ctx.goals)
-        return scorer is not None and scorer.player_id == payload.player_id
+    if isinstance(payload, FirstTeamPayload):
+        first_team = _first_team_outcome(ctx)
+        return first_team is not None and payload.sel is first_team
     if isinstance(payload, BttsPayload):
         return payload.sel is _btts_outcome(ctx)
     if isinstance(payload, WinnerPayload):
-        outcome = _winner_outcome(ctx)
-        return outcome is not None and payload.sel is outcome
+        winner = _winner_outcome(ctx)
+        return winner is not None and payload.sel is winner
     if isinstance(payload, OverUnderPayload):
         if payload.sel is OverUnderSel.OVER:
             return ctx.total_goals_90 >= 3

@@ -12,7 +12,6 @@ fetch so structures were confirmed via API-Football help articles + the publishe
 - ``GET /fixtures/events?fixture=`` → ``response[]`` with ``time.{elapsed,extra}``, ``team.id``,
   ``player.{id,name}``, ``type`` (``Goal``/``Card``/``subst``/``Var``), ``detail``
   (``Normal Goal``/``Own Goal``/``Penalty``/``Missed Penalty``).
-- ``GET /players/squads?team=`` → ``response[0].players[]`` with ``id``, ``name``, ``position``.
 
 Mapping rules (§7.2): the **90′ score** is ``score.fulltime`` (NOT goals/extratime); the advancing
 team is the side with ``winner == true``; the goal timeline keeps goals with ``elapsed <= 90``
@@ -29,7 +28,7 @@ from typing import Any
 import httpx
 
 from tigrinho.enums import GameStatus, Stage
-from tigrinho.providers.base import Fixture, GoalEvent, MatchResult, SquadPlayer
+from tigrinho.providers.base import Fixture, GoalEvent, MatchResult
 
 # fixture.status.short → normalized GameStatus (§7.2; INT/SUSP→LIVE and AWD/WO→FINISHED added as
 # the simplest §2-consistent extension for codes the spec did not enumerate).
@@ -173,26 +172,6 @@ def map_match_result(item: dict[str, Any], events: list[dict[str, Any]]) -> Matc
     )
 
 
-def map_squad(item: dict[str, Any]) -> list[SquadPlayer]:
-    team_id = _opt_int((item.get("team") or {}).get("id"))
-    if team_id is None:
-        return []
-    result: list[SquadPlayer] = []
-    for player in item.get("players") or []:
-        player_id = _opt_int(player.get("id"))
-        if player_id is None:
-            continue
-        result.append(
-            SquadPlayer(
-                player_id=player_id,
-                team_id=team_id,
-                name=str(player.get("name", "")),
-                position=player.get("position"),
-            )
-        )
-    return result
-
-
 class ApiFootballProvider:
     """``FootballProvider`` backed by API-Football v3 over httpx."""
 
@@ -271,9 +250,3 @@ class ApiFootballProvider:
             raise ProviderError(f"no fixture returned for id={fixture_id}")
         events = await self._get("/fixtures/events", {"fixture": fixture_id})
         return map_match_result(items[0], events)
-
-    async def get_squad(self, team_id: int) -> list[SquadPlayer]:
-        items = await self._get("/players/squads", {"team": team_id})
-        if not items:
-            return []
-        return map_squad(items[0])

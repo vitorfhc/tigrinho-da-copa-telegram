@@ -248,10 +248,10 @@ tigrinho/
   db/
     engine.py          # SQLAlchemy engine/session factory
     models.py          # ORM models (typed)
-    repositories.py    # CRUD repos: players, games, bets, squads, api_usage
+    repositories.py    # CRUD repos: players, games, bets, api_usage
     migrations/        # Alembic
   providers/
-    base.py            # FootballProvider Protocol + value objects (Fixture, MatchResult, GoalEvent, SquadPlayer)
+    base.py            # FootballProvider Protocol + value objects (Fixture, MatchResult, GoalEvent)
     api_football.py    # ApiFootballProvider (httpx) — maps API JSON -> value objects
     fake.py            # FakeProvider for tests/local (provider_mode: fake)
     budget.py          # RequestBudget — daily counter + hard stop at api_daily_cap
@@ -267,7 +267,7 @@ tigrinho/
     bets_handlers.py   # /start (deep-link payload), /apostar wizard (ConversationHandler), /minhas_apostas, /jogos
     board_handlers.py  # /placar (inline geral<->semana toggle)
     help_handlers.py   # /ajuda, /start (no payload — welcome)
-    keyboards.py       # InlineKeyboardMarkup builders (games, categories, score pad, squad pagination, board toggle)
+    keyboards.py       # InlineKeyboardMarkup builders (games, categories, score pad, first-team, board toggle)
     callbacks.py       # compact callback_data encode/decode helpers (<=64 bytes)
     alerts.py          # admin DM alerts + structured logs
   cli.py               # Typer admin CLI
@@ -315,7 +315,8 @@ deep-link and place a bet). The scoreboard only includes users who have placed a
 - `status` TEXT — provider status normalized: `SCHEDULED|LIVE|FINISHED|POSTPONED|CANCELLED|VOID`
 - `home_goals_90` INTEGER NULL, `away_goals_90` INTEGER NULL — **90′ result** (regulation incl. stoppage)
 - `advancing_team_id` INTEGER NULL — for knockout winner grading
-- `first_scorer_player_id` INTEGER NULL — first genuine (non-own-goal) scorer within 90′
+- `first_scorer_player_id` INTEGER NULL — player id of the first genuine (non-own-goal) 90′ scorer,
+  taken from the goal-event timeline (recorded for display; not squad-backed)
 - `announced_at` TIMESTAMP NULL, `settled_at` TIMESTAMP NULL
 
 **bets**
@@ -329,9 +330,6 @@ deep-link and place a bet). The scoreboard only includes users who have placed a
 - **UNIQUE(`fixture_id`, `player_telegram_id`, `category`)** — enforces one bet per category per game
 
 Bets are closed purely by time (`now >= kickoff_utc`), independent of any API call.
-
-**squad_players** (cached once; refreshed via CLI)
-- `player_id` INTEGER PK, `team_id` INTEGER, `name` TEXT, `position` TEXT NULL
 
 **api_usage** (request budget)
 - `budget_date` DATE PK (in `api_budget_reset_tz`)
@@ -352,12 +350,11 @@ Define `FootballProvider` as a `Protocol` returning **value objects** (never raw
 - `get_fixtures(window_hours: int) -> list[Fixture]` — upcoming WC fixtures within window.
 - `get_live_results() -> list[MatchResult]` — **one** call returning every currently-live WC fixture.
 - `get_match_result(fixture_id: int) -> MatchResult` — final result + goal timeline for one game.
-- `get_squad(team_id: int) -> list[SquadPlayer]` — used for first-scorer selection (cached).
 
 Value objects (frozen dataclasses): `Fixture`, `MatchResult` (carries `home_goals_90`,
 `away_goals_90`, ordered `goals: list[GoalEvent]`, `advancing_team_id`, `status`, `stage`),
-`GoalEvent` (`minute`, `team_id`, `player_id`, `player_name`, `is_own_goal`, `is_penalty`),
-`SquadPlayer`.
+`GoalEvent` (`minute`, `team_id`, `player_id`, `player_name`, `is_own_goal`, `is_penalty`).
+(No squad endpoint/value object — the first-scorer market is team-based; see §8.1 decision.)
 
 `ApiFootballProvider` implements this against API-Football v3. `FakeProvider` returns scripted
 fixtures/results for tests and local development (selected via the `provider_mode` setting).
@@ -396,8 +393,8 @@ A `RequestBudget` wraps every provider call:
 `daily fixtures sync` → `settlement reads at full-time` → `live polling`.
 Live polling is the first thing to throttle/skip. Bet **closing never consumes budget** (time-based).
 
-**Budget estimate (typical 4-game day):** 1 sync + ~40 live polls + ~4 scorer reads ≈ **~45 / 100**.
-Squads are fetched once and cached (≈48 one-time calls, run via CLI seeding) — never per-game.
+**Budget estimate (typical 4-game day):** 1 sync + ~40 live polls + ~4 full-time result reads
+≈ **~45 / 100**. No squad endpoint is called (the first-scorer market is team-based).
 
 ---
 
@@ -411,10 +408,20 @@ Squads are fetched once and cached (≈48 one-time calls, run via CLI seeding) �
 | Category | `BetCategory` | Payload | Wins when | Points |
 |---|---|---|---|---|
 | Exact score | `EXACT_SCORE` | `{home:int, away:int}` | both equal the 90′ score | **5** |
-| First goal scorer | `FIRST_SCORER` | `{player_id:int}` | player is the first genuine (non-own-goal) scorer within 90′ | **4** |
+| First team to score | `FIRST_TEAM` | `{sel: HOME\|AWAY}` | that team scores the first genuine (non-own-goal) goal within 90′ | **3** |
 | Both teams to score | `BTTS` | `{sel: BOTH\|ONLY_HOME\|ONLY_AWAY\|NEITHER}` | the 90′ scoring pattern matches | **2** |
 | Winner | `WINNER` | `{sel: HOME\|DRAW\|AWAY}` | see knockout rule below | **2** |
 | Over/Under 2.5 | `OVER_UNDER` | `{sel: OVER\|UNDER}` | `OVER` ⇢ `total90 ≥ 3`; `UNDER` ⇢ `total90 ≤ 2` | **1** |
+
+> **Decision (2026-06-15):** the first-scorer market is on the **team**, not the player
+> (`FIRST_TEAM`, `{sel: HOME|AWAY}`), and all squad infrastructure (the API `/players/squads` pull,
+> the `SquadPlayer` value object, the `squad_players` table + `SquadRepository`, the CLI `squads`
+> commands, and the paginated squad keyboard) is removed. Reason: it eliminates the only per-team
+> roster dependency and the seeding step, simplifying setup. Points dropped 4→3 since a 2-way team
+> pick is much easier than naming the exact scorer (still > the 2-pt 1X2 winner — there is no draw
+> escape and first-to-score ≠ match winner). The goal timeline (`/fixtures/events`) is still parsed
+> (it determines which team scored first). `games.first_scorer_player_id` is still recorded from the
+> goal event (no squad needed) for the record/results display.
 
 **Winner grading rule:**
 - **Group stage:** compare to 90′ result — `HOME` if `home>away`, `DRAW` if equal, `AWAY` if `away>home`.
@@ -422,9 +429,10 @@ Squads are fetched once and cached (≈48 one-time calls, run via CLI seeding) �
   `DRAW`; a `DRAW` selection in a knockout always loses. **The bet UI MUST hide the `DRAW` option for
   knockout fixtures.**
 
-**First-scorer grading rule:** first goal event with `is_own_goal == false` and `minute ≤ 90`. Own
-goals are skipped (the next genuine goal counts). If there is no genuine 90′ goal (0-0, or only own
-goals), **all** `FIRST_SCORER` bets on that game lose.
+**First-team grading rule:** find the first goal event with `is_own_goal == false` and `minute ≤ 90`
+(own goals are skipped; the next genuine goal counts). The winning side is `HOME` if that goal's team
+is the home team, `AWAY` if the away team. If there is no genuine 90′ goal (0-0, or only own goals),
+**all** `FIRST_TEAM` bets on that game lose.
 
 **Points table is centralized** in `domain/scoring.py` (single constant) so it is trivial to tune.
 
@@ -453,8 +461,8 @@ the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-rele
 3. **Collect the category-specific input via inline keyboards** (no modals exist in Telegram):
    - **Exact score:** a **number-pad** keyboard — pick `home` goals (0–9, with a `+` for higher),
      then `away` goals; the message previews the building score.
-   - **First scorer:** a **paginated squad keyboard** combining both teams' cached squads (~8 buttons
-     per page, `◀`/`▶` to page); each button selects a `player_id`.
+   - **First team to score:** a two-button keyboard with the home and away team names; each selects
+     `HOME`/`AWAY` (no squads required).
    - **Winner:** `HOME`/`DRAW`/`AWAY` buttons — **DRAW hidden for knockout fixtures**.
    - **BTTS:** `BOTH`/`ONLY_HOME`/`ONLY_AWAY`/`NEITHER`.
    - **Over/Under:** `OVER`/`UNDER`.
@@ -471,7 +479,7 @@ All wizard state is encoded in compact `callback_data` (≤64 bytes; see §3) vi
 > state to leak, and survives restarts. The two-tap exact score bakes the chosen home goals into the
 > away pad's `callback_data` (`e:<fixture>:<home>:<away>`), so no transient state is kept anywhere.
 > This satisfies §2 (correctness, simplicity). The deep-link `/start bet_<id>` entry and the five
-> payload collectors (score pad, paginated squad, winner/BTTS/over-under selectors) are unchanged.
+> payload collectors (score pad, first-team selector, winner/BTTS/over-under selectors) are unchanged.
 
 - **`/minhas_apostas`** (DM) — lists the caller's bets grouped by game (open vs settled), payloads
   rendered human-readably and, for settled games, ✓/✗ + points. Each **still-open** bet has an inline
@@ -491,8 +499,8 @@ When a game becomes `FINISHED` (see §9), the bot:
 1. Builds a `MatchResult` (90′ score, goal timeline, advancing team).
 2. Grades **every** bet on that game via `domain/settlement.py` (pure), writing
    `is_correct`/`points_awarded`/`settled_at`.
-3. Posts **one** results message to **`group_chat_id`**: the final 90′ score, the first scorer, and
-   **each participating player mentioned** (HTML inline mention `tg://user?id=…`) with their total
+3. Posts **one** results message to **`group_chat_id`**: the final 90′ score, the first team to
+   score, and **each participating player mentioned** (HTML inline mention `tg://user?id=…`) with their total
    points from that game (and a per-category breakdown). Players with zero points are still
    acknowledged.
 4. Marks the game `settled_at`. Settlement is **idempotent** (re-running corrects values).
@@ -596,10 +604,10 @@ Run inside the container: `docker compose exec bot python -m tigrinho.cli <comma
 the repository + domain code with the bot. Required capability groups:
 
 1. **CRUD games/bets/players** — list/show/create/edit/delete any record.
-2. **Manual result & re-settle** — set/override a game's 90′ score + first scorer, then run (or
-   re-run) settlement and scoring for that game. Idempotent.
-3. **Force sync & cache ops** — trigger the fixtures sync on demand; refresh/seed cached squads;
-   print today's API request counter (and remaining budget).
+2. **Manual result & re-settle** — set/override a game's 90′ score + first team to score
+   (`--first-team home|away`), then run (or re-run) settlement and scoring for that game. Idempotent.
+3. **Force sync & budget** — trigger the fixtures sync on demand; print today's API request counter
+   (and remaining budget). _(No squad seeding — the first-scorer market is team-based.)_
 4. **Recalc board & DB dump** — rebuild standings from scratch from settled bets; export/dump the
    SQLite DB (or specific tables) for debugging.
 
@@ -664,8 +672,8 @@ sections, in order:
    reference table of every setting (or link to §4).
 7. **Run** — `docker compose up -d --build`; migrations run automatically on start; `docker compose
    logs -f` to watch startup, confirm the bot connected (`get_me`) and registered its commands.
-8. **First-run setup** — seed squads via the CLI (required for first-scorer bets) and optionally force
-   a sync to populate games.
+8. **First-run setup** — optionally force a sync to populate games (no squad seeding is needed; the
+   first-scorer market is team-based).
 9. **Player guide** — every command (`/apostar`, `/minhas_apostas`, `/jogos`, `/placar`, `/ajuda`,
    `/start`) with one-line descriptions, and the "tap 🎯 Apostar on an announcement to bet in
    private" flow.
@@ -710,9 +718,10 @@ sections, in order:
   kickoff.
 - One bet per category per game; all categories optional; editable until kickoff; closing is
   time-based (no API call).
-- Score-based bets (exact score, BTTS, over/under, first scorer) grade on the **90′** result.
+- Score-based bets (exact score, BTTS, over/under, first team to score) grade on the **90′** result.
 - Winner: group = 90′ 1X2 (draw allowed); knockout = advancing team (no draw; UI hides draw).
-- Own goals never count as "first scorer"; 0-0 or own-goal-only ⇒ all first-scorer bets lose.
+- First team to score = the team of the first genuine 90′ goal; own goals don't count; 0-0 or
+  own-goal-only ⇒ all first-team bets lose.
 - Over/Under 2.5: Over = total90 ≥ 3, Under = total90 ≤ 2.
 - Canonical game id = provider `fixture_id`; reschedule updates in place; cancel ⇒ VOID + bets voided + notify.
 - Hard stop at `api_daily_cap` (default 100) requests/day; priority sync > settlement > polling.
@@ -745,7 +754,7 @@ green and update `PROGRESS.md`.
   per-game `🎯 Apostar` deep-link buttons, reschedule/void handling.
 - **M6 — Bet handlers:** `/start bet_<fixture_id>` deep-link entry, `/apostar` wizard
   (`ConversationHandler` + inline keyboards: game → category → payload → confirm/upsert), score
-  number-pad, paginated squad keyboard, DRAW hidden for knockout, `/minhas_apostas` (with delete),
+  number-pad, first-team selector, DRAW hidden for knockout, `/minhas_apostas` (with delete),
   `/jogos`, time-based closing, `callback_data` codec.
 - **M7 — Poll job:** active-window live polling (`JobQueue.run_repeating`), auto-settlement, results
   message to the group with player mentions, stuck-game admin alert.
@@ -770,9 +779,8 @@ green and update `PROGRESS.md`.
   deep-link.
 - The bot needs **no group-admin rights** and privacy mode may remain enabled.
 - `wc_league_id=1`, `wc_season=2026` for API-Football — **verify** against the live API before release.
-- Squad data is seeded/cached once (refresh via CLI) and not re-fetched per game.
-- First-scorer selection is restricted to the two teams' cached squads (no free text), shown as a
-  paginated inline keyboard.
+- The first-scorer market is **team-based** (`FIRST_TEAM`: HOME/AWAY) — no squad data is fetched,
+  stored, or seeded (see §8.1 decision).
 - Messages use **HTML** parse mode; mentions use `tg://user?id=…` inline mentions; `callback_data`
   stays ≤ 64 bytes.
 ```

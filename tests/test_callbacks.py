@@ -14,20 +14,19 @@ from tigrinho.bot.callbacks import (
     ChooseGame,
     DeleteBet,
     ExactScore,
+    FirstTeamInput,
     HomeScore,
     OverUnderInput,
-    ScorerInput,
-    ScorerPage,
     WinnerInput,
     decode,
     encode,
 )
-from tigrinho.domain.bets import BetCategory, BttsSel, OverUnderSel, WinnerSel
+from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 
 _CASES: list[CallbackData] = [
     ChooseGame(123456),
     ChooseCategory(123456, BetCategory.EXACT_SCORE),
-    ChooseCategory(123456, BetCategory.FIRST_SCORER),
+    ChooseCategory(123456, BetCategory.FIRST_TEAM),
     ChooseCategory(123456, BetCategory.BTTS),
     ChooseCategory(123456, BetCategory.WINNER),
     ChooseCategory(123456, BetCategory.OVER_UNDER),
@@ -42,8 +41,8 @@ _CASES: list[CallbackData] = [
     BttsInput(123456, BttsSel.NEITHER),
     OverUnderInput(123456, OverUnderSel.OVER),
     OverUnderInput(123456, OverUnderSel.UNDER),
-    ScorerPage(123456, 2),
-    ScorerInput(123456, 987654),
+    FirstTeamInput(123456, FirstTeamSel.HOME),
+    FirstTeamInput(123456, FirstTeamSel.AWAY),
     DeleteBet(42),
     Cancel(),
     BoardView("geral"),
@@ -63,18 +62,18 @@ def test_within_64_bytes(original: CallbackData) -> None:
 
 
 def test_within_64_bytes_for_large_ids() -> None:
-    # API-Football fixture/player ids are small, but verify headroom for 9-digit ids.
-    assert len(encode(ScorerInput(999_999_999, 999_999_999)).encode("utf-8")) <= MAX_CALLBACK_BYTES
+    # API-Football fixture ids are small, but verify headroom for 9-digit ids.
+    assert len(encode(ExactScore(999_999_999, 99, 99)).encode("utf-8")) <= MAX_CALLBACK_BYTES
 
 
 def test_encode_rejects_oversized() -> None:
     with pytest.raises(ValueError, match="exceeds"):
-        encode(ScorerInput(10**60, 10**60))
+        encode(ExactScore(10**60, 10**60, 10**60))
 
 
 @pytest.mark.parametrize(
     "bad",
-    ["", "z:1", "g:notanint", "c:1:Z", "s:1:x:3", "w:1:Q", "f:1", "g"],
+    ["", "z:1", "g:notanint", "c:1:Z", "s:1:x", "w:1:Q", "f:1", "f:1:Z", "g"],
 )
 def test_decode_rejects_malformed(bad: str) -> None:
     with pytest.raises(ValueError):

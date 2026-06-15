@@ -20,7 +20,8 @@ from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
+    FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -31,7 +32,7 @@ from tigrinho.domain.scoring import POINTS
 
 CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.EXACT_SCORE: "Placar exato",
-    BetCategory.FIRST_SCORER: "Primeiro a marcar",
+    BetCategory.FIRST_TEAM: "Primeira equipe a marcar",
     BetCategory.BTTS: "Ambas marcam",
     BetCategory.WINNER: "Vencedor",
     BetCategory.OVER_UNDER: "Mais/Menos 2.5 gols",
@@ -52,7 +53,7 @@ OVER_UNDER_LABELS: dict[OverUnderSel, str] = {
 # Display order for category listings (highest points first).
 CATEGORY_ORDER: tuple[BetCategory, ...] = (
     BetCategory.EXACT_SCORE,
-    BetCategory.FIRST_SCORER,
+    BetCategory.FIRST_TEAM,
     BetCategory.BTTS,
     BetCategory.WINNER,
     BetCategory.OVER_UNDER,
@@ -110,13 +111,13 @@ def results_text(
     away: str,
     home_goals: int,
     away_goals: int,
-    scorer_name: str | None,
+    first_team_name: str | None,
     players: Sequence[tuple[int, str, int, Sequence[tuple[str, bool, int]]]],
 ) -> str:
     """Group results message (§8.3). ``players``: (telegram_id, name, total, [(label, ok, pts)])."""
     lines = [f"🏁 <b>{escape(home)} {home_goals} x {away_goals} {escape(away)}</b>"]
-    if scorer_name:
-        lines.append(f"⚽ Primeiro a marcar: {escape(scorer_name)}")
+    if first_team_name:
+        lines.append(f"⚽ Primeira equipe a marcar: {escape(first_team_name)}")
     else:
         lines.append("⚽ Sem gol válido no tempo normal (0 a 0 ou só gol contra)")
     lines.append("")
@@ -166,7 +167,6 @@ def describe_bet(
     *,
     home_team: str = "Mandante",
     away_team: str = "Visitante",
-    scorer_name: str | None = None,
 ) -> str:
     """Human-readable pt-BR description of a bet (for /minhas_apostas and confirmations)."""
     if isinstance(payload, ExactScorePayload):
@@ -182,9 +182,9 @@ def describe_bet(
         return f"Ambas marcam: {BTTS_LABELS[payload.sel]}"
     if isinstance(payload, OverUnderPayload):
         return f"Gols: {OVER_UNDER_LABELS[payload.sel]}"
-    if isinstance(payload, FirstScorerPayload):
-        who = escape(scorer_name) if scorer_name else f"jogador #{payload.player_id}"
-        return f"Primeiro a marcar: {who}"
+    if isinstance(payload, FirstTeamPayload):
+        team = escape(home_team) if payload.sel is FirstTeamSel.HOME else escape(away_team)
+        return f"Primeira equipe a marcar: {team}"
     assert_never(payload)  # pragma: no cover
 
 
@@ -224,7 +224,7 @@ def help_text() -> str:
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
         "• <b>Placar exato</b> — ex.: 2x1\n"
-        "• <b>Primeiro a marcar</b> — escolha um jogador das seleções\n"
+        "• <b>Primeira equipe a marcar</b> — Mandante ou Visitante\n"
         "• <b>Ambas marcam</b> — Ambas / Só mandante / Só visitante / Nenhuma\n"
         "• <b>Vencedor</b> — Mandante / Empate / Visitante\n"
         "• <b>Mais/Menos 2.5 gols</b> — Mais (3+) ou Menos (até 2)\n\n"
@@ -234,8 +234,8 @@ def help_text() -> str:
         "• Tudo é avaliado pelo resultado dos <b>90 minutos</b> (sem prorrogação/pênaltis).\n"
         "• <b>Mata-mata:</b> o vencedor é quem <b>avança</b> (quem passou de fase). Não existe "
         "empate no mata-mata — a opção <i>Empate</i> nem aparece.\n"
-        "• <b>Primeiro a marcar:</b> gol contra não conta; em 0 a 0 (ou só gol contra), todos "
-        "que apostaram nessa categoria perdem.\n"
+        "• <b>Primeira equipe a marcar:</b> gol contra não conta; em 0 a 0 (ou só gol contra), "
+        "todos que apostaram nessa categoria perdem.\n"
         "• As apostas <b>fecham no apito inicial</b> de cada jogo.\n\n"
         "Boa sorte! 🍀"
     )

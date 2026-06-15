@@ -15,7 +15,7 @@ from tigrinho.cli import CliContext, app
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, GameStatus, Stage, utcnow
 from tigrinho.db.repositories import BetRepository, GameRepository, PlayerRepository
-from tigrinho.providers.base import Fixture, SquadPlayer
+from tigrinho.providers.base import Fixture
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.fake import FakeProvider
 
@@ -225,18 +225,6 @@ def test_sync(
     result = runner.invoke(app, ["sync"])
     assert result.exit_code == 0
     assert "new=1" in result.stdout
-
-
-def test_squads_seed(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
-) -> None:
-    provider = FakeProvider(
-        squads={10: [SquadPlayer(player_id=100, team_id=10, name="Neymar", position="FW")]}
-    )
-    _patch_context(monkeypatch, settings, session_factory, provider)
-    result = runner.invoke(app, ["squads", "seed", "10"])
-    assert result.exit_code == 0
-    assert "Seeded 1" in result.stdout
 
 
 def test_telegram_info(

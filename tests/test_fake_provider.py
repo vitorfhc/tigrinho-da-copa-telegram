@@ -13,7 +13,6 @@ from tigrinho.providers.base import (
     FootballProvider,
     GoalEvent,
     MatchResult,
-    SquadPlayer,
 )
 from tigrinho.providers.fake import FakeProvider
 
@@ -64,11 +63,9 @@ def test_fake_provider_satisfies_protocol() -> None:
 
 
 async def test_fake_provider_returns_scripted_data() -> None:
-    squad = [SquadPlayer(player_id=100, team_id=10, name="Neymar", position="FW")]
     provider = FakeProvider(
         fixtures=[_fixture(1001), _fixture(1002)],
         results=[_result(1001)],
-        squads={10: squad},
     )
 
     fixtures = await provider.get_fixtures(48)
@@ -81,19 +78,14 @@ async def test_fake_provider_returns_scripted_data() -> None:
     assert result.home_goals_90 == 2
     assert result.goals[0].player_name == "Neymar"
 
-    assert await provider.get_squad(10) == squad
-    assert await provider.get_squad(999) == []
-
 
 async def test_fake_provider_logs_calls() -> None:
     provider = FakeProvider(results=[_result(1001)])
     await provider.get_fixtures(48)
     await provider.get_live_results()
     await provider.get_match_result(1001)
-    await provider.get_squad(10)
     assert provider.call_log == [
         "get_fixtures",
         "get_live_results",
         "get_match_result:1001",
-        "get_squad:10",
     ]

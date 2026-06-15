@@ -10,7 +10,8 @@ from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
+    FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -25,7 +26,7 @@ from tigrinho.domain.bets import (
     ("category", "payload"),
     [
         (BetCategory.EXACT_SCORE, ExactScorePayload(home=3, away=2)),
-        (BetCategory.FIRST_SCORER, FirstScorerPayload(player_id=100)),
+        (BetCategory.FIRST_TEAM, FirstTeamPayload(sel=FirstTeamSel.HOME)),
         (BetCategory.BTTS, BttsPayload(sel=BttsSel.ONLY_AWAY)),
         (BetCategory.WINNER, WinnerPayload(sel=WinnerSel.DRAW)),
         (BetCategory.OVER_UNDER, OverUnderPayload(sel=OverUnderSel.OVER)),
@@ -44,9 +45,9 @@ def test_exact_score_rejects_negative_and_too_large() -> None:
         ExactScorePayload(home=0, away=100)
 
 
-def test_first_scorer_rejects_non_positive_id() -> None:
+def test_first_team_rejects_unknown_selection() -> None:
     with pytest.raises(ValidationError):
-        FirstScorerPayload(player_id=0)
+        FirstTeamPayload.model_validate({"sel": "DRAW"})
 
 
 def test_winner_rejects_unknown_selection() -> None:

@@ -100,6 +100,7 @@ def test_settle_fixture_writes_grades_and_result(session: Session) -> None:
     assert [p.telegram_id for p in summary.players] == [42, 43]
     assert summary.players[0].total_points == 7
     assert summary.first_scorer_player_id == 100
+    assert summary.first_scoring_team_name == "Brasil"  # team_id 10 scored first
 
 
 def test_settle_fixture_is_idempotent(session: Session) -> None:

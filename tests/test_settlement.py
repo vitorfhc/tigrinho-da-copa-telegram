@@ -9,7 +9,8 @@ from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
+    FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
     WinnerPayload,
@@ -89,11 +90,11 @@ def test_settle_knockout_winner_uses_advancing_team() -> None:
     assert graded[0].is_correct is True
 
 
-def test_settle_first_scorer() -> None:
+def test_settle_first_team() -> None:
     goals = (
         GoalEvent(
             minute=10,
-            team_id=10,
+            team_id=10,  # home team scores first
             player_id=100,
             player_name="Neymar",
             is_own_goal=False,
@@ -102,14 +103,14 @@ def test_settle_first_scorer() -> None:
     )
     bets = [
         PendingBet(
-            1, BetCategory.FIRST_SCORER, serialize_payload(FirstScorerPayload(player_id=100))
+            1, BetCategory.FIRST_TEAM, serialize_payload(FirstTeamPayload(sel=FirstTeamSel.HOME))
         ),
         PendingBet(
-            2, BetCategory.FIRST_SCORER, serialize_payload(FirstScorerPayload(player_id=999))
+            2, BetCategory.FIRST_TEAM, serialize_payload(FirstTeamPayload(sel=FirstTeamSel.AWAY))
         ),
     ]
     graded = settle_game(bets, _result(1, 0, goals=goals), home_team_id=10, away_team_id=20)
-    assert graded[0] == GradedBet(1, True, 4)
+    assert graded[0] == GradedBet(1, True, 3)
     assert graded[1] == GradedBet(2, False, 0)
 
 

@@ -6,13 +6,12 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import Game, GameStatus, SquadPlayer, Stage
+from tigrinho.db.models import Game, GameStatus, Stage
 from tigrinho.db.repositories import (
     ApiUsageRepository,
     BetRepository,
     GameRepository,
     PlayerRepository,
-    SquadRepository,
 )
 
 
@@ -166,36 +165,6 @@ def test_bet_delete(session: Session) -> None:
     bet = repo.upsert(fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json="{}")
     assert repo.delete(bet.id) is True
     assert repo.delete(bet.id) is False
-
-
-# --- SquadRepository ------------------------------------------------------------------------
-
-
-def test_squad_upsert_many_and_list_sorted(session: Session) -> None:
-    repo = SquadRepository(session)
-    repo.upsert_many(
-        [
-            SquadPlayer(player_id=2, team_id=10, name="Vinícius"),
-            SquadPlayer(player_id=1, team_id=10, name="Alisson"),
-            SquadPlayer(player_id=3, team_id=20, name="Messi"),
-        ]
-    )
-    team10 = repo.list_for_team(10)
-    assert [p.name for p in team10] == ["Alisson", "Vinícius"]  # ordered by name
-    assert repo.count_for_team(10) == 2
-    assert repo.count_for_team(20) == 1
-    assert repo.get(3) is not None
-
-
-def test_squad_upsert_updates_existing(session: Session) -> None:
-    repo = SquadRepository(session)
-    repo.upsert_many([SquadPlayer(player_id=1, team_id=10, name="Old")])
-    repo.upsert_many([SquadPlayer(player_id=1, team_id=10, name="New", position="GK")])
-    player = repo.get(1)
-    assert player is not None
-    assert player.name == "New"
-    assert player.position == "GK"
-    assert repo.count_for_team(10) == 1
 
 
 # --- ApiUsageRepository ---------------------------------------------------------------------

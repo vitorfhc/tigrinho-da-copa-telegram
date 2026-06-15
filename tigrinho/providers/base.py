@@ -7,7 +7,7 @@ layer converts to its naive-UTC storage convention when persisting.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
@@ -59,16 +59,6 @@ class MatchResult:
     advancing_team_id: int | None
 
 
-@dataclass(frozen=True, slots=True)
-class SquadPlayer:
-    """A squad member for first-scorer selection (cached; §7.1)."""
-
-    player_id: int
-    team_id: int
-    name: str
-    position: str | None
-
-
 @runtime_checkable
 class FootballProvider(Protocol):
     """Provider-agnostic interface returning value objects (§7.1)."""
@@ -85,12 +75,7 @@ class FootballProvider(Protocol):
         """Final result + goal timeline for one fixture."""
         ...
 
-    async def get_squad(self, team_id: int) -> list[SquadPlayer]:
-        """Cached squad for a team (first-scorer selection)."""
-        ...
-
 
 # Convenience aliases for scripting a FakeProvider.
 FixtureSeq = Sequence[Fixture]
 ResultSeq = Sequence[MatchResult]
-SquadMap = Mapping[int, Sequence[SquadPlayer]]

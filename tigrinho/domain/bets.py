@@ -17,7 +17,7 @@ class BetCategory(enum.StrEnum):
     """The five bet categories (§8.1)."""
 
     EXACT_SCORE = "EXACT_SCORE"
-    FIRST_SCORER = "FIRST_SCORER"
+    FIRST_TEAM = "FIRST_TEAM"
     BTTS = "BTTS"
     WINNER = "WINNER"
     OVER_UNDER = "OVER_UNDER"
@@ -26,6 +26,13 @@ class BetCategory(enum.StrEnum):
 class WinnerSel(enum.StrEnum):
     HOME = "HOME"
     DRAW = "DRAW"
+    AWAY = "AWAY"
+
+
+class FirstTeamSel(enum.StrEnum):
+    """Which team scores the first genuine goal within 90′ (no draw — a goal has a team)."""
+
+    HOME = "HOME"
     AWAY = "AWAY"
 
 
@@ -51,9 +58,9 @@ class ExactScorePayload(_Payload):
     away: int = Field(ge=0, le=99)
 
 
-class FirstScorerPayload(_Payload):
-    CATEGORY: ClassVar[BetCategory] = BetCategory.FIRST_SCORER
-    player_id: int = Field(gt=0)
+class FirstTeamPayload(_Payload):
+    CATEGORY: ClassVar[BetCategory] = BetCategory.FIRST_TEAM
+    sel: FirstTeamSel
 
 
 class BttsPayload(_Payload):
@@ -71,7 +78,7 @@ class OverUnderPayload(_Payload):
     sel: OverUnderSel
 
 
-Payload = ExactScorePayload | FirstScorerPayload | BttsPayload | WinnerPayload | OverUnderPayload
+Payload = ExactScorePayload | FirstTeamPayload | BttsPayload | WinnerPayload | OverUnderPayload
 
 
 def parse_payload(category: BetCategory, payload_json: str) -> Payload:
@@ -79,8 +86,8 @@ def parse_payload(category: BetCategory, payload_json: str) -> Payload:
     match category:
         case BetCategory.EXACT_SCORE:
             return ExactScorePayload.model_validate_json(payload_json)
-        case BetCategory.FIRST_SCORER:
-            return FirstScorerPayload.model_validate_json(payload_json)
+        case BetCategory.FIRST_TEAM:
+            return FirstTeamPayload.model_validate_json(payload_json)
         case BetCategory.BTTS:
             return BttsPayload.model_validate_json(payload_json)
         case BetCategory.WINNER:

@@ -7,7 +7,7 @@ explicit ``--yes`` flag. Output is plain aligned tables so it stays readable ove
 Capability groups (§13):
   1. CRUD games/bets/players  — ``games``/``bets``/``players`` sub-commands
   2. manual result & re-settle — ``set-result`` (idempotent)
-  3. force sync & cache ops    — ``sync``, ``squads seed/refresh``, ``budget``
+  3. force sync & budget       — ``sync``, ``budget``
   4. recalc board & DB dump    — ``board``, ``db dump``
   plus ``telegram-info``.
 """
@@ -29,21 +29,19 @@ from tigrinho.board_data import load_board_records
 from tigrinho.config import Settings, get_settings
 from tigrinho.db.engine import create_db_engine, create_session_factory
 from tigrinho.db.models import GameStatus
-from tigrinho.db.models import SquadPlayer as DbSquadPlayer
 from tigrinho.db.repositories import (
     ApiUsageRepository,
     BetRepository,
     GameRepository,
     PlayerRepository,
-    SquadRepository,
 )
-from tigrinho.providers.base import FootballProvider, GoalEvent, MatchResult, SquadPlayer
+from tigrinho.providers.base import FootballProvider, GoalEvent, MatchResult
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.factory import make_provider
 from tigrinho.scoreboard import rank
 from tigrinho.settlement_service import settle_fixture
 
-_DUMPABLE_TABLES = ("players", "games", "bets", "squad_players", "api_usage")
+_DUMPABLE_TABLES = ("players", "games", "bets", "api_usage")
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,11 +82,9 @@ app = typer.Typer(no_args_is_help=True, help="TigrinhoDaCopa admin CLI")
 games_app = typer.Typer(no_args_is_help=True, help="CRUD on games")
 bets_app = typer.Typer(no_args_is_help=True, help="CRUD on bets")
 players_app = typer.Typer(no_args_is_help=True, help="CRUD on players")
-squads_app = typer.Typer(no_args_is_help=True, help="Cached squads")
 app.add_typer(games_app, name="games")
 app.add_typer(bets_app, name="bets")
 app.add_typer(players_app, name="players")
-app.add_typer(squads_app, name="squads")
 
 
 # --- group 1: CRUD --------------------------------------------------------------------------
@@ -229,10 +225,12 @@ def set_result(
     fixture_id: int,
     home: int,
     away: int,
-    scorer: Annotated[int | None, typer.Option(help="First-scorer player id")] = None,
+    first_team: Annotated[
+        str | None, typer.Option(help="First team to score: 'home' or 'away'")
+    ] = None,
     advancing: Annotated[int | None, typer.Option(help="Advancing team id (knockout)")] = None,
 ) -> None:
-    """Set/override a game's 90′ score (+ optional first scorer / advancing team) and re-settle."""
+    """Set/override a game's 90′ score (+ optional first team / advancing) and re-settle."""
     ctx = build_cli_context()
     with ctx.session_factory() as session:
         game = GameRepository(session).get(fixture_id)
@@ -240,12 +238,17 @@ def set_result(
             typer.echo(f"Game {fixture_id} not found.")
             raise typer.Exit(code=1)
         goals: tuple[GoalEvent, ...] = ()
-        if scorer is not None:
+        if first_team is not None:
+            choice = first_team.lower()
+            if choice not in ("home", "away"):
+                typer.echo("--first-team must be 'home' or 'away'.")
+                raise typer.Exit(code=1)
+            team_id = game.home_team_id if choice == "home" else game.away_team_id
             goals = (
                 GoalEvent(
                     minute=1,
-                    team_id=game.home_team_id,
-                    player_id=scorer,
+                    team_id=team_id,
+                    player_id=None,
                     player_name=None,
                     is_own_goal=False,
                     is_penalty=False,
@@ -269,47 +272,6 @@ def set_result(
 
 
 # --- group 3: force sync & cache ops --------------------------------------------------------
-
-
-async def _seed_squad(ctx: CliContext, team_id: int) -> list[SquadPlayer]:
-    return await ctx.budget.guarded(lambda: ctx.provider.get_squad(team_id))
-
-
-def _to_orm_squad(players: list[SquadPlayer]) -> list[DbSquadPlayer]:
-    return [
-        DbSquadPlayer(player_id=p.player_id, team_id=p.team_id, name=p.name, position=p.position)
-        for p in players
-    ]
-
-
-@squads_app.command("seed")
-def squads_seed(team_id: int) -> None:
-    """Fetch and cache a team's squad (via the provider + budget)."""
-    ctx = build_cli_context()
-    players = asyncio.run(_seed_squad(ctx, team_id))
-    with ctx.session_factory() as session:
-        SquadRepository(session).upsert_many(_to_orm_squad(players))
-        session.commit()
-    typer.echo(f"Seeded {len(players)} players for team {team_id}.")
-
-
-@squads_app.command("refresh")
-def squads_refresh() -> None:
-    """Re-seed squads for every team that appears in the games table."""
-    ctx = build_cli_context()
-    with ctx.session_factory() as session:
-        team_ids = sorted(
-            {g.home_team_id for g in GameRepository(session).list_all()}
-            | {g.away_team_id for g in GameRepository(session).list_all()}
-        )
-    total = 0
-    for team_id in team_ids:
-        players = asyncio.run(_seed_squad(ctx, team_id))
-        with ctx.session_factory() as session:
-            SquadRepository(session).upsert_many(_to_orm_squad(players))
-            session.commit()
-        total += len(players)
-    typer.echo(f"Refreshed {total} players across {len(team_ids)} teams.")
 
 
 @app.command("sync")

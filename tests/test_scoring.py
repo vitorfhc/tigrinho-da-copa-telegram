@@ -9,7 +9,8 @@ from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
     ExactScorePayload,
-    FirstScorerPayload,
+    FirstTeamPayload,
+    FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -65,7 +66,7 @@ def _ctx(
 def test_points_table() -> None:
     assert POINTS == {
         BetCategory.EXACT_SCORE: 5,
-        BetCategory.FIRST_SCORER: 4,
+        BetCategory.FIRST_TEAM: 3,
         BetCategory.BTTS: 2,
         BetCategory.WINNER: 2,
         BetCategory.OVER_UNDER: 1,
@@ -160,7 +161,7 @@ def test_over_under_boundary(home: int, away: int, sel: OverUnderSel, expected: 
     assert is_correct(OverUnderPayload(sel=sel), _ctx(home, away)) is expected
 
 
-# --- first scorer ---------------------------------------------------------------------------
+# --- first team to score --------------------------------------------------------------------
 
 
 def test_first_genuine_scorer_skips_own_goals_and_extra_time() -> None:
@@ -174,19 +175,32 @@ def test_first_genuine_scorer_skips_own_goals_and_extra_time() -> None:
     assert scorer.player_id == 100
 
 
-def test_first_scorer_grading() -> None:
+def test_first_team_grading() -> None:
+    # first genuine goal is by the home team (team_id 10)
     goals = (_goal(10, 10, 100), _goal(60, 20, 200))
-    assert is_correct(FirstScorerPayload(player_id=100), _ctx(1, 1, goals=goals)) is True
-    assert is_correct(FirstScorerPayload(player_id=200), _ctx(1, 1, goals=goals)) is False
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 1, goals=goals)) is True
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.AWAY), _ctx(1, 1, goals=goals)) is False
+    # away team scores first
+    away_first = (_goal(5, 20, 200),)
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.AWAY), _ctx(0, 1, goals=away_first)) is True
 
 
-def test_first_scorer_loses_on_0_0() -> None:
-    assert is_correct(FirstScorerPayload(player_id=100), _ctx(0, 0, goals=())) is False
+def test_first_team_loses_on_0_0() -> None:
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(0, 0, goals=())) is False
 
 
-def test_first_scorer_loses_when_only_own_goals() -> None:
+def test_first_team_loses_when_only_own_goals() -> None:
+    # the only goal is an own goal -> no genuine first scorer -> all first-team bets lose
     goals = (_goal(15, 20, 200, own=True),)
-    assert is_correct(FirstScorerPayload(player_id=200), _ctx(1, 0, goals=goals)) is False
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.AWAY), _ctx(1, 0, goals=goals)) is False
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 0, goals=goals)) is False
+
+
+def test_first_team_loses_when_scorer_team_unknown() -> None:
+    # a genuine goal credited to neither home (10) nor away (20) -> no side is correct
+    goals = (_goal(12, 999, 300),)
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 0, goals=goals)) is False
+    assert is_correct(FirstTeamPayload(sel=FirstTeamSel.AWAY), _ctx(1, 0, goals=goals)) is False
 
 
 # --- grade() points awarding ----------------------------------------------------------------
@@ -197,7 +211,7 @@ def test_first_scorer_loses_when_only_own_goals() -> None:
     [
         (ExactScorePayload(home=2, away=1), _ctx(2, 1), True, 5),
         (ExactScorePayload(home=2, away=1), _ctx(0, 0), False, 0),
-        (FirstScorerPayload(player_id=100), _ctx(1, 0, goals=(_goal(5, 10, 100),)), True, 4),
+        (FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 0, goals=(_goal(5, 10, 100),)), True, 3),
         (BttsPayload(sel=BttsSel.BOTH), _ctx(1, 1), True, 2),
         (WinnerPayload(sel=WinnerSel.HOME), _ctx(3, 0), True, 2),
         (OverUnderPayload(sel=OverUnderSel.OVER), _ctx(2, 1), True, 1),

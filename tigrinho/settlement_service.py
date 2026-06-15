@@ -45,6 +45,7 @@ class SettlementSummary:
     home_goals_90: int
     away_goals_90: int
     first_scorer_player_id: int | None
+    first_scoring_team_name: str | None  # team that scored first (for the results message)
     players: tuple[PlayerResult, ...]
 
 
@@ -77,6 +78,12 @@ def settle_fixture(session: Session, game: Game, result: MatchResult) -> Settlem
     assert result.home_goals_90 is not None
     assert result.away_goals_90 is not None
     first = first_genuine_scorer(result.goals)
+    first_team_name: str | None = None
+    if first is not None:
+        if first.team_id == game.home_team_id:
+            first_team_name = game.home_team_name
+        elif first.team_id == game.away_team_id:
+            first_team_name = game.away_team_name
     game.home_goals_90 = result.home_goals_90
     game.away_goals_90 = result.away_goals_90
     game.advancing_team_id = result.advancing_team_id
@@ -105,5 +112,6 @@ def settle_fixture(session: Session, game: Game, result: MatchResult) -> Settlem
         home_goals_90=result.home_goals_90,
         away_goals_90=result.away_goals_90,
         first_scorer_player_id=game.first_scorer_player_id,
+        first_scoring_team_name=first_team_name,
         players=tuple(players),
     )

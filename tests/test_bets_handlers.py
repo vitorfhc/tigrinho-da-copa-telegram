@@ -19,27 +19,21 @@ from tigrinho.bot.bets_handlers import (
 )
 from tigrinho.bot.callbacks import (
     BttsInput,
-    Cancel,
     ChooseCategory,
     ChooseGame,
     DeleteBet,
     ExactScore,
+    FirstTeamInput,
     HomeScore,
     OverUnderInput,
-    ScorerInput,
-    ScorerPage,
     WinnerInput,
     decode,
     encode,
 )
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
-from tigrinho.db.models import Bet, Game, GameStatus, SquadPlayer, Stage
-from tigrinho.db.repositories import (
-    BetRepository,
-    PlayerRepository,
-    SquadRepository,
-)
-from tigrinho.domain.bets import BetCategory, BttsSel, OverUnderSel, WinnerSel
+from tigrinho.db.models import Bet, Game, GameStatus, Stage
+from tigrinho.db.repositories import BetRepository, PlayerRepository
+from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 
 _USER = User(id=42, is_bot=False, first_name="Tigrão")
 
@@ -162,22 +156,6 @@ async def test_start_apostar_payload_opens_games_picker(app_context: AppContext)
     )
 
 
-async def test_first_scorer_without_squads_offers_back_and_cancel(app_context: AppContext) -> None:
-    _seed_game(app_context)  # no squad rows seeded
-    update, query = _cb_update(encode(ChooseCategory(1001, BetCategory.FIRST_SCORER)))
-    await on_callback(update, _context(app_context))
-    markup = query.edit_message_text.await_args.kwargs["reply_markup"]
-    assert isinstance(markup, InlineKeyboardMarkup)
-    decoded = [
-        decode(b.callback_data)
-        for row in markup.inline_keyboard
-        for b in row
-        if isinstance(b.callback_data, str)
-    ]
-    assert any(isinstance(d, ChooseGame) for d in decoded)  # back to categories
-    assert any(isinstance(d, Cancel) for d in decoded)  # cancel
-
-
 # --- wizard transitions ---------------------------------------------------------------------
 
 
@@ -256,41 +234,27 @@ async def test_btts_and_over_under_finalize(app_context: AppContext) -> None:
     assert categories == {"BTTS", "OVER_UNDER"}
 
 
-async def test_first_scorer_with_squad_finalizes(app_context: AppContext) -> None:
-    _seed_game(app_context)
-    with app_context.session_factory() as session:
-        SquadRepository(session).upsert_many(
-            [SquadPlayer(player_id=100, team_id=10, name="Neymar")]
-        )
-        session.commit()
-    # category step shows the squad keyboard
-    update, query = _cb_update(encode(ChooseCategory(1001, BetCategory.FIRST_SCORER)))
+async def test_first_team_step_and_finalize(app_context: AppContext) -> None:
+    _seed_game(app_context)  # no squads needed anymore
+    # category step shows the two-team keyboard
+    update, query = _cb_update(encode(ChooseCategory(1001, BetCategory.FIRST_TEAM)))
     await on_callback(update, _context(app_context))
-    assert any(
-        isinstance(decode(b.callback_data), ScorerInput)
-        for row in query.edit_message_text.await_args.kwargs["reply_markup"].inline_keyboard
+    markup = query.edit_message_text.await_args.kwargs["reply_markup"]
+    decoded = [
+        decode(b.callback_data)
+        for row in markup.inline_keyboard
         for b in row
         if isinstance(b.callback_data, str)
+    ]
+    sels = {d.sel for d in decoded if isinstance(d, FirstTeamInput)}
+    assert sels == {FirstTeamSel.HOME, FirstTeamSel.AWAY}
+    # picking a team finalizes the bet
+    await on_callback(
+        _cb_update(encode(FirstTeamInput(1001, FirstTeamSel.HOME)))[0], _context(app_context)
     )
-    # selecting a scorer finalizes the bet
-    await on_callback(_cb_update(encode(ScorerInput(1001, 100)))[0], _context(app_context))
     bets = _bets(app_context)
     assert len(bets) == 1
-    assert bets[0].category == "FIRST_SCORER"
-
-
-async def test_scorer_pagination_step(app_context: AppContext) -> None:
-    _seed_game(app_context)
-    with app_context.session_factory() as session:
-        SquadRepository(session).upsert_many(
-            [SquadPlayer(player_id=i, team_id=10, name=f"P{i}") for i in range(1, 12)]
-        )
-        session.commit()
-    update, query = _cb_update(encode(ScorerPage(1001, 1)))
-    await on_callback(update, _context(app_context))
-    assert isinstance(
-        query.edit_message_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup
-    )
+    assert bets[0].category == "FIRST_TEAM"
 
 
 async def test_delete_other_players_bet_is_rejected(app_context: AppContext) -> None:
