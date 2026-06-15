@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from telegram import LinkPreviewOptions
 from telegram.constants import ParseMode
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes, JobQueue
 
 from tigrinho.bot.alerts import notify_admin
@@ -25,7 +26,12 @@ from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, GameStatus, utcnow
 from tigrinho.db.repositories import BetRepository, GameRepository
-from tigrinho.domain.text_pt import announcement_text, reannounce_text, void_text
+from tigrinho.domain.text_pt import (
+    announcement_text,
+    escape,
+    reannounce_text,
+    void_text,
+)
 from tigrinho.logging import get_logger
 from tigrinho.providers.base import Fixture
 
@@ -126,45 +132,58 @@ def _view(game: Game) -> _GameView:
     )
 
 
-async def _run_sync(
-    app_context: AppContext,
-) -> tuple[list[_GameView], list[_GameView], list[_GameView]]:
-    """Fetch fixtures (budgeted) and apply them; returns (new, rescheduled, voided) snapshots."""
+async def _run_sync(app_context: AppContext) -> tuple[list[_GameView], list[_GameView]]:
+    """Fetch fixtures (budgeted) and apply them; returns (rescheduled, voided) snapshots.
+
+    New games are not returned here — they are announced from the persisted ``announced_at IS NULL``
+    set so a failed announcement is retried on the next sync (see :func:`_announce_new_games`).
+    """
     fixtures = await app_context.budget.guarded(
         lambda: app_context.provider.get_fixtures(SYNC_WINDOW_HOURS)
     )
     with app_context.session_factory() as session:
         outcome = sync_fixtures(session, fixtures, tz=app_context.settings.tzinfo)
-        new = [_view(g) for g in outcome.new_games]
         rescheduled = [_view(g) for g in outcome.rescheduled_games]
         voided = [_view(g) for g in outcome.voided_games]
         session.commit()
-    return new, rescheduled, voided
+    return rescheduled, voided
 
 
-async def sync_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Daily sync job callback (§9.1). One bad cycle never kills the bot (§14)."""
-    app_context = get_app_context(context.application)
-    settings = app_context.settings
+async def _send_group(
+    context: ContextTypes.DEFAULT_TYPE, settings: Settings, text: str, what: str
+) -> bool:
+    """Best-effort group post; on failure log + DM the admin so it is not lost silently."""
     try:
-        new, rescheduled, voided = await _run_sync(app_context)
-    except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the bot (§14)
-        _log.error("sync_failed", error=str(exc), error_type=type(exc).__name__)
-        await notify_admin(
-            context.bot, settings.admin_user_id, f"⚠️ Sync falhou: <code>{exc}</code>"
+        await context.bot.send_message(
+            chat_id=settings.group_chat_id, text=text, parse_mode=ParseMode.HTML
         )
+    except TelegramError as exc:
+        _log.error("group_send_failed", what=what, error=str(exc))
+        await notify_admin(
+            context.bot,
+            settings.admin_user_id,
+            f"⚠️ Falha ao postar {what} no grupo: <code>{escape(str(exc))}</code>",
+        )
+        return False
+    return True
+
+
+async def _announce_new_games(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Announce every still-unannounced open game; only mark them announced on a successful send."""
+    settings = app_context.settings
+    now = utcnow()
+    with app_context.session_factory() as session:
+        games = GameRepository(session).list_unannounced(now)
+        views = [_view(g) for g in games]
+    if not views:
         return
 
-    _log.info("sync_done", new=len(new), rescheduled=len(rescheduled), voided=len(voided))
-
-    if new:
-        text = announcement_text(
-            [(g.home_team_name, g.away_team_name, g.kickoff_local) for g in new]
-        )
-        keyboard = announcement_keyboard(
-            [(g.fixture_id, f"{g.home_team_name} x {g.away_team_name}") for g in new],
-            settings.bot_username,
-        )
+    text = announcement_text([(v.home_team_name, v.away_team_name, v.kickoff_local) for v in views])
+    keyboard = announcement_keyboard(
+        [(v.fixture_id, f"{v.home_team_name} x {v.away_team_name}") for v in views],
+        settings.bot_username,
+    )
+    try:
         await context.bot.send_message(
             chat_id=settings.group_chat_id,
             text=text,
@@ -172,19 +191,52 @@ async def sync_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=keyboard,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
+    except TelegramError as exc:
+        _log.error("announcement_failed", error=str(exc), count=len(views))
+        await notify_admin(
+            context.bot,
+            settings.admin_user_id,
+            f"⚠️ Falha ao anunciar {len(views)} jogo(s) no grupo (será reenviado no próximo sync): "
+            f"<code>{escape(str(exc))}</code>",
+        )
+        return
+
+    with app_context.session_factory() as session:
+        GameRepository(session).mark_announced([v.fixture_id for v in views], now)
+        session.commit()
+    _log.info("announced", count=len(views))
+
+
+async def sync_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Daily sync job callback (§9.1). One bad cycle never kills the bot (§14)."""
+    app_context = get_app_context(context.application)
+    settings = app_context.settings
+    try:
+        rescheduled, voided = await _run_sync(app_context)
+    except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the bot (§14)
+        _log.error("sync_failed", error=str(exc), error_type=type(exc).__name__)
+        await notify_admin(
+            context.bot, settings.admin_user_id, f"⚠️ Sync falhou: <code>{escape(str(exc))}</code>"
+        )
+        return
+
+    _log.info("sync_done", rescheduled=len(rescheduled), voided=len(voided))
+
+    await _announce_new_games(app_context, context)
 
     for game in rescheduled:
-        await context.bot.send_message(
-            chat_id=settings.group_chat_id,
-            text=reannounce_text(game.home_team_name, game.away_team_name, game.kickoff_local),
-            parse_mode=ParseMode.HTML,
+        await _send_group(
+            context,
+            settings,
+            reannounce_text(game.home_team_name, game.away_team_name, game.kickoff_local),
+            f"reanúncio do jogo #{game.fixture_id}",
         )
-
     for game in voided:
-        await context.bot.send_message(
-            chat_id=settings.group_chat_id,
-            text=void_text(game.home_team_name, game.away_team_name),
-            parse_mode=ParseMode.HTML,
+        await _send_group(
+            context,
+            settings,
+            void_text(game.home_team_name, game.away_team_name),
+            f"anulação do jogo #{game.fixture_id}",
         )
 
 

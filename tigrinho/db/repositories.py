@@ -90,6 +90,27 @@ class GameRepository:
         )
         return list(self._session.execute(stmt).scalars())
 
+    def list_unannounced(self, now: datetime) -> list[Game]:
+        """Open games not yet announced to the group (announced or failed-to-announce; §9.1)."""
+        stmt = (
+            select(Game)
+            .where(
+                Game.status == GameStatus.SCHEDULED,
+                Game.kickoff_utc > now,
+                Game.announced_at.is_(None),
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def mark_announced(self, fixture_ids: list[int], when: datetime) -> None:
+        """Record that these games were announced (so they are not re-announced; §9.1)."""
+        for fixture_id in fixture_ids:
+            game = self._session.get(Game, fixture_id)
+            if game is not None:
+                game.announced_at = when
+        self._session.flush()
+
     def list_stuck(self, now: datetime, window_hours: int) -> list[Game]:
         """Unsettled games past ``kickoff + window`` (need manual settlement; §9.2 safeguard)."""
         threshold = now - timedelta(hours=window_hours)

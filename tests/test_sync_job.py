@@ -172,6 +172,42 @@ async def test_sync_job_announces_new_games(
         assert len(GameRepository(check).list_all()) == 2
 
 
+async def test_announcement_failure_is_retried_next_sync(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    from telegram.error import TelegramError
+
+    from tigrinho.db.repositories import GameRepository
+
+    provider = FakeProvider(fixtures=[_fx(1)])
+    budget = RequestBudget(
+        session_factory, daily_cap=settings.api_daily_cap, reset_tz=settings.budget_tzinfo
+    )
+    app_context = AppContext(
+        settings=settings, provider=provider, session_factory=session_factory, budget=budget
+    )
+
+    # First sync: the group announcement send fails → game inserted but NOT marked announced.
+    ctx1 = MagicMock()
+    ctx1.application.bot_data = {APP_CONTEXT_KEY: app_context}
+    ctx1.bot = AsyncMock()
+    ctx1.bot.send_message.side_effect = TelegramError("group unreachable")
+    await sync_job(cast(ContextTypes.DEFAULT_TYPE, ctx1))
+    with session_factory() as session:
+        game = GameRepository(session).get(1)
+        assert game is not None and game.announced_at is None  # not marked → will retry
+
+    # Second sync: send succeeds → the still-unannounced game is re-announced and marked.
+    ctx2 = MagicMock()
+    ctx2.application.bot_data = {APP_CONTEXT_KEY: app_context}
+    ctx2.bot = AsyncMock()
+    await sync_job(cast(ContextTypes.DEFAULT_TYPE, ctx2))
+    ctx2.bot.send_message.assert_awaited()  # re-announced
+    with session_factory() as session:
+        game = GameRepository(session).get(1)
+        assert game is not None and game.announced_at is not None
+
+
 def test_schedule_sync_job(settings: Settings) -> None:
     job_queue = MagicMock()
     schedule_sync_job(cast("JobQueue[ContextTypes.DEFAULT_TYPE]", job_queue), settings)
