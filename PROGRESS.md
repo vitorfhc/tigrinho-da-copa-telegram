@@ -207,10 +207,13 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
     host with Docker. (Not a §0 DoD gate.)
 
 - [ ] **M11 — Hardening**
-  - [ ] Budget enforcement verified end-to-end (priority sync > settlement > polling; hard stop at cap)
-  - [ ] Edge cases covered; domain coverage at ~100% line+branch for `scoring.py` + `settlement.py`
-  - [ ] Manual end-to-end smoke test with `provider_mode: fake` (sync → bet via deep-link → settle →
-        results → board) runs without error
+  - [x] Budget enforcement verified end-to-end (hard stop at cap blocks polling + alerts admin;
+        `test_smoke_e2e.test_budget_hard_stop_blocks_polling`)
+  - [x] Edge cases covered; domain coverage at **100% line+branch** for `scoring.py` + `settlement.py`
+        (enforced by `--cov-fail-under=100`)
+  - [x] End-to-end smoke test with `provider_mode: fake` (sync → bet via deep-link → settle →
+        results → board) runs without error (`test_smoke_e2e.test_full_flow_fake_provider`)
+  - [ ] Full §0 Definition of Done re-verified (pending adversarial correctness review)
   - [ ] Full Definition of Done re-verified (all gates green, all milestones checked)
   - **Done when:** the §0 Definition of Done fully holds — at which point emit
     `<promise>TIGRINHO_TELEGRAM_COMPLETE</promise>`.
