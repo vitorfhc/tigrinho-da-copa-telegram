@@ -62,7 +62,9 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - [x] ORM models (`players` keyed on `telegram_id`, `games`, `bets`, `squad_players`, `api_usage`)
         per §6, typed
   - [x] `db/engine.py` — SQLAlchemy 2.0 engine/session factory (synchronous)
-  - [ ] Alembic initial migration (`alembic upgrade head` works; migrations append-only)
+  - [x] Alembic initial migration (`alembic upgrade head` works; migrations append-only)
+        — rev `edbcfec84e20`; env.py resolves URL via `TIGRINHO_DB_URL`/`Settings.db_path`,
+        `render_as_batch=True`; tested against ORM metadata + downgrade
   - [ ] `db/repositories.py` — CRUD repos: players, games, bets, squads, api_usage
   - [ ] Repository tests against a temp SQLite (incl. the `UNIQUE(fixture_id, player, category)`
         one-bet-per-category constraint)
