@@ -107,6 +107,7 @@ def sync_fixtures(session: Session, fixtures: Sequence[Fixture], *, tz: ZoneInfo
             existing.kickoff_local = kickoff_local
             existing.match_hash = match_hash(fixture)
             existing.status = GameStatus.SCHEDULED
+            existing.reminded_at = None
             outcome.rescheduled_games.append(existing)
 
     session.flush()

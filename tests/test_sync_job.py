@@ -208,6 +208,21 @@ async def test_announcement_failure_is_retried_next_sync(
         assert game is not None and game.announced_at is not None
 
 
+def test_sync_reschedule_clears_reminded_at(session: Session) -> None:
+    from tigrinho.db.models import utcnow
+
+    sync_fixtures(session, [_fx(1)], tz=_TZ)
+    game = GameRepository(session).get(1)
+    assert game is not None
+    game.reminded_at = utcnow()  # pretend the ~1h reminder already fired
+    session.flush()
+
+    sync_fixtures(session, [_fx(1, kickoff=_K2)], tz=_TZ)  # reschedule
+    moved = GameRepository(session).get(1)
+    assert moved is not None
+    assert moved.reminded_at is None  # cleared -> will be reminded again before the new kickoff
+
+
 def test_schedule_sync_job(settings: Settings) -> None:
     job_queue = MagicMock()
     schedule_sync_job(cast("JobQueue[ContextTypes.DEFAULT_TYPE]", job_queue), settings)
