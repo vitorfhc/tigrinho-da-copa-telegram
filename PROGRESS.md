@@ -442,3 +442,14 @@ dropping `squad_players` (initial migration untouched, per guardrail). Grading r
 `set-result --first-team home|away` are team-based. Spec (§5/§6/§7/§8.1/§8.2/§13/§15.1/§17/§19) +
 `/ajuda` + README updated per the §11 maintenance rule. 267 tests, all gates green, both migrations
 apply.
+
+### 2026-06-15 — Feature: pre-game betting reminder (§9.3)
+
+User request. New `JobQueue.run_repeating` reminder sweep (`bot/reminder_job.py`) posts one group
+nudge ~1h before kickoff, combining games that share the **same kickoff time**. Soonest-due-slot
+query (`GameRepository.list_due_for_reminder`), guarded `mark_reminded`, new nullable
+`games.reminded_at` column + append-only migration `7f3a9c2b1e04`, announced-gate, and
+`sync_fixtures` clears `reminded_at` on reschedule. Config: `reminder_lead_minutes` (60),
+`reminder_interval_minutes` (10). Pure DB + group post (no provider calls). `/ajuda` unchanged
+(no command/category/scoring/grading change). Design spec + multi-agent bug review (10 confirmed
+findings folded in) under `docs/superpowers/`.

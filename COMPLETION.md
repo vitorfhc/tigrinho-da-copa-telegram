@@ -549,6 +549,23 @@ A PTB **`JobQueue.run_repeating(interval=poll_interval_minutes*60)`** job:
 **Stuck-game safeguard:** if a game is still unsettled past `kickoff + match_window_hours`
 (missing/late provider data), DM the admin that it **needs manual settlement** via the CLI.
 
+### 9.3 Pre-game reminders (`reminder_lead_minutes`, default 60)
+
+A PTB **`JobQueue.run_repeating(interval=reminder_interval_minutes*60)`** job that nudges the group
+to bet ~1h before kickoff. Each sweep:
+1. Selects the **soonest due kickoff slot**: announced, unreminded, `SCHEDULED` games with
+   `now < kickoff_utc <= now + reminder_lead`, narrowed to those sharing the soonest `kickoff_utc`.
+   If none, **return without posting**.
+2. Posts **one** consolidated reminder to the group (HTML, pt-BR), with one `🎯 Apostar` deep-link
+   button per game in the slot — combining games that kick off at the **same time**.
+3. Marks those games `reminded_at` **only on a successful send** (re-validated to skip games
+   voided/rescheduled mid-flight); a failed send is retried on the next sweep and DMs the admin.
+
+Makes **no provider calls** and is independent of the API budget (§7.3). Idempotent via
+`reminded_at` (no double-posting across sweeps or restarts). On reschedule, `reminded_at` is cleared
+(§9.1) so a moved game is reminded again before its new kickoff. Games at *different* kickoff times
+each get their own reminder; only same-slot games are combined.
+
 ---
 
 ## 10. Feature 3 — Scoreboard
