@@ -90,6 +90,20 @@ class GameRepository:
         )
         return list(self._session.execute(stmt).scalars())
 
+    def list_stuck(self, now: datetime, window_hours: int) -> list[Game]:
+        """Unsettled games past ``kickoff + window`` (need manual settlement; §9.2 safeguard)."""
+        threshold = now - timedelta(hours=window_hours)
+        stmt = (
+            select(Game)
+            .where(
+                Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE)),
+                Game.settled_at.is_(None),
+                Game.kickoff_utc < threshold,
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
     def delete(self, fixture_id: int) -> bool:
         game = self._session.get(Game, fixture_id)
         if game is None:

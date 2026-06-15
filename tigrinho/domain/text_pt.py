@@ -104,6 +104,35 @@ def void_text(home: str, away: str) -> str:
     )
 
 
+def results_text(
+    *,
+    home: str,
+    away: str,
+    home_goals: int,
+    away_goals: int,
+    scorer_name: str | None,
+    players: Sequence[tuple[int, str, int, Sequence[tuple[str, bool, int]]]],
+) -> str:
+    """Group results message (§8.3). ``players``: (telegram_id, name, total, [(label, ok, pts)])."""
+    lines = [f"🏁 <b>{escape(home)} {home_goals} x {away_goals} {escape(away)}</b>"]
+    if scorer_name:
+        lines.append(f"⚽ Primeiro a marcar: {escape(scorer_name)}")
+    else:
+        lines.append("⚽ Sem gol válido no tempo normal (0 a 0 ou só gol contra)")
+    lines.append("")
+    if not players:
+        lines.append("Ninguém apostou neste jogo. 🙈")
+        return "\n".join(lines)
+    lines.append("<b>Pontuação do jogo:</b>")
+    for telegram_id, name, total, categories in players:
+        marks = " · ".join(
+            f"{'✓' if ok else '✗'} {label}{f' (+{pts})' if ok else ''}"
+            for label, ok, pts in categories
+        )
+        lines.append(f"{mention(telegram_id, name)} — <b>{total}</b> pts\n  {marks}")
+    return "\n".join(lines)
+
+
 def mention(telegram_id: int, name: str) -> str:
     """An HTML inline mention that works even without an @username."""
     return f'<a href="tg://user?id={telegram_id}">{escape(name)}</a>'

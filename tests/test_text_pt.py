@@ -22,6 +22,7 @@ from tigrinho.domain.text_pt import (
     mention,
     points_table_text,
     reannounce_text,
+    results_text,
     void_text,
     welcome_text,
 )
@@ -97,3 +98,26 @@ def test_void_text() -> None:
     text = void_text("Brasil", "Argentina")
     assert "anuladas" in text
     assert "Brasil x Argentina" in text
+
+
+def test_results_text_with_players() -> None:
+    text = results_text(
+        home="Brasil",
+        away="Argentina",
+        home_goals=2,
+        away_goals=1,
+        scorer_name="Neymar",
+        players=[(42, "Alice", 7, [("Placar exato", True, 5), ("Vencedor", True, 2)])],
+    )
+    assert "Brasil 2 x 1 Argentina" in text
+    assert "Primeiro a marcar: Neymar" in text
+    assert "tg://user?id=42" in text
+    assert "✓ Placar exato (+5)" in text
+
+
+def test_results_text_no_scorer_and_no_players() -> None:
+    text = results_text(
+        home="Brasil", away="Argentina", home_goals=0, away_goals=0, scorer_name=None, players=[]
+    )
+    assert "Sem gol válido" in text
+    assert "Ninguém apostou" in text
