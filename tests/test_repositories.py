@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -117,6 +117,33 @@ def test_game_list_active(session: Session) -> None:
     assert [g.fixture_id for g in repo.list_active(now, 3)] == [1]
 
 
+# --- GameRepository.list_due_for_reminder / mark_reminded helper ----------------------------
+
+
+def _reminder_game(
+    fixture_id: int,
+    now: datetime,
+    minutes: int,
+    *,
+    status: GameStatus = GameStatus.SCHEDULED,
+    announced: bool = True,
+) -> Game:
+    kickoff = now + timedelta(minutes=minutes)
+    return Game(
+        fixture_id=fixture_id,
+        match_hash=f"h{fixture_id}",
+        stage=Stage.GROUP,
+        home_team_id=1,
+        home_team_name="A",
+        away_team_id=2,
+        away_team_name="B",
+        kickoff_utc=kickoff,
+        kickoff_local=kickoff,
+        status=status,
+        announced_at=now if announced else None,
+    )
+
+
 # --- BetRepository --------------------------------------------------------------------------
 
 
@@ -178,3 +205,51 @@ def test_api_usage_counter(session: Session) -> None:
     assert repo.increment(today, by=4) == 5
     assert repo.get_count(today) == 5
     assert repo.get_count(date(2026, 6, 16)) == 0  # other days isolated
+
+
+# --- GameRepository.list_due_for_reminder / mark_reminded -----------------------------------
+
+
+def test_list_due_for_reminder_picks_soonest_slot(session: Session) -> None:
+    now = datetime(2026, 6, 13, 18, 0)  # naive UTC
+    repo = GameRepository(session)
+    session.add_all(
+        [
+            _reminder_game(1, now, 30),  # soonest slot
+            _reminder_game(2, now, 30),  # same slot as #1 -> combine
+            _reminder_game(3, now, 40),  # later slot -> excluded this sweep
+            _reminder_game(4, now, 30, announced=False),  # not announced -> excluded
+        ]
+    )
+    session.flush()
+
+    due = repo.list_due_for_reminder(now, timedelta(minutes=60))
+    assert {g.fixture_id for g in due} == {1, 2}
+
+
+def test_list_due_for_reminder_excludes_out_of_window_and_voided(session: Session) -> None:
+    now = datetime(2026, 6, 13, 18, 0)
+    repo = GameRepository(session)
+    session.add_all(
+        [
+            _reminder_game(1, now, -5),  # already kicked off -> excluded
+            _reminder_game(2, now, 90),  # beyond the 60-min lead -> excluded
+            _reminder_game(3, now, 20, status=GameStatus.VOID),  # voided -> excluded
+        ]
+    )
+    session.flush()
+
+    assert repo.list_due_for_reminder(now, timedelta(minutes=60)) == []
+
+
+def test_mark_reminded_only_flags_scheduled_unreminded(session: Session) -> None:
+    now = datetime(2026, 6, 13, 18, 0)
+    repo = GameRepository(session)
+    # not SCHEDULED -> must NOT be flagged
+    session.add(_reminder_game(1, now, 30, status=GameStatus.VOID))
+    session.flush()
+
+    repo.mark_reminded([1], now)
+    game = repo.get(1)
+    assert game is not None
+    assert game.reminded_at is None  # re-validation skipped a non-SCHEDULED game

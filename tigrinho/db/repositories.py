@@ -110,6 +110,47 @@ class GameRepository:
                 game.announced_at = when
         self._session.flush()
 
+    def list_due_for_reminder(self, now: datetime, lead: timedelta) -> list[Game]:
+        """Games of the soonest unreminded kickoff slot due for a ~1h reminder (§9.3).
+
+        Selects announced, still-open, unreminded games inside their lead window
+        (``now < kickoff_utc <= now + lead``), then narrows to those sharing the *soonest*
+        such ``kickoff_utc`` — so only one kickoff slot is reminded per sweep and "combine"
+        means exactly "same kickoff time".
+        """
+        stmt = (
+            select(Game)
+            .where(
+                Game.status == GameStatus.SCHEDULED,
+                Game.announced_at.is_not(None),
+                Game.reminded_at.is_(None),
+                Game.kickoff_utc > now,
+                Game.kickoff_utc <= now + lead,
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        due = list(self._session.execute(stmt).scalars())
+        if not due:
+            return []
+        soonest = due[0].kickoff_utc
+        return [game for game in due if game.kickoff_utc == soonest]
+
+    def mark_reminded(self, fixture_ids: list[int], when: datetime) -> None:
+        """Flag games reminded — only if still SCHEDULED and not already flagged (§9.3).
+
+        Re-validates so a game voided/rescheduled between the read and this write is not
+        falsely marked (it must remain eligible for a later, real reminder).
+        """
+        for fixture_id in fixture_ids:
+            game = self._session.get(Game, fixture_id)
+            if (
+                game is not None
+                and game.status is GameStatus.SCHEDULED
+                and game.reminded_at is None
+            ):
+                game.reminded_at = when
+        self._session.flush()
+
     def list_stuck(self, now: datetime, window_hours: int) -> list[Game]:
         """Unsettled games past ``kickoff + window`` (need manual settlement; §9.2 safeguard)."""
         threshold = now - timedelta(hours=window_hours)
