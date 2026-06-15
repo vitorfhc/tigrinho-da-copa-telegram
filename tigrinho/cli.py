@@ -37,10 +37,9 @@ from tigrinho.db.repositories import (
     PlayerRepository,
     SquadRepository,
 )
-from tigrinho.providers.api_football import ApiFootballProvider
 from tigrinho.providers.base import FootballProvider, GoalEvent, MatchResult, SquadPlayer
 from tigrinho.providers.budget import RequestBudget
-from tigrinho.providers.fake import FakeProvider
+from tigrinho.providers.factory import make_provider
 from tigrinho.scoreboard import rank
 from tigrinho.settlement_service import settle_fixture
 
@@ -55,17 +54,6 @@ class CliContext:
     budget: RequestBudget
 
 
-def _make_provider(settings: Settings) -> FootballProvider:
-    if settings.provider_mode == "fake":
-        return FakeProvider()
-    return ApiFootballProvider(
-        base_url=settings.api_football_base_url,
-        api_key=settings.api_football_key,
-        league_id=settings.wc_league_id,
-        season=settings.wc_season,
-    )
-
-
 def build_cli_context() -> CliContext:
     """Assemble the CLI's dependencies from the validated settings (monkeypatched in tests)."""
     settings = get_settings()
@@ -74,7 +62,7 @@ def build_cli_context() -> CliContext:
     return CliContext(
         settings=settings,
         session_factory=session_factory,
-        provider=_make_provider(settings),
+        provider=make_provider(settings),
         budget=RequestBudget(
             session_factory, daily_cap=settings.api_daily_cap, reset_tz=settings.budget_tzinfo
         ),
