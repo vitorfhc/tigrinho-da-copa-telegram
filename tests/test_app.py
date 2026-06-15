@@ -25,7 +25,7 @@ from tigrinho.bot.app import (
     set_commands,
     validate_startup,
 )
-from tigrinho.bot.help_handlers import cmd_ajuda, cmd_start
+from tigrinho.bot.help_handlers import cmd_ajuda
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.config import Settings
 
@@ -90,7 +90,7 @@ def test_build_application_registers_handlers(app_context: AppContext) -> None:
     for handler in application.handlers[0]:
         if isinstance(handler, CommandHandler):
             command_names |= set(handler.commands)
-    assert {"ajuda", "start"} <= command_names
+    assert {"start", "ajuda", "apostar", "minhas_apostas", "jogos"} <= command_names
     assert len(application.error_handlers) == 1
 
 
@@ -105,16 +105,6 @@ async def test_cmd_ajuda_replies_with_help() -> None:
     update.effective_message.reply_text.assert_awaited_once()
     text = update.effective_message.reply_text.await_args.args[0]
     assert "Tigrinho da Copa" in text
-
-
-async def test_cmd_start_replies_with_welcome() -> None:
-    update = MagicMock()
-    update.effective_message = AsyncMock()
-    context = MagicMock()
-    await cmd_start(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context))
-    update.effective_message.reply_text.assert_awaited_once()
-    text = update.effective_message.reply_text.await_args.args[0]
-    assert "Bem-vindo" in text
 
 
 # --- error handler --------------------------------------------------------------------------

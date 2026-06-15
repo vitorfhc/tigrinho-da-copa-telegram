@@ -19,7 +19,8 @@ from telegram.error import TelegramError
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 from tigrinho.bot.alerts import error_handler
-from tigrinho.bot.help_handlers import cmd_ajuda, cmd_start
+from tigrinho.bot.bets_handlers import register_bet_handlers, start_handler
+from tigrinho.bot.help_handlers import cmd_ajuda
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
 from tigrinho.bot.sync_job import schedule_sync_job
 from tigrinho.config import Settings
@@ -95,7 +96,8 @@ def build_application(app_context: AppContext) -> AnyApplication:
         .build()
     )
     application.bot_data[APP_CONTEXT_KEY] = app_context
+    application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("ajuda", cmd_ajuda))
-    application.add_handler(CommandHandler("start", cmd_start))
+    register_bet_handlers(application)
     application.add_error_handler(error_handler)
     return application

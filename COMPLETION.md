@@ -464,6 +464,15 @@ the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-rele
 
 All wizard state is encoded in compact `callback_data` (≤64 bytes; see §3) via `bot/callbacks.py`.
 
+> **Decision (2026-06-15, M6):** the wizard is implemented with **stateless
+> `CallbackQueryHandler`s** (a single dispatcher decoding `callback_data`), **not** a
+> `ConversationHandler`. Because §8.2/§3 require *all* wizard state to live in `callback_data`, a
+> conversation state machine would be redundant; the stateless design is simpler, has no per-user
+> state to leak, and survives restarts. The two-tap exact score bakes the chosen home goals into the
+> away pad's `callback_data` (`e:<fixture>:<home>:<away>`), so no transient state is kept anywhere.
+> This satisfies §2 (correctness, simplicity). The deep-link `/start bet_<id>` entry and the five
+> payload collectors (score pad, paginated squad, winner/BTTS/over-under selectors) are unchanged.
+
 - **`/minhas_apostas`** (DM) — lists the caller's bets grouped by game (open vs settled), payloads
   rendered human-readably and, for settled games, ✓/✗ + points. Each **still-open** bet has an inline
   **🗑 Apagar** button (the CRUD "delete"); deleting an open bet is allowed, deleting/editing a

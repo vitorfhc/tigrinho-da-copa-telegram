@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M5 complete** (… + bot skeleton + daily sync job green) · _Created 2026-06-15_
+**Status: M0–M6 complete** (… + daily sync + bet wizard green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -125,29 +125,30 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - [x] Sync-job tests (new/reschedule/void/un-void/no-change paths) with `FakeProvider`
   - **Done when:** `sync_job.py` exists, its tests pass, all gates green. ✅ **DONE** (138 tests).
 
-- [ ] **M6 — Bet handlers**
+- [x] **M6 — Bet handlers**
   - [x] `bot/callbacks.py` — compact `callback_data` encode/decode helpers (≤64 bytes) with round-trip
-        — typed union (ChooseGame/ChooseCategory/ScoreInput/Winner/Btts/OverUnder/ScorerPage/
-        ScorerInput/DeleteBet/Cancel); strict decode; oversized guard
+        — typed union (ChooseGame/ChooseCategory/HomeScore/ExactScore/Winner/Btts/OverUnder/
+        ScorerPage/ScorerInput/DeleteBet/Cancel); strict decode; oversized guard
   - [x] `bot/keyboards.py` — inline keyboard builders (games, categories, score pad 0–10, winner
         with DRAW hidden for knockout, BTTS, over/under, paginated squad, my-bets delete);
         board toggle deferred to M8
         - [x] DRAW hidden for knockout fixtures
-  - [ ] `bot/bets_handlers.py` — `/start bet_<fixture_id>` deep-link entry (parse payload, auto-create
+  - [x] `bot/bets_handlers.py` — `/start bet_<fixture_id>` deep-link entry (parse payload, auto-create
         player, jump into wizard)
-  - [ ] `/apostar` wizard (`ConversationHandler` + `CallbackQueryHandler`, editing one message):
-        game → category → payload → confirm/upsert (respects one-per-category unique constraint)
-  - [ ] Score number-pad input; paginated squad keyboard for first scorer; **DRAW hidden for knockout**;
-        BTTS and Over/Under selectors
-  - [ ] `/minhas_apostas` (DM, grouped open vs settled, ✓/✗ + points, 🗑 Apagar delete on open bets)
-  - [ ] `/jogos` (group or DM; upcoming games + per-category bet status; group includes deep-link buttons)
-  - [ ] Time-based closing: create/edit/delete on a started game rejected with clear pt-BR message (no
-        API call)
-  - [ ] Bet-flow tests (§16): deep-link payload parse + player auto-create; wizard state transitions
-        (score pad, knockout DRAW-hidden); time-based closing rejection; `callback_data` codec ≤64-byte
-        round-trip
+  - [x] `/apostar` wizard (**stateless** `CallbackQueryHandler` + inline keyboards, editing one
+        message): game → category → payload → confirm/upsert (respects one-per-category unique
+        constraint). _Design: stateless callback_data wizard instead of ConversationHandler — see
+        COMPLETION.md decision._
+  - [x] Score number-pad input (home → away, home baked into away buttons); paginated squad keyboard;
+        **DRAW hidden for knockout**; BTTS and Over/Under selectors
+  - [x] `/minhas_apostas` (DM, grouped open vs settled, ✓/✗ + points, 🗑 Apagar delete on open bets)
+  - [x] `/jogos` (group or DM; upcoming games + per-category bet status; group includes deep-link buttons)
+  - [x] Time-based closing: create/edit/delete on a started game rejected with clear pt-BR message (no
+        API call) — `_is_open`/`_guard_open`
+  - [x] Bet-flow tests (§16): deep-link payload parse + player auto-create; wizard state transitions
+        (score pad); time-based closing rejection; `callback_data` codec ≤64-byte round-trip
   - **Done when:** `callbacks.py`, `keyboards.py`, `bets_handlers.py` exist, their tests pass, all gates
-    green.
+    green. ✅ **DONE** (210 tests, gates green).
 
 - [ ] **M7 — Poll job**
   - [ ] `bot/poll_job.py` — active-window live polling via `JobQueue.run_repeating`; returns with **no
@@ -323,9 +324,24 @@ points=0 + settled_at set + is_correct=None (won't contribute to the board). Fak
 `window_hours` (returns all scripted fixtures) — fine for tests; the real provider does the window
 filter (M2).
 
-**Next:** M6 — Bet handlers. Verify PTB 22.x `ConversationHandler` + `CallbackQueryHandler`,
-`callback_data` ≤64 bytes, `query.answer()`, `edit_message_text`/`edit_message_reply_markup`,
-`/start` deep-link `context.args`. Build `bot/callbacks.py` (compact codec + round-trip),
-extend `keyboards.py` (categories, score pad, paginated squad, BTTS/winner/OU selectors, DRAW hidden
-for knockout), `bot/bets_handlers.py` (/start bet_ entry+auto-create player; /apostar wizard;
-/minhas_apostas with delete; /jogos; time-based closing rejection). Tests per §16.
+### 2026-06-15 — M6 Bet handlers (DONE)
+
+- **callbacks.py**: typed `callback_data` codec, compact opcodes, ≤64-byte guard, strict decode.
+- **keyboards.py**: games/category/home+away score pads/winner(DRAW hidden KO)/BTTS/O-U/squad/my-bets.
+- **bets_handlers.py**: `start_handler` (deep-link `bet_<id>` → auto-create player → category step;
+  else welcome), `apostar_handler` (DM list / group redirect), `on_callback` (single stateless
+  dispatcher), `_finalize` (open-check → upsert → confirm), `minhas_apostas_handler` (open/settled +
+  🗑 delete), `jogos_handler`. Wired into app.py; `help_handlers` reduced to `/ajuda`.
+
+**Decisions/gotchas:** **Stateless wizard** (no ConversationHandler) — all state in callback_data
+(home score baked into away buttons), recorded in COMPLETION.md. Repos gained `list_upcoming`/
+`list_active`. mypy: bind `decode()` result before isinstance for narrowing; type score `side` as the
+`Side` literal; guard `InlineKeyboardButton.url` (str|None).
+
+**Next:** M7 — Poll job. Build `bot/poll_job.py` (`JobQueue.run_repeating`): active-window decision
+(NO API call when none active via `GameRepository.list_active`); one `get_live_results()` when active
+(budgeted); on FINISHED run settlement (fetch `get_match_result` once, budgeted) → write grades;
+one results message to the group (90′ score, first scorer, each participant mentioned via
+`tg://user?id=` + points + per-category breakdown); stuck-game admin alert past
+`kickoff+match_window_hours`; extend `alerts.py` (cap-reached once/day). Persist `first_scorer_player_id`.
+Schedule in post_init. Tests: active-window no-call decision + auto-settlement path.

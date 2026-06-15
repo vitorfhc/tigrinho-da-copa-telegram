@@ -7,7 +7,8 @@ payloads). :func:`encode` round-trips with :func:`decode`.
 Opcodes:
   ``g:<fixture>``                     choose game (open the category step)
   ``c:<fixture>:<E|F|B|W|O>``         choose category
-  ``s:<fixture>:<h|a>:<0-10>``        exact-score digit for a side
+  ``s:<fixture>:<0-10>``              exact-score: home goals chosen (opens the away pad)
+  ``e:<fixture>:<home>:<away>``       exact-score: finalize (home baked in, stateless)
   ``w:<fixture>:<H|D|A>``             winner selection
   ``t:<fixture>:<B|H|A|N>``           both-teams-to-score selection
   ``o:<fixture>:<O|U>``               over/under selection
@@ -20,13 +21,11 @@ Opcodes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, assert_never, cast
+from typing import assert_never
 
 from tigrinho.domain.bets import BetCategory, BttsSel, OverUnderSel, WinnerSel
 
 MAX_CALLBACK_BYTES = 64
-
-Side = Literal["h", "a"]
 
 _CATEGORY_TO_CODE: dict[BetCategory, str] = {
     BetCategory.EXACT_SCORE: "E",
@@ -71,10 +70,16 @@ class ChooseCategory:
 
 
 @dataclass(frozen=True, slots=True)
-class ScoreInput:
+class HomeScore:
     fixture_id: int
-    side: Side
     value: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExactScore:
+    fixture_id: int
+    home: int
+    away: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +125,8 @@ class Cancel:
 CallbackData = (
     ChooseGame
     | ChooseCategory
-    | ScoreInput
+    | HomeScore
+    | ExactScore
     | WinnerInput
     | BttsInput
     | OverUnderInput
@@ -138,8 +144,10 @@ def encode(data: CallbackData) -> str:
             result = f"g:{fixture_id}"
         case ChooseCategory(fixture_id, category):
             result = f"c:{fixture_id}:{_CATEGORY_TO_CODE[category]}"
-        case ScoreInput(fixture_id, side, value):
-            result = f"s:{fixture_id}:{side}:{value}"
+        case HomeScore(fixture_id, value):
+            result = f"s:{fixture_id}:{value}"
+        case ExactScore(fixture_id, home, away):
+            result = f"e:{fixture_id}:{home}:{away}"
         case WinnerInput(fixture_id, sel):
             result = f"w:{fixture_id}:{_WINNER_TO_CODE[sel]}"
         case BttsInput(fixture_id, sel):
@@ -161,12 +169,6 @@ def encode(data: CallbackData) -> str:
     return result
 
 
-def _side(value: str) -> Side:
-    if value not in ("h", "a"):
-        raise ValueError(f"invalid score side: {value!r}")
-    return cast(Side, value)
-
-
 def decode(data: str) -> CallbackData:
     """Parse a ``callback_data`` string back to typed wizard state (raises on malformed)."""
     parts = data.split(":")
@@ -177,7 +179,9 @@ def decode(data: str) -> CallbackData:
         if op == "c":
             return ChooseCategory(int(parts[1]), _CODE_TO_CATEGORY[parts[2]])
         if op == "s":
-            return ScoreInput(int(parts[1]), _side(parts[2]), int(parts[3]))
+            return HomeScore(int(parts[1]), int(parts[2]))
+        if op == "e":
+            return ExactScore(int(parts[1]), int(parts[2]), int(parts[3]))
         if op == "w":
             return WinnerInput(int(parts[1]), _CODE_TO_WINNER[parts[2]])
         if op == "t":

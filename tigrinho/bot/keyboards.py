@@ -18,11 +18,11 @@ from tigrinho.bot.callbacks import (
     ChooseCategory,
     ChooseGame,
     DeleteBet,
+    ExactScore,
+    HomeScore,
     OverUnderInput,
-    ScoreInput,
     ScorerInput,
     ScorerPage,
-    Side,
     WinnerInput,
     encode,
 )
@@ -80,12 +80,22 @@ def category_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def score_pad_keyboard(fixture_id: int, side: Side) -> InlineKeyboardMarkup:
-    """Number pad (0–9 plus 10+) for one side of an exact-score bet."""
+def home_score_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
+    """Number pad (0–9 plus 10+) for the home side; selecting opens the away pad."""
     rows = [
-        [_button(str(n), ScoreInput(fixture_id, side, n)) for n in range(0, 5)],
-        [_button(str(n), ScoreInput(fixture_id, side, n)) for n in range(5, 10)],
-        [_button("10+", ScoreInput(fixture_id, side, MAX_SCORE_PER_SIDE))],
+        [_button(str(n), HomeScore(fixture_id, n)) for n in range(0, 5)],
+        [_button(str(n), HomeScore(fixture_id, n)) for n in range(5, 10)],
+        [_button("10+", HomeScore(fixture_id, MAX_SCORE_PER_SIDE))],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def away_score_keyboard(fixture_id: int, home: int) -> InlineKeyboardMarkup:
+    """Away number pad; each button finalizes the exact score (home baked into callback_data)."""
+    rows = [
+        [_button(str(n), ExactScore(fixture_id, home, n)) for n in range(0, 5)],
+        [_button(str(n), ExactScore(fixture_id, home, n)) for n in range(5, 10)],
+        [_button("10+", ExactScore(fixture_id, home, MAX_SCORE_PER_SIDE))],
     ]
     return InlineKeyboardMarkup(rows)
 

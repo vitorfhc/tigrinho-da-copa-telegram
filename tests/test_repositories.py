@@ -75,6 +75,49 @@ def test_game_add_get_list_delete(session: Session) -> None:
     assert repo.delete(9999) is False
 
 
+def _game_at(fixture_id: int, kickoff: datetime, status: GameStatus = GameStatus.SCHEDULED) -> Game:
+    return Game(
+        fixture_id=fixture_id,
+        match_hash=f"h{fixture_id}",
+        stage=Stage.GROUP,
+        home_team_id=1,
+        home_team_name="A",
+        away_team_id=2,
+        away_team_name="B",
+        kickoff_utc=kickoff,
+        kickoff_local=kickoff,
+        status=status,
+    )
+
+
+def test_game_list_upcoming(session: Session) -> None:
+    repo = GameRepository(session)
+    now = datetime(2026, 6, 16, 12, 0)
+    session.add_all(
+        [
+            _game_at(1, datetime(2026, 6, 16, 19, 0)),  # future scheduled -> included
+            _game_at(2, datetime(2026, 6, 16, 10, 0)),  # past -> excluded
+            _game_at(3, datetime(2026, 6, 16, 20, 0), GameStatus.VOID),  # future but voided
+        ]
+    )
+    session.flush()
+    assert [g.fixture_id for g in repo.list_upcoming(now)] == [1]
+
+
+def test_game_list_active(session: Session) -> None:
+    repo = GameRepository(session)
+    now = datetime(2026, 6, 16, 20, 0)
+    session.add_all(
+        [
+            _game_at(1, datetime(2026, 6, 16, 19, 0)),  # 1h ago, within 3h window -> active
+            _game_at(2, datetime(2026, 6, 16, 15, 0)),  # 5h ago, outside window
+            _game_at(3, datetime(2026, 6, 16, 21, 0)),  # future, not started
+        ]
+    )
+    session.flush()
+    assert [g.fixture_id for g in repo.list_active(now, 3)] == [1]
+
+
 # --- BetRepository --------------------------------------------------------------------------
 
 

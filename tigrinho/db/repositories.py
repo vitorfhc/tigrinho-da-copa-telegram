@@ -9,12 +9,12 @@ Telegram bot and the Typer admin CLI.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import ApiUsage, Bet, Game, Player, SquadPlayer
+from tigrinho.db.models import ApiUsage, Bet, Game, GameStatus, Player, SquadPlayer
 
 
 class PlayerRepository:
@@ -65,6 +65,30 @@ class GameRepository:
 
     def list_all(self) -> list[Game]:
         return list(self._session.execute(select(Game).order_by(Game.kickoff_utc)).scalars())
+
+    def list_upcoming(self, now: datetime) -> list[Game]:
+        """Scheduled games whose kickoff is still in the future (open for bets), soonest first."""
+        stmt = (
+            select(Game)
+            .where(Game.status == GameStatus.SCHEDULED, Game.kickoff_utc > now)
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def list_active(self, now: datetime, window_hours: int) -> list[Game]:
+        """Games inside their live window and not yet settled (for the poll job, §9.2)."""
+        window_end_floor = now - timedelta(hours=window_hours)
+        stmt = (
+            select(Game)
+            .where(
+                Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE)),
+                Game.kickoff_utc <= now,
+                Game.kickoff_utc >= window_end_floor,
+                Game.settled_at.is_(None),
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
 
     def delete(self, fixture_id: int) -> bool:
         game = self._session.get(Game, fixture_id)

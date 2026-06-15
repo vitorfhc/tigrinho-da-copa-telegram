@@ -9,7 +9,8 @@ from tigrinho.bot.callbacks import (
     CallbackData,
     ChooseCategory,
     ChooseGame,
-    ScoreInput,
+    ExactScore,
+    HomeScore,
     ScorerInput,
     ScorerPage,
     WinnerInput,
@@ -17,12 +18,13 @@ from tigrinho.bot.callbacks import (
 )
 from tigrinho.bot.keyboards import (
     announcement_keyboard,
+    away_score_keyboard,
     btts_keyboard,
     category_keyboard,
     deep_link_url,
     games_keyboard,
+    home_score_keyboard,
     over_under_keyboard,
-    score_pad_keyboard,
     squad_keyboard,
     winner_keyboard,
 )
@@ -63,11 +65,17 @@ def test_category_keyboard_has_five_categories() -> None:
     assert all(c.fixture_id == 1001 for c in categories)
 
 
-def test_score_pad_has_zero_to_ten() -> None:
+def test_home_score_pad_has_zero_to_ten() -> None:
     values = sorted(
-        d.value for d in _decoded(score_pad_keyboard(1001, "h")) if isinstance(d, ScoreInput)
+        d.value for d in _decoded(home_score_keyboard(1001)) if isinstance(d, HomeScore)
     )
     assert values == list(range(0, 11))
+
+
+def test_away_score_pad_bakes_in_home() -> None:
+    decoded = [d for d in _decoded(away_score_keyboard(1001, 2)) if isinstance(d, ExactScore)]
+    assert sorted(d.away for d in decoded) == list(range(0, 11))
+    assert all(d.home == 2 for d in decoded)
 
 
 def test_winner_keyboard_hides_draw_for_knockout() -> None:
