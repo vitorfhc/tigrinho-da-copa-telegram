@@ -411,3 +411,21 @@ injectable `_get_me`. All four groups + telegram-info implemented and tested (Cl
 **Build complete.** All §0 DoD items hold: 4 gates green, M0–M11 checked, scoring+settlement at
 100% line+branch, e2e fake-provider smoke test passes, README deployable. (Only Docker `build` was
 not run locally — no daemon in this env; not a §0 DoD gate.)
+
+### 2026-06-15 — Post-build multi-POV review fixes (P1 + P2)
+
+A 7-POV adversarial review (workflow `wf_adcedf1f-7d2`, 24 agents) surfaced improvements; the user
+asked to fix all P1 + P2. Done in 5 green commits (271 tests):
+- **P1.1** group `?start=apostar` deep link now opens the games picker (was: welcome).
+- **P1.2** poll settles overdue games via `get_match_result` (no longer depends on the game still
+  being in the `live=all` feed) — `SETTLE_AFTER=2h`; only settles when provider says FINISHED.
+- **P2.3** `safe_edit_text` swallows Telegram "message is not modified" (no more spurious admin DMs).
+- **P2.4** settlement reads run before the lower-priority live poll (§7.3 priority).
+- **P2.5** group announcements are recoverable via `announced_at` (retried next sync); all group
+  sends wrap failures → log + admin DM instead of silent loss; admin-alert exception text escaped.
+- **P2.6** first-scorer dead-end (squads unseeded) now shows a back-to-categories / cancel keyboard.
+- **P2.7** added wizard-branch, delete-authorization, settled-rendering, weekly-subset,
+  caller-outside-top-15, and CLI re-grade tests.
+
+P3 nits (indexes, N+1, minor security/arch) intentionally left as follow-ups — none are defects at
+one-group scale. DoD still holds.
