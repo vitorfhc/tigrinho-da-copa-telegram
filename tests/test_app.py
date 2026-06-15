@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import (
@@ -22,11 +22,12 @@ from tigrinho.bot.app import (
     PRIVATE_COMMANDS,
     StartupError,
     build_application,
+    post_init,
     set_commands,
     validate_startup,
 )
 from tigrinho.bot.help_handlers import cmd_ajuda
-from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
+from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext
 from tigrinho.config import Settings
 
 
@@ -121,3 +122,25 @@ async def test_error_handler_notifies_admin(app_context: AppContext) -> None:
     assert (
         context.bot.send_message.await_args.kwargs["chat_id"] == app_context.settings.admin_user_id
     )
+
+
+# --- post_init job scheduling ---------------------------------------------------------------
+
+
+async def test_post_init_schedules_all_jobs(app_context: AppContext) -> None:
+    application = MagicMock()
+    application.bot_data = {APP_CONTEXT_KEY: app_context}
+    application.bot = _bot(app_context.settings.bot_username)
+    application.job_queue = MagicMock()
+
+    # post_init runs validate_startup + set_commands before scheduling; _bot() satisfies both.
+    with (
+        patch("tigrinho.bot.app.schedule_sync_job") as sync_mock,
+        patch("tigrinho.bot.app.schedule_poll_job") as poll_mock,
+        patch("tigrinho.bot.app.schedule_reminder_job") as reminder_mock,
+    ):
+        await post_init(cast(AnyApplication, application))
+
+    sync_mock.assert_called_once_with(application.job_queue, app_context.settings)
+    poll_mock.assert_called_once_with(application.job_queue, app_context.settings)
+    reminder_mock.assert_called_once_with(application.job_queue, app_context.settings)
