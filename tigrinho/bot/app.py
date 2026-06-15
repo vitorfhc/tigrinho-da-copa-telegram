@@ -21,6 +21,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 from tigrinho.bot.alerts import error_handler
 from tigrinho.bot.help_handlers import cmd_ajuda, cmd_start
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
+from tigrinho.bot.sync_job import schedule_sync_job
 from tigrinho.config import Settings
 from tigrinho.logging import get_logger
 
@@ -77,10 +78,12 @@ async def set_commands(bot: Bot) -> None:
 
 
 async def post_init(application: AnyApplication) -> None:
-    """Run startup validation + register commands before polling begins."""
+    """Run startup validation, register commands, and schedule jobs before polling begins."""
     app_context = get_app_context(application)
     await validate_startup(application.bot, app_context.settings)
     await set_commands(application.bot)
+    if application.job_queue is not None:
+        schedule_sync_job(application.job_queue, app_context.settings)
 
 
 def build_application(app_context: AppContext) -> AnyApplication:

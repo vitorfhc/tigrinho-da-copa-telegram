@@ -11,6 +11,8 @@ update :func:`help_text` here **and** ``COMPLETION.md`` in the same change.
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
+from datetime import datetime
 from typing import assert_never
 
 from tigrinho.domain.bets import (
@@ -57,9 +59,49 @@ CATEGORY_ORDER: tuple[BetCategory, ...] = (
 )
 
 
+_WEEKDAYS_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
+
+
 def escape(text: str) -> str:
     """Escape text for Telegram HTML parse mode."""
     return html.escape(text, quote=False)
+
+
+def format_kickoff_local(kickoff_local: datetime) -> str:
+    """Format a local-time kickoff in pt-BR, e.g. ``Sáb 16/06 16:00``."""
+    weekday = _WEEKDAYS_PT[kickoff_local.weekday()]
+    return f"{weekday} {kickoff_local:%d/%m %H:%M}"
+
+
+def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
+    """Consolidated 'new games open' announcement (§9.1). Each item: (home, away, kickoff_local)."""
+    lines = [
+        f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}"
+        for home, away, kickoff in games
+    ]
+    body = "\n".join(lines)
+    return (
+        "🐯 <b>Novos jogos abertos para apostas!</b>\n\n"
+        f"{body}\n\n"
+        'Toque em "🎯 Apostar" abaixo para palpitar no privado (fecha no apito inicial).'
+    )
+
+
+def reannounce_text(home: str, away: str, kickoff_local: datetime) -> str:
+    """Concise re-announcement after a fixture is rescheduled (bets stay valid; §9.1)."""
+    return (
+        f"🔄 <b>Jogo remarcado:</b> {escape(home)} x {escape(away)} — "
+        f"agora {format_kickoff_local(kickoff_local)}.\n"
+        "Seus palpites continuam valendo (agora para o novo horário)."
+    )
+
+
+def void_text(home: str, away: str) -> str:
+    """Notice that a fixture was postponed/cancelled and its bets voided (§9.1)."""
+    return (
+        f"⛔ <b>Jogo cancelado/adiado:</b> {escape(home)} x {escape(away)}.\n"
+        "As apostas desse jogo foram anuladas (sem pontos)."
+    )
 
 
 def mention(telegram_id: int, name: str) -> str:

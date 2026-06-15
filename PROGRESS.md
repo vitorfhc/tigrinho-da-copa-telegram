@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M4 complete** (scaffold + data + provider + domain + bot skeleton green) · _Created 2026-06-15_
+**Status: M0–M5 complete** (… + bot skeleton + daily sync job green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -114,15 +114,16 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - **Done when:** the app builds, `post_init` validation + `/ajuda` + `/start` welcome + error handler
     exist with tests passing, all gates green. ✅ **DONE** (122 tests, gates green).
 
-- [ ] **M5 — Sync job**
-  - [ ] `bot/sync_job.py` — daily fixtures sync via `JobQueue.run_daily` (1 provider call, top budget
-        priority), skipping placeholder/TBD fixtures
-  - [ ] New game → insert + queue announcement; rescheduled → update kickoff + `match_hash` +
+- [x] **M5 — Sync job**
+  - [x] `bot/sync_job.py` — daily fixtures sync via `JobQueue.run_daily` (1 provider call via budget,
+        top priority); placeholders already skipped by the provider
+  - [x] New game → insert + queue announcement; rescheduled → update kickoff + `match_hash` +
         re-announce (bets stay valid); postponed/cancelled → `status = VOID` + void bets + notify
-  - [ ] One consolidated group announcement (pt-BR, HTML) with a per-game `🎯 Apostar` deep-link
-        button (`https://t.me/<bot_username>?start=bet_<fixture_id>`)
-  - [ ] Sync-job tests (new/reschedule/void paths) with `FakeProvider`
-  - **Done when:** `sync_job.py` exists, its tests pass, all gates green.
+        (also un-voids on reschedule)
+  - [x] One consolidated group announcement (pt-BR, HTML) with a per-game `🎯 Apostar` deep-link
+        button (`https://t.me/<bot_username>?start=bet_<fixture_id>`); `bot/keyboards.py` started
+  - [x] Sync-job tests (new/reschedule/void/un-void/no-change paths) with `FakeProvider`
+  - **Done when:** `sync_job.py` exists, its tests pass, all gates green. ✅ **DONE** (138 tests).
 
 - [ ] **M6 — Bet handlers**
   - [ ] `bot/callbacks.py` — compact `callback_data` encode/decode helpers (≤64 bytes) with round-trip
@@ -301,10 +302,26 @@ COMPLETION.md §3. APScheduler + tzlocal pulled in by the job-queue extra.
 `Application[Any,…]` alias. Tests `cast(Update,/ContextTypes.DEFAULT_TYPE, MagicMock())` to satisfy
 strict. `settings`/`app_context` fixtures added to conftest (Settings via init kwargs + chdir(tmp)).
 
-**Next:** M5 — Sync job. Verify `telegram.helpers.create_deep_linked_url(bot_username, payload)`
-and `LinkPreviewOptions` (link preview on announcements). Build `bot/sync_job.py`
-(`JobQueue.run_daily`): 1 provider call (top budget priority); new→insert+announce,
-reschedule→update kickoff+match_hash+re-announce (bets stay valid), postponed/cancelled→VOID+void
-bets+notify; one consolidated group announcement (HTML) with per-game `🎯 Apostar` deep-link button.
-Compute `match_hash = sha256(kickoff_iso|home_id|away_id)`, `kickoff_local` via settings.tzinfo.
-Tests with FakeProvider (new/reschedule/void).
+### 2026-06-15 — M5 Sync job (DONE)
+
+- **sync_job.py**: `sync_fixtures` (pure DB logic) — naive-UTC `kickoff_utc`, `kickoff_local` via
+  `settings.tzinfo`; `match_hash = sha256(kickoff_iso|home_id|away_id)`; void sets bets points=0 +
+  settled_at; reschedule/un-void detection. `sync_job` callback (budgeted 1 call, snapshots games to
+  `_GameView` before commit, then sends announcement/reannounce/void messages). `schedule_sync_job`
+  → `run_daily` at `sync_time` in `tzinfo`. Wired into `post_init`.
+- **keyboards.py** (started): `deep_link_url` (built directly per the spec URL, no PTB helper) +
+  `announcement_keyboard` (one 🎯 Apostar URL button per game).
+- **text_pt**: `format_kickoff_local` (pt-BR weekday), `announcement_text`, `reannounce_text`,
+  `void_text`.
+
+**Decisions/gotchas:** announcement uses `LinkPreviewOptions(is_disabled=True)`. Voided bets:
+points=0 + settled_at set + is_correct=None (won't contribute to the board). FakeProvider ignores
+`window_hours` (returns all scripted fixtures) — fine for tests; the real provider does the window
+filter (M2).
+
+**Next:** M6 — Bet handlers. Verify PTB 22.x `ConversationHandler` + `CallbackQueryHandler`,
+`callback_data` ≤64 bytes, `query.answer()`, `edit_message_text`/`edit_message_reply_markup`,
+`/start` deep-link `context.args`. Build `bot/callbacks.py` (compact codec + round-trip),
+extend `keyboards.py` (categories, score pad, paginated squad, BTTS/winner/OU selectors, DRAW hidden
+for knockout), `bot/bets_handlers.py` (/start bet_ entry+auto-create player; /apostar wizard;
+/minhas_apostas with delete; /jogos; time-based closing rejection). Tests per §16.

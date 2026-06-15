@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from tigrinho.domain.bets import (
     BttsPayload,
     BttsSel,
@@ -13,12 +15,18 @@ from tigrinho.domain.bets import (
     WinnerSel,
 )
 from tigrinho.domain.text_pt import (
+    announcement_text,
     describe_bet,
+    format_kickoff_local,
     help_text,
     mention,
     points_table_text,
+    reannounce_text,
+    void_text,
     welcome_text,
 )
+
+_WEEKDAYS_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
 
 
 def test_mention_escapes_name() -> None:
@@ -64,3 +72,28 @@ def test_help_text_covers_required_content() -> None:
 
 def test_welcome_text_points_to_help() -> None:
     assert "/ajuda" in welcome_text()
+
+
+def test_format_kickoff_local() -> None:
+    kickoff = datetime(2026, 6, 16, 16, 0)
+    expected_weekday = _WEEKDAYS_PT[kickoff.weekday()]
+    assert format_kickoff_local(kickoff) == f"{expected_weekday} 16/06 16:00"
+
+
+def test_announcement_text() -> None:
+    text = announcement_text([("Brasil", "Argentina", datetime(2026, 6, 16, 16, 0))])
+    assert "Novos jogos" in text
+    assert "Brasil x Argentina" in text
+    assert "16/06 16:00" in text
+
+
+def test_reannounce_text() -> None:
+    text = reannounce_text("Brasil", "Argentina", datetime(2026, 6, 16, 16, 0))
+    assert "remarcado" in text
+    assert "Brasil x Argentina" in text
+
+
+def test_void_text() -> None:
+    text = void_text("Brasil", "Argentina")
+    assert "anuladas" in text
+    assert "Brasil x Argentina" in text
