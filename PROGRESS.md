@@ -59,9 +59,9 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
     `mypy --strict .`, `pytest`) are green on the empty app. ✅ **DONE** (16 tests, gates green).
 
 - [ ] **M1 — Data layer**
-  - [ ] ORM models (`players` keyed on `telegram_id`, `games`, `bets`, `squad_players`, `api_usage`)
+  - [x] ORM models (`players` keyed on `telegram_id`, `games`, `bets`, `squad_players`, `api_usage`)
         per §6, typed
-  - [ ] `db/engine.py` — SQLAlchemy 2.0 engine/session factory (synchronous)
+  - [x] `db/engine.py` — SQLAlchemy 2.0 engine/session factory (synchronous)
   - [ ] Alembic initial migration (`alembic upgrade head` works; migrations append-only)
   - [ ] `db/repositories.py` — CRUD repos: players, games, bets, squads, api_usage
   - [ ] Repository tests against a temp SQLite (incl. the `UNIQUE(fixture_id, player, category)`
