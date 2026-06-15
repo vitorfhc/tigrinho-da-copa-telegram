@@ -24,13 +24,17 @@ def _now() -> datetime:
 
 
 def _seed_game(
-    session_factory: sessionmaker[Session], *, hours_ago: float, settled: bool = False
+    session_factory: sessionmaker[Session],
+    *,
+    hours_ago: float,
+    settled: bool = False,
+    fixture_id: int = 1001,
 ) -> None:
     kickoff = _now() - timedelta(hours=hours_ago)
     with session_factory() as session:
         session.add(
             Game(
-                fixture_id=1001,
+                fixture_id=fixture_id,
                 match_hash="h",
                 stage=Stage.GROUP,
                 home_team_id=10,
@@ -46,9 +50,9 @@ def _seed_game(
         session.commit()
 
 
-def _finished_result() -> MatchResult:
+def _finished_result(fixture_id: int = 1001) -> MatchResult:
     return MatchResult(
-        fixture_id=1001,
+        fixture_id=fixture_id,
         stage=Stage.GROUP,
         status=GameStatus.FINISHED,
         home_goals_90=2,
@@ -143,6 +147,72 @@ async def test_settle_skips_budget_when_already_settled(
     assert provider.call_log == []  # no get_match_result for an already-settled game
     assert app_context.budget.current_count() == 0
     bot.send_message.assert_not_awaited()
+
+
+async def test_poll_settles_overdue_game_without_live_feed(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # P1.2: a game past kickoff+SETTLE_AFTER settles via get_match_result alone — the live feed
+    # (get_live_results) is never consulted, so a game that dropped out of live=all still settles.
+    _seed_game(session_factory, hours_ago=2.5)  # within 3h window, past the 2h settle threshold
+    provider = FakeProvider(results=[_finished_result()])
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    assert provider.call_log == ["get_match_result:1001"]  # no get_live_results call
+    bot.send_message.assert_awaited_once()
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.settled_at is not None
+
+
+async def test_poll_settlement_runs_before_live_polling(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # P2.4: settlement reads (overdue game) must precede the lower-priority live poll (§7.3).
+    _seed_game(session_factory, fixture_id=1, hours_ago=2.5)  # overdue -> settle first
+    _seed_game(session_factory, fixture_id=2, hours_ago=1)  # in progress -> live poll
+    provider = FakeProvider(results=[_finished_result(1), _finished_result(2)])
+    app_context = _app_context(settings, session_factory, provider)
+    context, _bot = _context(app_context)
+
+    await poll_job(context)
+
+    # overdue game's settlement read comes first, then the live poll for the in-progress game.
+    assert provider.call_log[0] == "get_match_result:1"
+    assert provider.call_log[1] == "get_live_results"
+    with session_factory() as session:
+        assert GameRepository(session).get(1).settled_at is not None  # type: ignore[union-attr]
+        assert GameRepository(session).get(2).settled_at is not None  # type: ignore[union-attr]
+
+
+async def test_poll_does_not_settle_when_match_not_finished(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # An overdue game whose provider result is still LIVE (e.g. extra time) must NOT settle.
+    _seed_game(session_factory, hours_ago=2.5)
+    live_result = MatchResult(
+        fixture_id=1001,
+        stage=Stage.GROUP,
+        status=GameStatus.LIVE,
+        home_goals_90=None,
+        away_goals_90=None,
+        goals=(),
+        advancing_team_id=None,
+    )
+    provider = FakeProvider(results=[live_result])
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    bot.send_message.assert_not_awaited()
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.settled_at is None
+        assert game.status is GameStatus.LIVE  # status advanced, not settled
 
 
 async def test_poll_alerts_admin_for_stuck_game(
