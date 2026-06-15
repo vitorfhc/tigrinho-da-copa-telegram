@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M3 complete** (scaffold + data + provider + domain green) · _Created 2026-06-15_
+**Status: M0–M4 complete** (scaffold + data + provider + domain + bot skeleton green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -101,16 +101,18 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
     line+branch coverage, all gates green. ✅ **DONE** (113 tests; scoring+settlement at **100%
     line+branch**, enforced by `--cov-fail-under=100` in pytest addopts).
 
-- [ ] **M4 — Bot skeleton**
-  - [ ] `bot/app.py` — PTB `Application` builder (long polling) + handler/job registration
-  - [ ] `post_init` config validation: verify `get_me().username == bot_username`, can reach
-        `group_chat_id` (fail-fast on mismatch)
-  - [ ] `setMyCommands` registered with the correct `BotCommandScope`s
-  - [ ] `help_handlers.py` — `/ajuda` (pt-BR) and `/start` (no payload — welcome)
-  - [ ] `application.add_error_handler` backstop
-  - [ ] Bot-skeleton tests (rely on `FakeProvider`)
+- [x] **M4 — Bot skeleton**
+  - [x] `bot/app.py` — PTB `Application` builder (long polling) + handler/job registration
+        (+ `bot/runtime.py` `AppContext` in `bot_data`; `AnyApplication` alias)
+  - [x] `post_init` config validation: verify `get_me().username == bot_username`, can reach
+        `group_chat_id` (fail-fast on mismatch); admin DM best-effort
+  - [x] `setMyCommands` registered with the correct `BotCommandScope`s (private full / group views)
+  - [x] `help_handlers.py` — `/ajuda` (pt-BR) and `/start` (no payload — welcome)
+  - [x] `application.add_error_handler` backstop (started `bot/alerts.py` early: `notify_admin` +
+        `error_handler`; M7 extends it)
+  - [x] Bot-skeleton tests (rely on `FakeProvider`)
   - **Done when:** the app builds, `post_init` validation + `/ajuda` + `/start` welcome + error handler
-    exist with tests passing, all gates green.
+    exist with tests passing, all gates green. ✅ **DONE** (122 tests, gates green).
 
 - [ ] **M5 — Sync job**
   - [ ] `bot/sync_job.py` — daily fixtures sync via `JobQueue.run_daily` (1 provider call, top budget
@@ -283,9 +285,26 @@ Pure grading core, no grounding needed (no external surface).
 --cov-fail-under=100` so the DoD domain-coverage requirement is enforced on every run (currently
 100% line+branch). `assert_never` lines marked `# pragma: no cover`.
 
-**Next:** M4 — Bot skeleton. **Ground python-telegram-bot 22.x first** (Application builder,
-`post_init`, `JobQueue`, `setMyCommands` + `BotCommandScope`, error handler, `ParseMode.HTML`,
-deep-link `/start` payloads) and record the 21.x→22.x decision in COMPLETION.md. Build `bot/app.py`
-(Application + post_init config validation: `get_me().username == bot_username`, reach
-`group_chat_id`), `setMyCommands` with scopes, `help_handlers.py` (/ajuda + /start welcome),
-`add_error_handler`. Tests rely on FakeProvider. Add `python-telegram-bot[job-queue]` dep.
+### 2026-06-15 — M4 Bot skeleton (DONE)
+
+Grounded PTB **22.8** (`python-telegram-bot[job-queue]`); recorded the 21.x→22.x decision in
+COMPLETION.md §3. APScheduler + tzlocal pulled in by the job-queue extra.
+- **runtime.py**: `AppContext` (settings, provider, session_factory, budget) stored in
+  `application.bot_data`; `get_app_context()`; `AnyApplication = Application[Any,…]` (6 params).
+- **app.py**: `build_application(app_context)`; `post_init` → `validate_startup` (get_me username
+  fail-fast, group reachability fail-fast, admin DM best-effort) + `set_commands` (private/group
+  scopes); `StartupError`.
+- **help_handlers.py**: `cmd_ajuda`, `cmd_start` (welcome; M6 adds bet_ deep-link parsing).
+- **alerts.py** (started early; M7 extends): `notify_admin` (best-effort), `error_handler` backstop.
+
+**Decisions/gotchas:** Bare `Application` trips mypy `disallow_any_generics`; use the explicit
+`Application[Any,…]` alias. Tests `cast(Update,/ContextTypes.DEFAULT_TYPE, MagicMock())` to satisfy
+strict. `settings`/`app_context` fixtures added to conftest (Settings via init kwargs + chdir(tmp)).
+
+**Next:** M5 — Sync job. Verify `telegram.helpers.create_deep_linked_url(bot_username, payload)`
+and `LinkPreviewOptions` (link preview on announcements). Build `bot/sync_job.py`
+(`JobQueue.run_daily`): 1 provider call (top budget priority); new→insert+announce,
+reschedule→update kickoff+match_hash+re-announce (bets stay valid), postponed/cancelled→VOID+void
+bets+notify; one consolidated group announcement (HTML) with per-game `🎯 Apostar` deep-link button.
+Compute `match_hash = sha256(kickoff_iso|home_id|away_id)`, `kickoff_local` via settings.tzinfo.
+Tests with FakeProvider (new/reschedule/void).

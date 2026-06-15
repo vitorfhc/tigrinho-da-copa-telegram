@@ -151,6 +151,13 @@ group only ever sees the bot's own announcement, result, and scoreboard messages
 | Tests | **pytest** + **pytest-asyncio** | Fake provider + temp SQLite. |
 | Packaging | `pyproject.toml` | `uv` or `pip`. |
 
+> **Decision (2026-06-15, M4 — live docs win, §2):** `python-telegram-bot` **21.x is EOL**; the
+> current stable line is **22.x** (22.8 at build time). The bot targets **PTB 22.x**
+> (`python-telegram-bot[job-queue]`). The APIs used (Application builder, `post_init`, `JobQueue`,
+> `CommandHandler`/`CallbackQueryHandler`/`ConversationHandler`, inline keyboards, `BotCommandScope`,
+> deep-link `start` payloads, `ParseMode.HTML`) are unchanged in 22.x. Wherever this document says
+> "21.x", read "22.x".
+
 > Async split rationale: **network = async** (don't block the event loop), **local DB = sync**
 > (trivially fast, simpler, shared with the CLI). PTB runs its own asyncio event loop; the JobQueue
 > callbacks are coroutines.

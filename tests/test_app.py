@@ -1,0 +1,133 @@
+"""Tests for the bot skeleton: startup validation, commands, handlers, error backstop (§M4, §16)."""
+
+from __future__ import annotations
+
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from telegram import (
+    Bot,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    Update,
+    User,
+)
+from telegram.error import TelegramError
+from telegram.ext import CommandHandler, ContextTypes
+
+from tigrinho.bot.alerts import error_handler
+from tigrinho.bot.app import (
+    GROUP_COMMANDS,
+    PRIVATE_COMMANDS,
+    StartupError,
+    build_application,
+    set_commands,
+    validate_startup,
+)
+from tigrinho.bot.help_handlers import cmd_ajuda, cmd_start
+from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
+from tigrinho.config import Settings
+
+
+def _bot(username: str = "TigrinhoDaCopaBot") -> AsyncMock:
+    bot = AsyncMock(spec=Bot)
+    bot.get_me.return_value = User(id=1, is_bot=True, first_name="Tigrinho", username=username)
+    bot.get_chat.return_value = MagicMock()
+    return bot
+
+
+# --- startup validation ---------------------------------------------------------------------
+
+
+async def test_validate_startup_ok(settings: Settings) -> None:
+    bot = _bot(settings.bot_username)
+    await validate_startup(cast(Bot, bot), settings)
+    assert bot.get_chat.await_count == 2  # group + admin
+
+
+async def test_validate_startup_username_mismatch(settings: Settings) -> None:
+    bot = _bot("SomeOtherBot")
+    with pytest.raises(StartupError, match="bot_username mismatch"):
+        await validate_startup(cast(Bot, bot), settings)
+
+
+async def test_validate_startup_group_unreachable(settings: Settings) -> None:
+    bot = _bot(settings.bot_username)
+    bot.get_chat.side_effect = TelegramError("chat not found")
+    with pytest.raises(StartupError, match="cannot reach group_chat_id"):
+        await validate_startup(cast(Bot, bot), settings)
+
+
+async def test_validate_startup_admin_unreachable_is_best_effort(settings: Settings) -> None:
+    bot = _bot(settings.bot_username)
+    # group ok, admin DM unreachable -> warn, do NOT raise
+    bot.get_chat.side_effect = [MagicMock(), TelegramError("forbidden")]
+    await validate_startup(cast(Bot, bot), settings)
+
+
+# --- commands -------------------------------------------------------------------------------
+
+
+async def test_set_commands_uses_scopes() -> None:
+    bot = AsyncMock(spec=Bot)
+    await set_commands(cast(Bot, bot))
+    calls = bot.set_my_commands.await_args_list
+    assert len(calls) == 2
+    assert calls[0].args[0] == PRIVATE_COMMANDS
+    assert isinstance(calls[0].kwargs["scope"], BotCommandScopeAllPrivateChats)
+    assert calls[1].args[0] == GROUP_COMMANDS
+    assert isinstance(calls[1].kwargs["scope"], BotCommandScopeAllGroupChats)
+
+
+# --- build_application ----------------------------------------------------------------------
+
+
+def test_build_application_registers_handlers(app_context: AppContext) -> None:
+    application = build_application(app_context)
+    assert application.bot_data[APP_CONTEXT_KEY] is app_context
+    command_names: set[str] = set()
+    for handler in application.handlers[0]:
+        if isinstance(handler, CommandHandler):
+            command_names |= set(handler.commands)
+    assert {"ajuda", "start"} <= command_names
+    assert len(application.error_handlers) == 1
+
+
+# --- help handlers --------------------------------------------------------------------------
+
+
+async def test_cmd_ajuda_replies_with_help() -> None:
+    update = MagicMock()
+    update.effective_message = AsyncMock()
+    context = MagicMock()
+    await cmd_ajuda(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context))
+    update.effective_message.reply_text.assert_awaited_once()
+    text = update.effective_message.reply_text.await_args.args[0]
+    assert "Tigrinho da Copa" in text
+
+
+async def test_cmd_start_replies_with_welcome() -> None:
+    update = MagicMock()
+    update.effective_message = AsyncMock()
+    context = MagicMock()
+    await cmd_start(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context))
+    update.effective_message.reply_text.assert_awaited_once()
+    text = update.effective_message.reply_text.await_args.args[0]
+    assert "Bem-vindo" in text
+
+
+# --- error handler --------------------------------------------------------------------------
+
+
+async def test_error_handler_notifies_admin(app_context: AppContext) -> None:
+    application = build_application(app_context)
+    context = MagicMock()
+    context.error = ValueError("boom")
+    context.application = application
+    context.bot = AsyncMock(spec=Bot)
+    await error_handler(object(), cast(ContextTypes.DEFAULT_TYPE, context))
+    context.bot.send_message.assert_awaited_once()
+    assert (
+        context.bot.send_message.await_args.kwargs["chat_id"] == app_context.settings.admin_user_id
+    )
