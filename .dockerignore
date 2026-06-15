@@ -1,0 +1,22 @@
+# Keep secrets, local state, and dev cruft out of the image (config.yaml is bind-mounted at runtime).
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+tests
+.env
+.env.*
+config.yaml
+*.db
+*.sqlite*
+/data
+.claude
+README.md
+COMPLETION.md
+PROGRESS.md

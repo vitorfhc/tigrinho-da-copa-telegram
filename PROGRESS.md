@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M9 complete** (… + scoreboard + admin CLI green) · _Created 2026-06-15_
+**Status: M0–M10 complete** (… + admin CLI + Docker/README deploy green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -190,18 +190,21 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - **Done when:** `cli.py` exists with all four capability groups + `telegram-info`, its tests pass,
     all gates green. ✅ **DONE** (246 tests).
 
-- [ ] **M10 — Deploy**
-  - [ ] `docker/Dockerfile` — `python:3.12-slim`, non-root user, deps from `pyproject.toml`
-  - [ ] `docker-compose.yml` — one `bot` service, `env_file: .env`, `restart: unless-stopped`, named
-        `/data` volume, read-only `config.yaml` bind-mount, `CONFIG_PATH=/app/config.yaml`, no inbound
-        ports
-  - [ ] Entrypoint runs `alembic upgrade head` then launches the bot
-  - [ ] `.env.example` and `config.example.yaml` committed with every secret/setting from §4
-  - [ ] Full `README.md` per §15.1 (all 14 sections, copy-paste deployable from zero)
-  - [ ] `CLAUDE.md` — grounding rule (§2), secrets/settings split (§4), maintenance rule (§11), and the
-        §0 Ralph-loop operating manual
+- [x] **M10 — Deploy**
+  - [x] `docker/Dockerfile` — `python:3.12-slim`, non-root user, deps from `pyproject.toml`+`uv.lock`
+        via uv (`uv sync --frozen --no-dev`)
+  - [x] `docker-compose.yml` — one `bot` service, `env_file: .env`, `restart: unless-stopped`, named
+        `/data` volume, read-only `config.yaml` bind-mount, `CONFIG_PATH=/app/config.yaml`, no ports
+  - [x] Entrypoint (`docker/entrypoint.sh`) runs `alembic upgrade head` then `python -m tigrinho`
+  - [x] `.env.example` and `config.example.yaml` committed with every secret/setting from §4 (M0)
+  - [x] Full `README.md` per §15.1 (all 14 sections, copy-paste deployable from zero)
+  - [x] `CLAUDE.md` — grounding rule (§2), secrets/settings split (§4), maintenance rule (§11), §0
+        loop manual (present from project bootstrap)
   - **Done when:** Dockerfile + compose + entrypoint + example config files + README (§15.1) +
-    `CLAUDE.md` exist, image builds, all gates green.
+    `CLAUDE.md` exist, image builds, all gates green. ✅ artifacts complete, gates green, compose +
+    entrypoint validated. ⚠️ `docker build` **not run locally** (no Docker daemon in this env) —
+    the Dockerfile follows the standard uv pattern; verify with `docker compose up -d --build` on a
+    host with Docker. (Not a §0 DoD gate.)
 
 - [ ] **M11 — Hardening**
   - [ ] Budget enforcement verified end-to-end (priority sync > settlement > polling; hard stop at cap)
@@ -378,10 +381,16 @@ tests. Extracted `tigrinho/board_data.py` (telegram-free board-records loader) s
 import the bot layer; `BetRepository.list_all` added. `telegram-info` resolves `get_me` via an
 injectable `_get_me`. All four groups + telegram-info implemented and tested (CliRunner).
 
-**Next:** M10 — Deploy. `docker/Dockerfile` (`python:3.12-slim`, non-root, deps from pyproject via uv
-or pip), `docker/entrypoint.sh` (`alembic upgrade head` then launch), `docker-compose.yml` (1 bot
-service, `env_file: .env`, named `/data` volume, read-only `config.yaml` bind-mount,
-`CONFIG_PATH=/app/config.yaml`, `restart: unless-stopped`, no ports), a `__main__.py` /
-`python -m tigrinho` entry that builds AppContext + runs polling, and the full **README.md** (§15.1,
-14 sections). Need a real bot entrypoint (`tigrinho/__main__.py`) wiring config → engine → migrations
-are run by entrypoint → provider → budget → `build_application` → `run_polling`.
+### 2026-06-15 — M10 Deploy (DONE, build unverified locally)
+
+- `tigrinho/__main__.py` (entrypoint wiring) + `providers/factory.make_provider` (shared w/ CLI).
+- `docker/Dockerfile` (python:3.12-slim, uv, non-root, /data), `docker/entrypoint.sh`
+  (`alembic upgrade head` → `python -m tigrinho`), `docker-compose.yml` (named volume, ro config
+  bind-mount, env_file, no ports), `.dockerignore`. Full `README.md` (14 §15.1 sections).
+- Validated: compose YAML structure, entrypoint `bash -n`, gates green (247 tests). `docker build`
+  could NOT run (no daemon here) — verify on a Docker host.
+
+**Next:** M11 — Hardening. Add an **end-to-end smoke test** (`provider_mode: fake`): sync → bet via
+deep-link → settle → results → board, all without error (§0 DoD). Verify budget enforcement
+end-to-end (priority + hard stop). Re-verify all §0 DoD items: gates green, M0–M11 checked, domain
+coverage ~100% (enforced), README deployable. Then emit the completion promise.

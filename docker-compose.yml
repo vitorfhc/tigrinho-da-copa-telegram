@@ -1,0 +1,18 @@
+# TigrinhoDaCopa — single long-polling bot service (COMPLETION.md §15).
+# No inbound ports are needed (the bot uses long polling).
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: tigrinho-da-copa:latest
+    env_file: .env                 # secrets only: TELEGRAM_BOT_TOKEN, API_FOOTBALL_KEY
+    environment:
+      CONFIG_PATH: /app/config.yaml
+    volumes:
+      - tigrinho-data:/data        # persists the SQLite DB at db_path: /data/tigrinho.db
+      - ./config.yaml:/app/config.yaml:ro   # non-secret settings, read-only
+    restart: unless-stopped
+
+volumes:
+  tigrinho-data:
