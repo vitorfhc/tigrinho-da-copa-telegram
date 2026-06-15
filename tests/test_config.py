@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -26,6 +26,8 @@ _FIELD_ENV_NAMES = [
     "TIMEZONE",
     "SYNC_TIME",
     "POLL_INTERVAL_MINUTES",
+    "REMINDER_LEAD_MINUTES",
+    "REMINDER_INTERVAL_MINUTES",
     "MATCH_WINDOW_HOURS",
     "API_DAILY_CAP",
     "API_BUDGET_RESET_TZ",
@@ -174,3 +176,22 @@ def test_get_settings_is_cached(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     second = get_settings()
     assert first is second
     get_settings.cache_clear()
+
+
+def test_reminder_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.reminder_lead_minutes == 60
+    assert settings.reminder_interval_minutes == 10
+    assert settings.reminder_lead == timedelta(minutes=60)
+
+
+def test_reminder_interval_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, env={"REMINDER_INTERVAL_MINUTES": "0"})
+
+
+def test_reminder_lead_must_be_positive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, env={"REMINDER_LEAD_MINUTES": "0"})

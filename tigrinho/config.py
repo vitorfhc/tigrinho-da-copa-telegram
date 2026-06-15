@@ -17,7 +17,7 @@ Grounding (per §2), verified June 2026:
 from __future__ import annotations
 
 import os
-from datetime import time
+from datetime import time, timedelta
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     timezone: str = "America/Sao_Paulo"
     sync_time: str = "06:00"
     poll_interval_minutes: int = Field(default=10, gt=0)
+    reminder_lead_minutes: int = Field(default=60, gt=0)
+    reminder_interval_minutes: int = Field(default=10, gt=0)
     match_window_hours: int = Field(default=3, gt=0)
     api_daily_cap: int = Field(default=100, gt=0)
     api_budget_reset_tz: str = "UTC"
@@ -98,6 +100,11 @@ class Settings(BaseSettings):
         """The configured daily sync time as a ``datetime.time`` (local to ``timezone``)."""
         hours, minutes = self.sync_time.split(":")
         return time(int(hours), int(minutes))
+
+    @property
+    def reminder_lead(self) -> timedelta:
+        """How far before kickoff to post the betting reminder (§9.3)."""
+        return timedelta(minutes=self.reminder_lead_minutes)
 
     @property
     def tzinfo(self) -> ZoneInfo:
