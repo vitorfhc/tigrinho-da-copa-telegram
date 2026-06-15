@@ -206,7 +206,7 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
     the Dockerfile follows the standard uv pattern; verify with `docker compose up -d --build` on a
     host with Docker. (Not a §0 DoD gate.)
 
-- [ ] **M11 — Hardening**
+- [x] **M11 — Hardening**
   - [x] Budget enforcement verified end-to-end (hard stop at cap blocks polling + alerts admin;
         `test_smoke_e2e.test_budget_hard_stop_blocks_polling`)
   - [x] Edge cases covered; domain coverage at **100% line+branch** for `scoring.py` + `settlement.py`
