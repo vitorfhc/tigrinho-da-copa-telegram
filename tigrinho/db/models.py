@@ -12,7 +12,6 @@ configured ``timezone``. The bot compares ``now`` against ``kickoff_utc`` using 
 
 from __future__ import annotations
 
-import enum
 from datetime import UTC, date, datetime
 
 from sqlalchemy import (
@@ -28,28 +27,26 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+# Re-exported so existing imports (`from tigrinho.db.models import Stage, GameStatus`) keep working;
+# the canonical home is the dependency-free leaf module ``tigrinho.enums``.
+from tigrinho.enums import GameStatus, Stage
+
+__all__ = [
+    "ApiUsage",
+    "Base",
+    "Bet",
+    "Game",
+    "GameStatus",
+    "Player",
+    "SquadPlayer",
+    "Stage",
+    "utcnow",
+]
+
 
 def utcnow() -> datetime:
     """Current time as a naive UTC datetime (the project-wide storage convention)."""
     return datetime.now(tz=UTC).replace(tzinfo=None)
-
-
-class Stage(enum.StrEnum):
-    """Tournament stage of a fixture (drives the knockout winner rule, §8.1)."""
-
-    GROUP = "GROUP"
-    KNOCKOUT = "KNOCKOUT"
-
-
-class GameStatus(enum.StrEnum):
-    """Normalized provider status (§7.2)."""
-
-    SCHEDULED = "SCHEDULED"
-    LIVE = "LIVE"
-    FINISHED = "FINISHED"
-    POSTPONED = "POSTPONED"
-    CANCELLED = "CANCELLED"
-    VOID = "VOID"
 
 
 class Base(DeclarativeBase):

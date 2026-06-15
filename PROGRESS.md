@@ -72,9 +72,10 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
     ✅ **DONE** (33 tests, gates green).
 
 - [ ] **M2 — Provider** (interface-agnostic — unchanged from the Discord build)
-  - [ ] `providers/base.py` — `FootballProvider` Protocol + frozen value objects (`Fixture`,
-        `MatchResult`, `GoalEvent`, `SquadPlayer`)
-  - [ ] `providers/fake.py` — `FakeProvider` (scripted fixtures/results) for `provider_mode: fake`
+  - [x] `providers/base.py` — `FootballProvider` Protocol + frozen value objects (`Fixture`,
+        `MatchResult`, `GoalEvent`, `SquadPlayer`) — value objects use **aware UTC** datetimes
+  - [x] `providers/fake.py` — `FakeProvider` (scripted fixtures/results) for `provider_mode: fake`
+        — records `call_log` for budget/poll tests
   - [ ] `providers/api_football.py` — `ApiFootballProvider` (httpx) mapping API-Football v3 JSON →
         value objects (90′ = `score.fulltime`; stage; advancing team; status normalization; goal
         timeline ≤90′ excluding own goals) — **ground against live docs first**

@@ -237,6 +237,7 @@ tigrinho/
   __init__.py
   config.py            # Settings: load .env (secrets) + config.yaml (settings), validate, fail-fast
   logging.py           # structlog setup
+  enums.py             # shared leaf enums (Stage, GameStatus) — no I/O/DB deps; see decision note below
   db/
     engine.py          # SQLAlchemy engine/session factory
     models.py          # ORM models (typed)
@@ -276,6 +277,12 @@ CLAUDE.md
 
 > There is **no** `subscribe` handler and **no** role logic — Telegram has no roles, and the group
 > membership itself is the notification list.
+
+> **Decision (2026-06-15, M2):** `Stage` and `GameStatus` live in a dependency-free leaf module
+> `tigrinho/enums.py` (not in `db/models.py`) so the **pure domain** (`scoring.py`) and the
+> **provider value objects** can import them without pulling in SQLAlchemy. `db/models.py`
+> re-exports them, so `from tigrinho.db.models import Stage, GameStatus` still works. The Alembic
+> migration is unaffected (it hard-codes the enum strings).
 
 ---
 
