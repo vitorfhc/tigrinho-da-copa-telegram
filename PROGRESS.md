@@ -126,7 +126,9 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - **Done when:** `sync_job.py` exists, its tests pass, all gates green. ✅ **DONE** (138 tests).
 
 - [ ] **M6 — Bet handlers**
-  - [ ] `bot/callbacks.py` — compact `callback_data` encode/decode helpers (≤64 bytes) with round-trip
+  - [x] `bot/callbacks.py` — compact `callback_data` encode/decode helpers (≤64 bytes) with round-trip
+        — typed union (ChooseGame/ChooseCategory/ScoreInput/Winner/Btts/OverUnder/ScorerPage/
+        ScorerInput/DeleteBet/Cancel); strict decode; oversized guard
   - [ ] `bot/keyboards.py` — inline keyboard builders (games, categories, score pad, paginated squad,
         board toggle)
   - [ ] `bot/bets_handlers.py` — `/start bet_<fixture_id>` deep-link entry (parse payload, auto-create
