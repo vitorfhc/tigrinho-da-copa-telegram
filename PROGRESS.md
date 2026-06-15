@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M7 complete** (… + bet wizard + live poll/auto-settle green) · _Created 2026-06-15_
+**Status: M0–M8 complete** (… + live poll/auto-settle + scoreboard green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -165,15 +165,15 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - **Done when:** `poll_job.py` (+ `alerts.py`) exist, their tests pass, all gates green.
     ✅ **DONE** (220 tests, gates green).
 
-- [ ] **M8 — Board**
-  - [ ] `bot/board_handlers.py` — `/placar` posts the scoreboard, defaults to **Geral**, inline
-        Geral↔Semana toggle that **edits the same message** (MAY also accept `/placar semana`)
-  - [ ] Geral = all-time points desc; Semana = current Mon→Sun week in `timezone` (resets Monday 00:00)
-  - [ ] Ranked top ~15 with medals for top 3; append caller's own rank/points if outside top 15
-  - [ ] Tie-breaks: (1) points desc, (2) exact-score hits desc, (3) total correct desc, (4) earliest
+- [x] **M8 — Board**
+  - [x] `bot/board_handlers.py` — `/placar` posts the scoreboard, defaults to **Geral**, inline
+        Geral↔Semana toggle that **edits the same message** (also accepts `/placar semana`)
+  - [x] Geral = all-time points desc; Semana = current Mon→Sun week in `timezone` (resets Monday 00:00)
+  - [x] Ranked top ~15 with medals for top 3; append caller's own rank/points if outside top 15
+  - [x] Tie-breaks: (1) points desc, (2) exact-score hits desc, (3) total correct desc, (4) earliest
         `players.created_at`
-  - [ ] Board derivable purely from settled bets (CLI-rebuildable) + tests
-  - **Done when:** `board_handlers.py` exists, its tests pass, all gates green.
+  - [x] Board derivable purely from settled bets (`tigrinho/scoreboard.py`, CLI-rebuildable) + tests
+  - **Done when:** `board_handlers.py` exists, its tests pass, all gates green. ✅ **DONE** (236 tests).
 
 - [ ] **M9 — Admin CLI**
   - [ ] `cli.py` (Typer) sharing repository + domain code; readable tables; destructive commands
@@ -356,8 +356,23 @@ filter (M2).
 dataclass) — testable, process-lifetime. Poll consumes 2 budget calls per finished game (live +
 match_result).
 
-**Next:** M8 — Board. Build `tigrinho/scoreboard.py` (PURE rebuild from settled bets: Geral all-time,
-Semana = current Mon→Sun in `timezone`; tie-breaks: points desc, exact-score hits desc, total correct
-desc, earliest `players.created_at`; top ~15 + medals + caller's own line if outside top 15) and
-`bot/board_handlers.py` (`/placar` Geral default + inline Geral↔Semana toggle editing same message;
-accept `/placar semana`). Board must be CLI-rebuildable. Tests for ranking + tie-breaks + weekly window.
+### 2026-06-15 — M8 Board (DONE)
+
+- **scoreboard.py** (PURE): `BetRecord`/`RankEntry`; `rank()` aggregates settled bets with the 4
+  tie-breaks; `week_bounds`/`in_current_week` (Mon→Sun local). CLI-rebuildable.
+- **board_handlers.py**: `/placar [semana]` (default Geral) + `board_toggle` (edits same message);
+  `_load_records` (settled bets, skip VOID, weekly filter by `kickoff_local`); top 15 + medals +
+  caller-outside line. Registered **before** the wizard catch-all so `^bv:` matches first.
+- **callbacks.BoardView** (`bv:g`/`bv:s`); **keyboards.board_toggle_keyboard**; **text_pt.board_text**.
+- **BetRepository.list_settled**.
+
+**Decisions/gotchas:** board uses escaped display names (not mentions) to avoid pinging 15 people.
+Voided games excluded from the board. Toggle handler registered before catch-all (PTB stops at first
+matching handler in a group).
+
+**Next:** M9 — Admin CLI (Typer). Ground Typer (commands, options, `typer.confirm`/`--yes` flag).
+Build `cli.py` sharing repositories + `settlement_service` + `scoreboard`: (1) CRUD games/bets/players;
+(2) manual result + re-settle (idempotent, reuse `settle_fixture`); (3) force sync, seed/refresh squads
+(provider+budget), print API counter/remaining; (4) recalc/rebuild board, dump DB/tables;
+`telegram-info` (get_me + echo group/admin ids). Readable tables; destructive cmds need a confirm flag.
+Tests via Typer's CliRunner + temp DB + FakeProvider.

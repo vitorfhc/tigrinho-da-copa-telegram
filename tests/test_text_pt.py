@@ -16,6 +16,7 @@ from tigrinho.domain.bets import (
 )
 from tigrinho.domain.text_pt import (
     announcement_text,
+    board_text,
     describe_bet,
     format_kickoff_local,
     help_text,
@@ -121,3 +122,21 @@ def test_results_text_no_scorer_and_no_players() -> None:
     )
     assert "Sem gol válido" in text
     assert "Ninguém apostou" in text
+
+
+def test_board_text_geral_with_medals() -> None:
+    text = board_text(weekly=False, rows=[(1, "Alice", 10), (2, "Bob", 5), (3, "Cau", 1)])
+    assert "Placar Geral" in text
+    assert "🥇 Alice" in text
+    assert "🥈 Bob" in text
+    assert "🥉 Cau" in text
+
+
+def test_board_text_weekly_and_caller_outside_top() -> None:
+    text = board_text(weekly=True, rows=[(1, "A", 10)], caller_outside=(20, 3))
+    assert "Placar da Semana" in text
+    assert "Você: 20º" in text
+
+
+def test_board_text_empty() -> None:
+    assert "Ainda não há pontos" in board_text(weekly=False, rows=[])

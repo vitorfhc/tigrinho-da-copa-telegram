@@ -20,6 +20,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 
 from tigrinho.bot.alerts import error_handler
 from tigrinho.bot.bets_handlers import register_bet_handlers, start_handler
+from tigrinho.bot.board_handlers import register_board_handlers
 from tigrinho.bot.help_handlers import cmd_ajuda
 from tigrinho.bot.poll_job import schedule_poll_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
@@ -100,6 +101,9 @@ def build_application(app_context: AppContext) -> AnyApplication:
     application.bot_data[APP_CONTEXT_KEY] = app_context
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("ajuda", cmd_ajuda))
+    # Board callbacks (pattern ^bv:) MUST be registered before the wizard's catch-all
+    # CallbackQueryHandler so the toggle is matched first.
+    register_board_handlers(application)
     register_bet_handlers(application)
     application.add_error_handler(error_handler)
     return application

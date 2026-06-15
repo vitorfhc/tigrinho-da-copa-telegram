@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tigrinho.bot.callbacks import (
+    BoardView,
     BttsInput,
     CallbackData,
     Cancel,
@@ -154,3 +155,12 @@ def my_bets_keyboard(open_bets: Sequence[tuple[int, str]]) -> InlineKeyboardMark
     """A 🗑 Apagar button per still-open bet. Each item: (bet_id, label)."""
     rows = [[_button(f"🗑 Apagar: {label}", DeleteBet(bet_id))] for bet_id, label in open_bets]
     return InlineKeyboardMarkup(rows)
+
+
+def board_toggle_keyboard(weekly: bool) -> InlineKeyboardMarkup:
+    """Toggle button switching the scoreboard between Geral and Semana (§10)."""
+    if weekly:
+        button = _button("📊 Ver Geral", BoardView("geral"))
+    else:
+        button = _button("📅 Ver Semana", BoardView("semana"))
+    return InlineKeyboardMarkup([[button]])

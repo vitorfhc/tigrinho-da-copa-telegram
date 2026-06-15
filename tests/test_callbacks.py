@@ -6,6 +6,7 @@ import pytest
 
 from tigrinho.bot.callbacks import (
     MAX_CALLBACK_BYTES,
+    BoardView,
     BttsInput,
     CallbackData,
     Cancel,
@@ -45,6 +46,8 @@ _CASES: list[CallbackData] = [
     ScorerInput(123456, 987654),
     DeleteBet(42),
     Cancel(),
+    BoardView("geral"),
+    BoardView("semana"),
 ]
 
 

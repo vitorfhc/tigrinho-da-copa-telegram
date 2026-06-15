@@ -16,14 +16,19 @@ Opcodes:
   ``f:<fixture>:<player_id>``         first-scorer selection
   ``x:<bet_id>``                      delete a bet
   ``q``                               cancel/close the wizard
+  ``bv:<g|s>``                        scoreboard view toggle (Geral / Semana)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import assert_never
+from typing import Literal, assert_never
 
 from tigrinho.domain.bets import BetCategory, BttsSel, OverUnderSel, WinnerSel
+
+BoardScope = Literal["geral", "semana"]
+_BOARD_SCOPE_TO_CODE: dict[BoardScope, str] = {"geral": "g", "semana": "s"}
+_CODE_TO_BOARD_SCOPE: dict[str, BoardScope] = {"g": "geral", "s": "semana"}
 
 MAX_CALLBACK_BYTES = 64
 
@@ -122,6 +127,11 @@ class Cancel:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class BoardView:
+    scope: BoardScope
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -134,6 +144,7 @@ CallbackData = (
     | ScorerInput
     | DeleteBet
     | Cancel
+    | BoardView
 )
 
 
@@ -162,6 +173,8 @@ def encode(data: CallbackData) -> str:
             result = f"x:{bet_id}"
         case Cancel():
             result = "q"
+        case BoardView(scope):
+            result = f"bv:{_BOARD_SCOPE_TO_CODE[scope]}"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -196,6 +209,8 @@ def decode(data: str) -> CallbackData:
             return DeleteBet(int(parts[1]))
         if op == "q":
             return Cancel()
+        if op == "bv":
+            return BoardView(_CODE_TO_BOARD_SCOPE[parts[1]])
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"invalid callback_data: {data!r}") from exc
     raise ValueError(f"unknown callback_data opcode: {data!r}")

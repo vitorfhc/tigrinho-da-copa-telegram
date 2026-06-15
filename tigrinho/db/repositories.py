@@ -165,6 +165,10 @@ class BetRepository:
         stmt = select(Bet).where(Bet.fixture_id == fixture_id)
         return list(self._session.execute(stmt).scalars())
 
+    def list_settled(self) -> list[Bet]:
+        """All graded bets (settled_at set) — the basis for the rebuildable scoreboard (§10)."""
+        return list(self._session.execute(select(Bet).where(Bet.settled_at.is_not(None))).scalars())
+
     def list_for_player_and_game(self, player_telegram_id: int, fixture_id: int) -> list[Bet]:
         stmt = select(Bet).where(
             Bet.player_telegram_id == player_telegram_id,

@@ -133,6 +133,29 @@ def results_text(
     return "\n".join(lines)
 
 
+_MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+
+def board_text(
+    *,
+    weekly: bool,
+    rows: Sequence[tuple[int, str, int]],
+    caller_outside: tuple[int, int] | None = None,
+) -> str:
+    """Scoreboard message (§10). ``rows``: (rank, name, points); ``caller_outside``: (rank, pts)."""
+    title = "🏆 <b>Placar da Semana</b>" if weekly else "🏆 <b>Placar Geral</b>"
+    if not rows:
+        return f"{title}\n\nAinda não há pontos. Façam seus palpites! 🐯"
+    lines = [title, ""]
+    for position, name, points in rows:
+        marker = _MEDALS.get(position, f"{position}.")
+        lines.append(f"{marker} {escape(name)} — <b>{points}</b> pts")
+    if caller_outside is not None:
+        lines.append("⋯")
+        lines.append(f"Você: {caller_outside[0]}º — <b>{caller_outside[1]}</b> pts")
+    return "\n".join(lines)
+
+
 def mention(telegram_id: int, name: str) -> str:
     """An HTML inline mention that works even without an @username."""
     return f'<a href="tg://user?id={telegram_id}">{escape(name)}</a>'
