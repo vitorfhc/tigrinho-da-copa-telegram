@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M2 complete** (scaffold + data layer + provider green) · _Created 2026-06-15_
+**Status: M0–M3 complete** (scaffold + data + provider + domain green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -86,19 +86,20 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - **Done when:** the four provider modules + budget exist, their tests pass, all gates green.
     ✅ **DONE** (56 tests, gates green).
 
-- [ ] **M3 — Domain** (interface-agnostic — unchanged from the Discord build)
+- [x] **M3 — Domain** (interface-agnostic — unchanged from the Discord build)
   - [x] `domain/bets.py` — `BetCategory` enum + typed per-category payload models + validation
         (pydantic, frozen, `extra=forbid`); `parse_payload`/`serialize_payload`
   - [x] `domain/scoring.py` — centralized `POINTS` table + per-category grading (PURE);
         `GradingContext`, `is_correct`, `grade`, `first_genuine_scorer`
   - [x] `domain/settlement.py` — grade every bet for a `MatchResult` (PURE, deterministic, idempotent)
-  - [ ] `domain/text_pt.py` — pt-BR message templates (HTML parse mode)
+  - [x] `domain/text_pt.py` — pt-BR message templates (HTML); `help_text()` (/ajuda), `welcome_text()`,
+        `describe_bet`, `mention`, `points_table_text` (derived from `scoring.POINTS`)
   - [x] Exhaustive table-driven domain tests (§16): knockout 90′ draw, own-goal-first, 0-0 first
         scorer, advancing-team winner, O/U boundary at exactly 2 and 3, BTTS NEITHER on 0-0,
         settlement idempotency
   - **Done when:** domain modules exist, tests pass, `scoring.py` + `settlement.py` have ~100%
-    line+branch coverage, all gates green. _(scoring+settlement at **100% line+branch**, enforced by
-    `--cov-fail-under=100` in pytest addopts; text_pt.py pending.)_
+    line+branch coverage, all gates green. ✅ **DONE** (113 tests; scoring+settlement at **100%
+    line+branch**, enforced by `--cov-fail-under=100` in pytest addopts).
 
 - [ ] **M4 — Bot skeleton**
   - [ ] `bot/app.py` — PTB `Application` builder (long polling) + handler/job registration
@@ -266,9 +267,25 @@ Grounded API-Football v3 (search; docs site 403s automated fetch) + httpx 0.28.1
 SCHEDULED (recorded in code comment). Mapping fns take JSON dicts; tests must annotate literals as
 `dict[str, Any]`/`list[dict[str, Any]]` (dict/list invariance under mypy --strict).
 
-**Next:** M3 — Domain (PURE, ~100% line+branch coverage for scoring.py + settlement.py). Build
-`domain/bets.py` (BetCategory enum + typed per-category payload models + validation), `scoring.py`
-(centralized points table + per-category grading), `settlement.py` (grade all bets for a MatchResult;
-deterministic/idempotent), `text_pt.py` (pt-BR HTML templates). Exhaustive §16 table-driven tests:
-knockout 90′ draw, own-goal-first, 0-0 first scorer, advancing-team winner, O/U boundary at 2 and 3,
-BTTS NEITHER on 0-0, settlement idempotency. No I/O/clock/DB in scoring/settlement.
+### 2026-06-15 — M3 Domain (DONE)
+
+Pure grading core, no grounding needed (no external surface).
+- **bets.py**: `BetCategory` + selection StrEnums + frozen pydantic payloads (`extra=forbid`,
+  bounds) + `parse_payload`/`serialize_payload` (match on category).
+- **scoring.py**: single `POINTS` table; `GradingContext` (90′ + team ids + goals); `is_correct`
+  dispatch by payload type (`assert_never` exhaustiveness); winner = group 1X2 / knockout advancing
+  (90′ fallback if no advancing info; never draw); BTTS; O/U≥3 / ≤2; first genuine scorer.
+- **settlement.py**: `settle_game` (pure/idempotent) over `PendingBet`→`GradedBet`; `build_context`
+  guards missing 90′ score.
+- **text_pt.py**: pt-BR HTML (help/welcome/describe_bet/mention/points table from `POINTS`).
+
+**Coverage gate:** pytest addopts now carries `--cov=…scoring --cov=…settlement --cov-branch
+--cov-fail-under=100` so the DoD domain-coverage requirement is enforced on every run (currently
+100% line+branch). `assert_never` lines marked `# pragma: no cover`.
+
+**Next:** M4 — Bot skeleton. **Ground python-telegram-bot 22.x first** (Application builder,
+`post_init`, `JobQueue`, `setMyCommands` + `BotCommandScope`, error handler, `ParseMode.HTML`,
+deep-link `/start` payloads) and record the 21.x→22.x decision in COMPLETION.md. Build `bot/app.py`
+(Application + post_init config validation: `get_me().username == bot_username`, reach
+`group_chat_id`), `setMyCommands` with scopes, `help_handlers.py` (/ajuda + /start welcome),
+`add_error_handler`. Tests rely on FakeProvider. Add `python-telegram-bot[job-queue]` dep.

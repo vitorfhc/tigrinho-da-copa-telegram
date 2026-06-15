@@ -1,0 +1,147 @@
+"""pt-BR message templates, HTML parse mode (COMPLETION.md §3, §11).
+
+PURE string builders (no I/O). Telegram uses ``ParseMode.HTML`` everywhere, so all
+user-supplied text is escaped via :func:`escape`, and player mentions use HTML inline mentions
+``<a href="tg://user?id=…">name</a>`` (work without an @username).
+
+**Maintenance rule (§11):** any change to commands, categories, scoring or grading rules MUST
+update :func:`help_text` here **and** ``COMPLETION.md`` in the same change.
+"""
+
+from __future__ import annotations
+
+import html
+from typing import assert_never
+
+from tigrinho.domain.bets import (
+    BetCategory,
+    BttsPayload,
+    BttsSel,
+    ExactScorePayload,
+    FirstScorerPayload,
+    OverUnderPayload,
+    OverUnderSel,
+    Payload,
+    WinnerPayload,
+    WinnerSel,
+)
+from tigrinho.domain.scoring import POINTS
+
+CATEGORY_LABELS: dict[BetCategory, str] = {
+    BetCategory.EXACT_SCORE: "Placar exato",
+    BetCategory.FIRST_SCORER: "Primeiro a marcar",
+    BetCategory.BTTS: "Ambas marcam",
+    BetCategory.WINNER: "Vencedor",
+    BetCategory.OVER_UNDER: "Mais/Menos 2.5 gols",
+}
+
+BTTS_LABELS: dict[BttsSel, str] = {
+    BttsSel.BOTH: "Ambas marcam",
+    BttsSel.ONLY_HOME: "Só o mandante",
+    BttsSel.ONLY_AWAY: "Só o visitante",
+    BttsSel.NEITHER: "Nenhuma marca",
+}
+
+OVER_UNDER_LABELS: dict[OverUnderSel, str] = {
+    OverUnderSel.OVER: "Mais de 2.5 (3+ gols)",
+    OverUnderSel.UNDER: "Menos de 2.5 (até 2 gols)",
+}
+
+# Display order for category listings (highest points first).
+CATEGORY_ORDER: tuple[BetCategory, ...] = (
+    BetCategory.EXACT_SCORE,
+    BetCategory.FIRST_SCORER,
+    BetCategory.BTTS,
+    BetCategory.WINNER,
+    BetCategory.OVER_UNDER,
+)
+
+
+def escape(text: str) -> str:
+    """Escape text for Telegram HTML parse mode."""
+    return html.escape(text, quote=False)
+
+
+def mention(telegram_id: int, name: str) -> str:
+    """An HTML inline mention that works even without an @username."""
+    return f'<a href="tg://user?id={telegram_id}">{escape(name)}</a>'
+
+
+def describe_bet(
+    payload: Payload,
+    *,
+    home_team: str = "Mandante",
+    away_team: str = "Visitante",
+    scorer_name: str | None = None,
+) -> str:
+    """Human-readable pt-BR description of a bet (for /minhas_apostas and confirmations)."""
+    if isinstance(payload, ExactScorePayload):
+        return f"Placar exato: {payload.home}x{payload.away}"
+    if isinstance(payload, WinnerPayload):
+        labels = {
+            WinnerSel.HOME: escape(home_team),
+            WinnerSel.DRAW: "Empate",
+            WinnerSel.AWAY: escape(away_team),
+        }
+        return f"Vencedor: {labels[payload.sel]}"
+    if isinstance(payload, BttsPayload):
+        return f"Ambas marcam: {BTTS_LABELS[payload.sel]}"
+    if isinstance(payload, OverUnderPayload):
+        return f"Gols: {OVER_UNDER_LABELS[payload.sel]}"
+    if isinstance(payload, FirstScorerPayload):
+        who = escape(scorer_name) if scorer_name else f"jogador #{payload.player_id}"
+        return f"Primeiro a marcar: {who}"
+    assert_never(payload)  # pragma: no cover
+
+
+def points_table_text() -> str:
+    """The points table, derived from the single source of truth (scoring.POINTS)."""
+    lines = [
+        f"• {CATEGORY_LABELS[category]}: <b>{POINTS[category]}</b> pts"
+        for category in CATEGORY_ORDER
+    ]
+    return "\n".join(lines)
+
+
+def welcome_text() -> str:
+    """`/start` with no payload — short welcome pointing to /ajuda."""
+    return (
+        "🐯 <b>Bem-vindo ao Tigrinho da Copa!</b>\n\n"
+        "Aqui a gente palpita nos jogos da Copa do Mundo 2026 — sem dinheiro, só pela glória. "
+        "Os palpites são feitos no privado e o grupo recebe os anúncios, resultados e o placar.\n\n"
+        "Use /apostar para começar e /ajuda para entender as regras."
+    )
+
+
+def help_text() -> str:
+    """`/ajuda` — full pt-BR explanation (§11)."""
+    return (
+        "🐯 <b>Tigrinho da Copa — Como funciona</b>\n\n"
+        "Bolão de palpites da <b>Copa do Mundo 2026</b>, sem dinheiro, entre amigos do grupo. "
+        "O bot anuncia os jogos no <b>grupo</b>; você <b>aposta no privado</b> com o bot "
+        "(toque em <b>🎯 Apostar</b> no anúncio, ou mande /apostar aqui). Os palpites ficam "
+        "secretos até o apito inicial.\n\n"
+        "<b>Comandos</b>\n"
+        "• /apostar — abrir o assistente de palpites (no privado)\n"
+        "• /minhas_apostas — ver e apagar seus palpites (no privado)\n"
+        "• /jogos — próximos jogos e o que falta palpitar\n"
+        "• /placar — ranking (Geral e da Semana)\n"
+        "• /ajuda — esta mensagem\n"
+        "• /start — boas-vindas\n\n"
+        "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
+        "• <b>Placar exato</b> — ex.: 2x1\n"
+        "• <b>Primeiro a marcar</b> — escolha um jogador das seleções\n"
+        "• <b>Ambas marcam</b> — Ambas / Só mandante / Só visitante / Nenhuma\n"
+        "• <b>Vencedor</b> — Mandante / Empate / Visitante\n"
+        "• <b>Mais/Menos 2.5 gols</b> — Mais (3+) ou Menos (até 2)\n\n"
+        "<b>Pontuação</b>\n"
+        f"{points_table_text()}\n\n"
+        "<b>Regras importantes</b>\n"
+        "• Tudo é avaliado pelo resultado dos <b>90 minutos</b> (sem prorrogação/pênaltis).\n"
+        "• <b>Mata-mata:</b> o vencedor é quem <b>avança</b> (quem passou de fase). Não existe "
+        "empate no mata-mata — a opção <i>Empate</i> nem aparece.\n"
+        "• <b>Primeiro a marcar:</b> gol contra não conta; em 0 a 0 (ou só gol contra), todos "
+        "que apostaram nessa categoria perdem.\n"
+        "• As apostas <b>fecham no apito inicial</b> de cada jogo.\n\n"
+        "Boa sorte! 🍀"
+    )
