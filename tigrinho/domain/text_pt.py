@@ -88,6 +88,24 @@ def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
     )
 
 
+def reminder_text(games: Sequence[tuple[str, str, datetime]]) -> str:
+    """~1h pre-kickoff betting reminder for one kickoff slot (§9.3).
+
+    Each item: ``(home, away, kickoff_local)``. Combined into a single message when several
+    games share the slot. Followed by one ``🎯 Apostar`` button per game (built separately).
+    """
+    lines = [
+        f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}"
+        for home, away, kickoff in games
+    ]
+    body = "\n".join(lines)
+    return (
+        "⏰ <b>Falta ~1h pro apito! Ainda dá pra palpitar:</b>\n\n"
+        f"{body}\n\n"
+        'Toque em "🎯 Apostar" abaixo para palpitar no privado (fecha no apito inicial).'
+    )
+
+
 def reannounce_text(home: str, away: str, kickoff_local: datetime) -> str:
     """Concise re-announcement after a fixture is rescheduled (bets stay valid; §9.1)."""
     return (

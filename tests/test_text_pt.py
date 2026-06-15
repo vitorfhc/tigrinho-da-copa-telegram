@@ -24,6 +24,7 @@ from tigrinho.domain.text_pt import (
     mention,
     points_table_text,
     reannounce_text,
+    reminder_text,
     results_text,
     void_text,
     welcome_text,
@@ -154,3 +155,22 @@ def test_board_text_weekly_and_caller_outside_top() -> None:
 
 def test_board_text_empty() -> None:
     assert "Ainda não há pontos" in board_text(weekly=False, rows=[])
+
+
+def test_reminder_text_lists_games_with_weekday() -> None:
+    text = reminder_text(
+        [
+            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0)),
+            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0)),
+        ]
+    )
+    assert "Falta ~1h" in text
+    assert "Brasil x Argentina — Sáb 13/06 16:00" in text  # 2026-06-13 is a Saturday
+    assert "França x Alemanha — Sáb 13/06 16:00" in text
+    assert "🎯 Apostar" in text
+
+
+def test_reminder_text_escapes_team_names() -> None:
+    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0))])
+    assert "A &amp; B" in text
+    assert "C &gt; D" in text
