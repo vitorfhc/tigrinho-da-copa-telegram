@@ -79,8 +79,9 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - [ ] `providers/api_football.py` — `ApiFootballProvider` (httpx) mapping API-Football v3 JSON →
         value objects (90′ = `score.fulltime`; stage; advancing team; status normalization; goal
         timeline ≤90′ excluding own goals) — **ground against live docs first**
-  - [ ] `providers/budget.py` — `RequestBudget`: daily counter keyed by `api_budget_reset_tz`, hard
+  - [x] `providers/budget.py` — `RequestBudget`: daily counter keyed by `api_budget_reset_tz`, hard
         stop at `api_daily_cap`, atomic increment, `BudgetExceeded` signal
+        — `guarded(call)` reserves on success; commits counter in its own txn; clock injectable
   - [ ] Provider tests (mock httpx; `score.fulltime` vs ET/penalty cases) + budget hard-stop test
   - **Done when:** the four provider modules + budget exist, their tests pass, all gates green.
 
