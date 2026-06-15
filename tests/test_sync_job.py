@@ -131,6 +131,22 @@ def test_sync_ignores_postponed_unknown_fixture(session: Session) -> None:
     assert GameRepository(session).get(99) is None
 
 
+def test_sync_does_not_reset_live_or_finished_game(session: Session) -> None:
+    # A re-sync with the same kickoff must NOT reset a game that already kicked off (§9.1).
+    sync_fixtures(session, [_fx(1)], tz=_TZ)
+    games = GameRepository(session)
+    live = games.get(1)
+    assert live is not None
+    live.status = GameStatus.LIVE
+    session.flush()
+
+    outcome = sync_fixtures(session, [_fx(1)], tz=_TZ)  # same kickoff
+    assert outcome.rescheduled_games == []
+    after = games.get(1)
+    assert after is not None
+    assert after.status is GameStatus.LIVE  # untouched
+
+
 async def test_sync_job_announces_new_games(
     settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:

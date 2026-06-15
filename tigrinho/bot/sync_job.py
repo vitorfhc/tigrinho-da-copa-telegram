@@ -91,8 +91,12 @@ def sync_fixtures(session: Session, fixtures: Sequence[Fixture], *, tz: ZoneInfo
             )
             games.add(game)
             outcome.new_games.append(game)
-        elif existing.kickoff_utc != kickoff_utc or existing.status is not GameStatus.SCHEDULED:
-            # Rescheduled (or un-voided after a postponement): bets stay valid for the new time.
+        elif existing.status in (GameStatus.SCHEDULED, GameStatus.VOID) and (
+            existing.kickoff_utc != kickoff_utc or existing.status is GameStatus.VOID
+        ):
+            # Rescheduled (kickoff changed) or un-voided after a postponement: bets stay valid for
+            # the new time. LIVE/FINISHED games are never touched here (a re-sync must not reset a
+            # game that has already kicked off).
             existing.kickoff_utc = kickoff_utc
             existing.kickoff_local = kickoff_local
             existing.match_hash = match_hash(fixture)

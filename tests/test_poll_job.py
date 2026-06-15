@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import ContextTypes
 
-from tigrinho.bot.poll_job import poll_job
+from tigrinho.bot.poll_job import _settle_and_announce, poll_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, GameStatus, Stage
@@ -128,6 +128,21 @@ async def test_poll_settles_finished_game(
     assert bot.send_message.await_args.kwargs["chat_id"] == settings.group_chat_id
     # one get_live_results + one get_match_result
     assert app_context.budget.current_count() == 2
+
+
+async def test_settle_skips_budget_when_already_settled(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_game(session_factory, hours_ago=1, settled=True)  # already settled
+    provider = FakeProvider(results=[_finished_result()])
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await _settle_and_announce(app_context, context, 1001)
+
+    assert provider.call_log == []  # no get_match_result for an already-settled game
+    assert app_context.budget.current_count() == 0
+    bot.send_message.assert_not_awaited()
 
 
 async def test_poll_alerts_admin_for_stuck_game(

@@ -89,13 +89,18 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
 async def _settle_and_announce(
     app_context: AppContext, context: ContextTypes.DEFAULT_TYPE, fixture_id: int
 ) -> None:
+    # Skip the budgeted provider call entirely if the game is already settled (§9.2 "if needed").
+    with app_context.session_factory() as session:
+        game = GameRepository(session).get(fixture_id)
+        if game is None or game.settled_at is not None:
+            return
     result = await app_context.budget.guarded(
         lambda: app_context.provider.get_match_result(fixture_id)
     )
     with app_context.session_factory() as session:
         game = GameRepository(session).get(fixture_id)
         if game is None or game.settled_at is not None:
-            return  # already settled — idempotent, don't double-post
+            return  # settled in between (idempotent guard) — don't double-post
         summary = settle_fixture(session, game, result)
         scorer_name = None
         if summary.first_scorer_player_id is not None:
