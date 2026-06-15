@@ -1,0 +1,52 @@
+# .gitignore — TigrinhoDaCopa (Telegram)
+# Goal: NEVER leak this project's secrets or local state (see COMPLETION.md §0, §4).
+# Note on negations: each `!example` un-ignore MUST come AFTER its ignore pattern,
+# otherwise the example file would be re-ignored by a later glob.
+
+# ---------------------------------------------------------------------------
+# Secrets & local config (COMPLETION.md §4: secrets in .env, settings in config.yaml)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+# ...but always track the committed template:
+!.env.example
+
+config.yaml
+# ...but always track the committed template:
+!config.example.yaml
+
+# ---------------------------------------------------------------------------
+# Database / data (SQLite file + mounted /data volume — never commit, §0 guardrails)
+# ---------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+/data/
+data/
+
+# ---------------------------------------------------------------------------
+# Ralph loop local state (per-machine loop bookkeeping — not shared)
+# ---------------------------------------------------------------------------
+.claude/.ralph-loop.local.md
+.claude/settings.local.json
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+.DS_Store
