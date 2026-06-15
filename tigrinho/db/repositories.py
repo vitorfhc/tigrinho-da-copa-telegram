@@ -138,8 +138,9 @@ class GameRepository:
     def mark_reminded(self, fixture_ids: list[int], when: datetime) -> None:
         """Flag games reminded — only if still SCHEDULED and not already flagged (§9.3).
 
-        Re-validates so a game voided/rescheduled between the read and this write is not
-        falsely marked (it must remain eligible for a later, real reminder).
+        The re-check skips a game that was voided (no longer SCHEDULED) or already flagged by
+        another sweep between the read and this write, so it stays eligible for a later, real
+        reminder. (A reschedule is handled separately: sync clears ``reminded_at`` — §9.1.)
         """
         for fixture_id in fixture_ids:
             game = self._session.get(Game, fixture_id)
