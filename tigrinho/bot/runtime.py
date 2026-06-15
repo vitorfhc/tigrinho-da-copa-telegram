@@ -7,7 +7,8 @@ without import cycles.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Final
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,6 +33,8 @@ class AppContext:
     provider: FootballProvider
     session_factory: sessionmaker[Session]
     budget: RequestBudget
+    # Budget days for which the "cap reached" admin alert was already sent (dedup, once/day, §14).
+    alerted_cap_days: set[date] = field(default_factory=set)
 
 
 def get_app_context(application: AnyApplication) -> AppContext:

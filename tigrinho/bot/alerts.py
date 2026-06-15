@@ -7,12 +7,14 @@ not pressed Start, Telegram rejects it, which we log rather than raise.
 
 from __future__ import annotations
 
+from datetime import date
+
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from tigrinho.bot.runtime import get_app_context
+from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.logging import get_logger
 
 _log = get_logger("tigrinho.alerts")
@@ -24,6 +26,20 @@ async def notify_admin(bot: Bot, admin_user_id: int, text: str) -> None:
         await bot.send_message(chat_id=admin_user_id, text=text, parse_mode=ParseMode.HTML)
     except TelegramError as exc:
         _log.warning("admin_dm_failed", admin_user_id=admin_user_id, error=str(exc))
+
+
+async def alert_cap_reached(app_context: AppContext, bot: Bot, budget_date: date) -> None:
+    """DM the admin that the daily API cap is reached — at most once per budget day (§14)."""
+    if budget_date in app_context.alerted_cap_days:
+        return
+    app_context.alerted_cap_days.add(budget_date)
+    _log.warning("api_cap_reached", budget_date=budget_date.isoformat())
+    await notify_admin(
+        bot,
+        app_context.settings.admin_user_id,
+        f"🚧 Limite diário de chamadas à API atingido em {budget_date.isoformat()}. "
+        "Polling pausado até o reset.",
+    )
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

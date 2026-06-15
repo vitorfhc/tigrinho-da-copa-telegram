@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: M0–M6 complete** (… + daily sync + bet wizard green) · _Created 2026-06-15_
+**Status: M0–M7 complete** (… + bet wizard + live poll/auto-settle green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -150,17 +150,20 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - **Done when:** `callbacks.py`, `keyboards.py`, `bets_handlers.py` exist, their tests pass, all gates
     green. ✅ **DONE** (210 tests, gates green).
 
-- [ ] **M7 — Poll job**
-  - [ ] `bot/poll_job.py` — active-window live polling via `JobQueue.run_repeating`; returns with **no
+- [x] **M7 — Poll job**
+  - [x] `bot/poll_job.py` — active-window live polling via `JobQueue.run_repeating`; returns with **no
         API call** when no active games
-  - [ ] One `get_live_results()` call when active; update status/live scores; on `FINISHED` run
-        settlement (§8.3) fetching `get_match_result()` once if needed; all calls via `RequestBudget`
-  - [ ] One results message to `group_chat_id`: 90′ score, first scorer, each participating player
-        mentioned (HTML `tg://user?id=…`) with points + per-category breakdown
-  - [ ] Stuck-game safeguard: DM admin when a game is unsettled past `kickoff + match_window_hours`
-  - [ ] `bot/alerts.py` — admin DM alerts + structured logs (cap-reached once/day, etc.)
-  - [ ] Poll-job tests: active-window decision (no API call when none active) + auto-settlement path
+  - [x] One `get_live_results()` call when active; update status/live scores; on `FINISHED` run
+        settlement (§8.3) fetching `get_match_result()` once; all calls via `RequestBudget`
+  - [x] One results message to `group_chat_id`: 90′ score, first scorer, each participating player
+        mentioned (HTML `tg://user?id=…`) with points + per-category breakdown (`text_pt.results_text`)
+  - [x] Stuck-game safeguard: DM admin when a game is unsettled past `kickoff + match_window_hours`
+  - [x] `bot/alerts.py` — admin DM alerts + structured logs (cap-reached **once/day** via
+        `AppContext.alerted_cap_days`)
+  - [x] Poll-job tests: active-window decision (no API call when none active) + auto-settlement path
+        + stuck-game alert; cap-reached dedup
   - **Done when:** `poll_job.py` (+ `alerts.py`) exist, their tests pass, all gates green.
+    ✅ **DONE** (220 tests, gates green).
 
 - [ ] **M8 — Board**
   - [ ] `bot/board_handlers.py` — `/placar` posts the scoreboard, defaults to **Geral**, inline
@@ -338,10 +341,23 @@ filter (M2).
 `list_active`. mypy: bind `decode()` result before isinstance for narrowing; type score `side` as the
 `Side` literal; guard `InlineKeyboardButton.url` (str|None).
 
-**Next:** M7 — Poll job. Build `bot/poll_job.py` (`JobQueue.run_repeating`): active-window decision
-(NO API call when none active via `GameRepository.list_active`); one `get_live_results()` when active
-(budgeted); on FINISHED run settlement (fetch `get_match_result` once, budgeted) → write grades;
-one results message to the group (90′ score, first scorer, each participant mentioned via
-`tg://user?id=` + points + per-category breakdown); stuck-game admin alert past
-`kickoff+match_window_hours`; extend `alerts.py` (cap-reached once/day). Persist `first_scorer_player_id`.
-Schedule in post_init. Tests: active-window no-call decision + auto-settlement path.
+### 2026-06-15 — M7 Poll job (DONE)
+
+- **settlement_service.settle_fixture** (M7.1): DB writer shared by poll + CLI; idempotent.
+- **poll_job.py**: `poll_job` (run_repeating) — `list_active` decision (no API call when idle),
+  one budgeted `get_live_results`, mark LIVE, collect FINISHED → `_settle_and_announce` (budgeted
+  `get_match_result` → `settle_fixture` → `results_text` → group message; `settled_at` guard prevents
+  double-post). Stuck games (`list_stuck`) → admin DM. Outer try/except: BudgetExceeded →
+  `alert_cap_reached` (once/day), other → log + admin DM (never kills bot). `schedule_poll_job`
+  (run_repeating, `first=10`) wired into post_init.
+- **alerts.alert_cap_reached** + `AppContext.alerted_cap_days` (once/day dedup).
+
+**Decisions/gotchas:** cap-alert dedup lives in `AppContext.alerted_cap_days` (mutable set on a frozen
+dataclass) — testable, process-lifetime. Poll consumes 2 budget calls per finished game (live +
+match_result).
+
+**Next:** M8 — Board. Build `tigrinho/scoreboard.py` (PURE rebuild from settled bets: Geral all-time,
+Semana = current Mon→Sun in `timezone`; tie-breaks: points desc, exact-score hits desc, total correct
+desc, earliest `players.created_at`; top ~15 + medals + caller's own line if outside top 15) and
+`bot/board_handlers.py` (`/placar` Geral default + inline Geral↔Semana toggle editing same message;
+accept `/placar semana`). Board must be CLI-rebuildable. Tests for ranking + tie-breaks + weekly window.

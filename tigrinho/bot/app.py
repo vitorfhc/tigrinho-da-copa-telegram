@@ -21,6 +21,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 from tigrinho.bot.alerts import error_handler
 from tigrinho.bot.bets_handlers import register_bet_handlers, start_handler
 from tigrinho.bot.help_handlers import cmd_ajuda
+from tigrinho.bot.poll_job import schedule_poll_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
 from tigrinho.bot.sync_job import schedule_sync_job
 from tigrinho.config import Settings
@@ -85,6 +86,7 @@ async def post_init(application: AnyApplication) -> None:
     await set_commands(application.bot)
     if application.job_queue is not None:
         schedule_sync_job(application.job_queue, app_context.settings)
+        schedule_poll_job(application.job_queue, app_context.settings)
 
 
 def build_application(app_context: AppContext) -> AnyApplication:
