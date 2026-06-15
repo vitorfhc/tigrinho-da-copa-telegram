@@ -121,6 +121,40 @@ def test_set_result_settles(
         assert bet.points_awarded == 2  # home win
 
 
+def test_set_result_re_grades_on_correction(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _patch_context(monkeypatch, settings, session_factory)
+    _seed_game(session_factory)
+    with session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Alice")
+        BetRepository(session).upsert(
+            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json='{"sel":"HOME"}'
+        )
+        session.commit()
+
+    # First settle: 2-1 home win → WINNER:HOME correct, 2 pts.
+    assert runner.invoke(app, ["set-result", "1001", "2", "1"]).exit_code == 0
+    with session_factory() as session:
+        assert BetRepository(session).list_for_game(1001)[0].points_awarded == 2
+
+    # Correction: 0-1 away win → the same bet must be re-graded to incorrect, 0 pts.
+    assert runner.invoke(app, ["set-result", "1001", "0", "1"]).exit_code == 0
+    with session_factory() as session:
+        bet = BetRepository(session).list_for_game(1001)[0]
+        assert bet.points_awarded == 0
+        assert bet.is_correct is False
+
+
+def test_set_result_not_found(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _patch_context(monkeypatch, settings, session_factory)
+    result = runner.invoke(app, ["set-result", "9999", "1", "0"])
+    assert result.exit_code == 1
+    assert "not found" in result.stdout
+
+
 def test_budget(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:

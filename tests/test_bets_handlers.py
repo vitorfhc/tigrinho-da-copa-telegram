@@ -18,20 +18,28 @@ from tigrinho.bot.bets_handlers import (
     start_handler,
 )
 from tigrinho.bot.callbacks import (
+    BttsInput,
     Cancel,
     ChooseCategory,
     ChooseGame,
     DeleteBet,
     ExactScore,
     HomeScore,
+    OverUnderInput,
+    ScorerInput,
+    ScorerPage,
     WinnerInput,
     decode,
     encode,
 )
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
-from tigrinho.db.models import Bet, Game, GameStatus, Stage
-from tigrinho.db.repositories import BetRepository, PlayerRepository
-from tigrinho.domain.bets import BetCategory, WinnerSel
+from tigrinho.db.models import Bet, Game, GameStatus, SquadPlayer, Stage
+from tigrinho.db.repositories import (
+    BetRepository,
+    PlayerRepository,
+    SquadRepository,
+)
+from tigrinho.domain.bets import BetCategory, BttsSel, OverUnderSel, WinnerSel
 
 _USER = User(id=42, is_bot=False, first_name="Tigrão")
 
@@ -236,6 +244,102 @@ async def test_minhas_apostas_and_delete(app_context: AppContext) -> None:
     update, query = _cb_update(encode(DeleteBet(bet_id)))
     await on_callback(update, _context(app_context))
     assert _bets(app_context) == []
+
+
+async def test_btts_and_over_under_finalize(app_context: AppContext) -> None:
+    _seed_game(app_context)
+    await on_callback(_cb_update(encode(BttsInput(1001, BttsSel.BOTH)))[0], _context(app_context))
+    await on_callback(
+        _cb_update(encode(OverUnderInput(1001, OverUnderSel.OVER)))[0], _context(app_context)
+    )
+    categories = {b.category for b in _bets(app_context)}
+    assert categories == {"BTTS", "OVER_UNDER"}
+
+
+async def test_first_scorer_with_squad_finalizes(app_context: AppContext) -> None:
+    _seed_game(app_context)
+    with app_context.session_factory() as session:
+        SquadRepository(session).upsert_many(
+            [SquadPlayer(player_id=100, team_id=10, name="Neymar")]
+        )
+        session.commit()
+    # category step shows the squad keyboard
+    update, query = _cb_update(encode(ChooseCategory(1001, BetCategory.FIRST_SCORER)))
+    await on_callback(update, _context(app_context))
+    assert any(
+        isinstance(decode(b.callback_data), ScorerInput)
+        for row in query.edit_message_text.await_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+        if isinstance(b.callback_data, str)
+    )
+    # selecting a scorer finalizes the bet
+    await on_callback(_cb_update(encode(ScorerInput(1001, 100)))[0], _context(app_context))
+    bets = _bets(app_context)
+    assert len(bets) == 1
+    assert bets[0].category == "FIRST_SCORER"
+
+
+async def test_scorer_pagination_step(app_context: AppContext) -> None:
+    _seed_game(app_context)
+    with app_context.session_factory() as session:
+        SquadRepository(session).upsert_many(
+            [SquadPlayer(player_id=i, team_id=10, name=f"P{i}") for i in range(1, 12)]
+        )
+        session.commit()
+    update, query = _cb_update(encode(ScorerPage(1001, 1)))
+    await on_callback(update, _context(app_context))
+    assert isinstance(
+        query.edit_message_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup
+    )
+
+
+async def test_delete_other_players_bet_is_rejected(app_context: AppContext) -> None:
+    _seed_game(app_context)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(99, "Someone Else")
+        bet = BetRepository(session).upsert(
+            fixture_id=1001, player_telegram_id=99, category="WINNER", payload_json="{}"
+        )
+        bet_id = bet.id
+        session.commit()
+    # _USER is id 42, not the owner (99)
+    update, query = _cb_update(encode(DeleteBet(bet_id)))
+    await on_callback(update, _context(app_context))
+    assert "não encontrado" in query.edit_message_text.await_args.args[0]
+    assert len(_bets(app_context)) == 1  # not deleted
+
+
+async def test_delete_on_started_game_is_rejected(app_context: AppContext) -> None:
+    _seed_game(app_context, started=True)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        bet = BetRepository(session).upsert(
+            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json="{}"
+        )
+        bet_id = bet.id
+        session.commit()
+    update, query = _cb_update(encode(DeleteBet(bet_id)))
+    await on_callback(update, _context(app_context))
+    assert "fechad" in query.edit_message_text.await_args.args[0]
+    assert len(_bets(app_context)) == 1  # not deleted
+
+
+async def test_minhas_apostas_renders_settled_bet(app_context: AppContext) -> None:
+    _seed_game(app_context, started=True)  # not open -> settled section
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        bet = BetRepository(session).upsert(
+            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json='{"sel":"HOME"}'
+        )
+        bet.is_correct = True
+        bet.points_awarded = 2
+        bet.settled_at = datetime.now(tz=UTC).replace(tzinfo=None)
+        session.commit()
+    update, message = _cmd_update()
+    await minhas_apostas_handler(update, _context(app_context))
+    text = message.reply_text.await_args.args[0]
+    assert "Encerrados" in text
+    assert "2 pts" in text and "✓" in text
 
 
 # --- /jogos ---------------------------------------------------------------------------------

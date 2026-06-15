@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -102,6 +102,87 @@ async def test_board_toggle_ignores_message_not_modified(app_context: AppContext
     update.callback_query = query
     update.effective_user = _USER
     await board_toggle(cast(Update, update), _context(app_context))  # must not raise
+
+
+def _settled_game_with_bet(
+    app_context: AppContext,
+    *,
+    fixture_id: int,
+    kickoff_local: datetime,
+    telegram_id: int,
+    points: int,
+) -> None:
+    with app_context.session_factory() as session:
+        session.add(
+            Game(
+                fixture_id=fixture_id,
+                match_hash=f"h{fixture_id}",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="A",
+                away_team_id=20,
+                away_team_name="B",
+                kickoff_utc=kickoff_local,
+                kickoff_local=kickoff_local,
+                status=GameStatus.FINISHED,
+                settled_at=utcnow(),
+            )
+        )
+        PlayerRepository(session).get_or_create(telegram_id, f"Player{telegram_id}")
+        bet = BetRepository(session).upsert(
+            fixture_id=fixture_id,
+            player_telegram_id=telegram_id,
+            category="WINNER",
+            payload_json="{}",
+        )
+        bet.is_correct = points > 0
+        bet.points_awarded = points
+        bet.settled_at = utcnow()
+        session.commit()
+
+
+async def test_weekly_board_is_subset_of_geral(app_context: AppContext) -> None:
+    now_local = datetime.now(app_context.settings.tzinfo).replace(tzinfo=None)
+    # In-week game (2 pts) + last-month game (5 pts) for the same player.
+    _settled_game_with_bet(
+        app_context, fixture_id=1, kickoff_local=now_local, telegram_id=42, points=2
+    )
+    _settled_game_with_bet(
+        app_context,
+        fixture_id=2,
+        kickoff_local=now_local - timedelta(days=30),
+        telegram_id=42,
+        points=5,
+    )
+    update, message = _cmd_update()
+    await placar_handler(update, _context(app_context))  # Geral
+    assert "<b>7</b> pts" in message.reply_text.await_args.args[0]  # 5 + 2
+
+    update, message = _cmd_update()
+    await placar_handler(update, _context(app_context, args=["semana"]))  # Semana
+    weekly_text = message.reply_text.await_args.args[0]
+    assert "<b>2</b> pts" in weekly_text  # only the in-week game
+    assert "<b>7</b> pts" not in weekly_text
+
+
+async def test_caller_outside_top_15_gets_own_line(app_context: AppContext) -> None:
+    now_local = datetime.now(app_context.settings.tzinfo).replace(tzinfo=None)
+    # 15 higher-ranked players + the caller (id 42) ranked 16th with the fewest points.
+    for i in range(15):
+        _settled_game_with_bet(
+            app_context,
+            fixture_id=100 + i,
+            kickoff_local=now_local,
+            telegram_id=200 + i,
+            points=10 + i,
+        )
+    _settled_game_with_bet(
+        app_context, fixture_id=1, kickoff_local=now_local, telegram_id=42, points=1
+    )
+    update, message = _cmd_update()
+    await placar_handler(update, _context(app_context))
+    text = message.reply_text.await_args.args[0]
+    assert "Você: 16º" in text
 
 
 async def test_board_toggle_edits_message(app_context: AppContext) -> None:
