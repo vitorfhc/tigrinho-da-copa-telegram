@@ -18,11 +18,14 @@ from tigrinho.bot.bets_handlers import (
     start_handler,
 )
 from tigrinho.bot.callbacks import (
+    Cancel,
     ChooseCategory,
+    ChooseGame,
     DeleteBet,
     ExactScore,
     HomeScore,
     WinnerInput,
+    decode,
     encode,
 )
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
@@ -133,6 +136,38 @@ async def test_apostar_group_redirects_to_private(app_context: AppContext) -> No
     assert isinstance(markup, InlineKeyboardMarkup)
     url = markup.inline_keyboard[0][0].url
     assert url is not None and "start=apostar" in url
+
+
+async def test_start_apostar_payload_opens_games_picker(app_context: AppContext) -> None:
+    # The group "Apostar no privado" deep link (?start=apostar) must open the games picker,
+    # not the welcome message.
+    _seed_game(app_context)
+    update, message = _cmd_update()
+    await start_handler(update, _context(app_context, args=["apostar"]))
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    assert any(
+        isinstance(decode(b.callback_data), ChooseGame)
+        for row in markup.inline_keyboard
+        for b in row
+        if isinstance(b.callback_data, str)
+    )
+
+
+async def test_first_scorer_without_squads_offers_back_and_cancel(app_context: AppContext) -> None:
+    _seed_game(app_context)  # no squad rows seeded
+    update, query = _cb_update(encode(ChooseCategory(1001, BetCategory.FIRST_SCORER)))
+    await on_callback(update, _context(app_context))
+    markup = query.edit_message_text.await_args.kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    decoded = [
+        decode(b.callback_data)
+        for row in markup.inline_keyboard
+        for b in row
+        if isinstance(b.callback_data, str)
+    ]
+    assert any(isinstance(d, ChooseGame) for d in decoded)  # back to categories
+    assert any(isinstance(d, Cancel) for d in decoded)  # cancel
 
 
 # --- wizard transitions ---------------------------------------------------------------------

@@ -39,6 +39,7 @@ from tigrinho.bot.callbacks import (
 from tigrinho.bot.keyboards import (
     announcement_keyboard,
     away_score_keyboard,
+    back_or_cancel_keyboard,
     btts_keyboard,
     category_keyboard,
     games_keyboard,
@@ -139,13 +140,18 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if message is None:
         return
     args = context.args or []
-    if args and args[0].startswith("bet_"):
+    payload = args[0] if args else ""
+    if payload.startswith("bet_"):
         try:
-            fixture_id = int(args[0].removeprefix("bet_"))
+            fixture_id = int(payload.removeprefix("bet_"))
         except ValueError:
             await message.reply_text(welcome_text(), parse_mode=ParseMode.HTML)
             return
         await _enter_wizard(update, context, fixture_id)
+        return
+    if payload == "apostar":
+        # Deep link from the group "Apostar no privado" button → open the games picker.
+        await _show_open_games(update, get_app_context(context.application))
         return
     await message.reply_text(welcome_text(), parse_mode=ParseMode.HTML)
 
@@ -302,7 +308,11 @@ async def _step_payload(
         else:  # FIRST_SCORER
             squad = _combined_squad(session, game)
             if not squad:
-                await _edit(query, "Elencos ainda não cadastrados para este jogo. 😕")
+                await _edit(
+                    query,
+                    "😕 Elencos ainda não cadastrados para este jogo — escolha outra categoria.",
+                    keyboard=back_or_cancel_keyboard(fixture_id),
+                )
                 return
             await _edit(
                 query,

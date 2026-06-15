@@ -157,6 +157,16 @@ def my_bets_keyboard(open_bets: Sequence[tuple[int, str]]) -> InlineKeyboardMark
     return InlineKeyboardMarkup(rows)
 
 
+def back_or_cancel_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
+    """A way out of a payload step: back to the category list, or cancel the wizard."""
+    return InlineKeyboardMarkup(
+        [
+            [_button("⬅️ Categorias", ChooseGame(fixture_id))],
+            [_button("✖️ Cancelar", Cancel())],
+        ]
+    )
+
+
 def board_toggle_keyboard(weekly: bool) -> InlineKeyboardMarkup:
     """Toggle button switching the scoreboard between Geral and Semana (§10)."""
     if weekly:
