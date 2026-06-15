@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: NOT STARTED** (no milestones complete yet) · _Created 2026-06-15_
+**Status: M0 complete** (scaffold + config + logging green) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -46,17 +46,17 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
 
 ## Milestone checklist (M0–M11, in order — §18)
 
-- [ ] **M0 — Scaffold**
-  - [ ] `pyproject.toml` with dependencies (`uv` or `pip`)
-  - [ ] ruff (lint + format), `mypy --strict`, and `pytest` config wired up
-  - [ ] Package layout per §5 (`tigrinho/` package + `tests/`)
-  - [ ] `config.py` — single `Settings` (pydantic-settings): secrets from `.env`, settings from
+- [x] **M0 — Scaffold**
+  - [x] `pyproject.toml` with dependencies (`uv`)
+  - [x] ruff (lint + format), `mypy --strict`, and `pytest` config wired up
+  - [x] Package layout per §5 (`tigrinho/` package + `tests/`)
+  - [x] `config.py` — single `Settings` (pydantic-settings): secrets from `.env`, settings from
         `config.yaml` via `YamlConfigSettingsSource`; `CONFIG_PATH` env; merged + validated; fail-fast
-  - [ ] `logging.py` — structlog to stdout (`json`/`console`, level from config)
-  - [ ] Initial `PROGRESS.md` present (this file)
+  - [x] `logging.py` — structlog to stdout (`json`/`console`, level from config)
+  - [x] Initial `PROGRESS.md` present (this file)
   - **Done when:** package imports, `config.py` loads/validates `.env` + `config.yaml` (and fails fast
     on missing/malformed values) with tests, and all gates (`ruff check .`, `ruff format --check .`,
-    `mypy --strict .`, `pytest`) are green on the empty app.
+    `mypy --strict .`, `pytest`) are green on the empty app. ✅ **DONE** (16 tests, gates green).
 
 - [ ] **M1 — Data layer**
   - [ ] ORM models (`players` keyed on `telegram_id`, `games`, `bets`, `squad_players`, `api_usage`)
@@ -197,3 +197,33 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
 
 _(The loop appends here every iteration: discoveries, grounding doc URLs, decisions made for
 under-specified points, and blockers. Empty at creation — 2026-06-15.)_
+
+### 2026-06-15 — M0 Scaffold (DONE)
+
+**Toolchain:** `uv` 0.9.20 manages the project; venv pinned to **Python 3.12.8** (matches the
+`python:3.12-slim` deploy target, §15) even though the host runs 3.14. Run gates via `uv run …`.
+Installed (key): pydantic 2.13.4, pydantic-settings 2.14.1, structlog 26.1.0, ruff 0.15.17,
+mypy 2.1.0, pytest 9.1.0, pytest-asyncio 1.4.0. `uv.lock` is committed for reproducibility.
+
+**Grounding done (per §2):**
+- pydantic-settings 2.14 — https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/
+  · YAML source: override `settings_customise_sources`, return tuple incl.
+  `YamlConfigSettingsSource(settings_cls, yaml_file=...)`; **first source in the tuple wins** →
+  ordered `init,env,dotenv,yaml,secrets` so env beats YAML (§4). Missing YAML file is skipped
+  (base mixin checks `is_file()`), so required values must then come from env (fail-fast preserved).
+  YAML needs the `pydantic-settings[yaml]` extra.
+- structlog 26 — https://www.structlog.org/en/stable/ · `configure(processors=[…],
+  wrapper_class=make_filtering_bound_logger(level), logger_factory=PrintLoggerFactory())`.
+
+**Decisions / gotchas (carry forward):**
+- **mypy + pydantic-settings:** pydantic v2's `dataclass_transform` makes mypy require every field
+  in `Settings()`. Fixed by enabling `plugins = ["pydantic.mypy"]` (special-cases `BaseSettings`
+  to make init args optional). This is the supported fix — NOT a gate weakening. Keep the plugin.
+- Tests neutralize a developer's real `.env` via `monkeypatch.chdir(tmp_path)` (relative `.env`
+  then resolves to an absent file) — no `_env_file=` kwarg needed (the plugin's typed init rejects it).
+- **PTB version:** latest is **22.x** (22.7/22.8 in 2026); 21.x is EOL. Per §2 "live docs win",
+  M4+ will target PTB **22.x** and I'll record that decision in COMPLETION.md when integrating it.
+
+**Next:** M1 — Data layer. Ground SQLAlchemy 2.0 typed ORM (`Mapped`/`mapped_column`) + Alembic
+(env.py for offline/online, `alembic upgrade head`) before coding. Models keyed on
+`players.telegram_id` (§6); enforce `UNIQUE(fixture_id, player_telegram_id, category)` on bets.

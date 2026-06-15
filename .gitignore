@@ -27,6 +27,7 @@ data/
 # ---------------------------------------------------------------------------
 # Ralph loop local state (per-machine loop bookkeeping — not shared)
 # ---------------------------------------------------------------------------
+.claude/ralph-loop.local.md
 .claude/.ralph-loop.local.md
 .claude/settings.local.json
 

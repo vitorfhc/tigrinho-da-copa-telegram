@@ -1,0 +1,25 @@
+# TigrinhoDaCopa — NON-SECRET settings (COMPLETION.md §4.2).
+# Copy to `config.yaml` and fill in the required IDs. Secrets go in `.env`, never here.
+
+# --- Required ---------------------------------------------------------------------------------
+# The single group chat the bot serves (negative integer for groups/supergroups).
+group_chat_id: -1001234567890
+# Telegram user id DM'd on errors/limits (must press Start in the bot's DM once).
+admin_user_id: 123456789
+# The bot's @username without the leading '@' (verified against get_me() at startup).
+bot_username: TigrinhoDaCopaBot
+
+# --- Optional (defaults shown) ----------------------------------------------------------------
+provider_mode: api_football            # api_football | fake (local/dev)
+api_football_base_url: https://v3.football.api-sports.io
+wc_league_id: 1                        # FIFA World Cup league id (verify against provider)
+wc_season: 2026
+timezone: America/Sao_Paulo            # drives sync time, displayed kickoffs, weekly reset
+sync_time: "06:00"                     # daily fixtures sync (local time)
+poll_interval_minutes: 10              # live-poll cadence during match windows
+match_window_hours: 3                  # how long after kickoff a game stays "active"
+api_daily_cap: 100                     # hard ceiling on provider requests per budget day
+api_budget_reset_tz: UTC               # timezone whose midnight resets the request counter
+db_path: /data/tigrinho.db             # SQLite file path (mounted volume)
+log_level: INFO                        # CRITICAL | ERROR | WARNING | INFO | DEBUG | NOTSET
+log_format: json                       # json | console
