@@ -129,8 +129,10 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - [x] `bot/callbacks.py` — compact `callback_data` encode/decode helpers (≤64 bytes) with round-trip
         — typed union (ChooseGame/ChooseCategory/ScoreInput/Winner/Btts/OverUnder/ScorerPage/
         ScorerInput/DeleteBet/Cancel); strict decode; oversized guard
-  - [ ] `bot/keyboards.py` — inline keyboard builders (games, categories, score pad, paginated squad,
-        board toggle)
+  - [x] `bot/keyboards.py` — inline keyboard builders (games, categories, score pad 0–10, winner
+        with DRAW hidden for knockout, BTTS, over/under, paginated squad, my-bets delete);
+        board toggle deferred to M8
+        - [x] DRAW hidden for knockout fixtures
   - [ ] `bot/bets_handlers.py` — `/start bet_<fixture_id>` deep-link entry (parse payload, auto-create
         player, jump into wizard)
   - [ ] `/apostar` wizard (`ConversationHandler` + `CallbackQueryHandler`, editing one message):
