@@ -49,7 +49,9 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+# The pure domain (scoring + settlement) MUST keep ~100% line+branch coverage (DoD, §0/§2);
+# enforced on every `pytest` run so a regression fails the gate immediately.
+addopts = "-q --cov=tigrinho.domain.scoring --cov=tigrinho.domain.settlement --cov-branch --cov-report=term-missing --cov-fail-under=100"
 
 [tool.coverage.run]
 source = ["tigrinho"]

@@ -87,15 +87,18 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
     ✅ **DONE** (56 tests, gates green).
 
 - [ ] **M3 — Domain** (interface-agnostic — unchanged from the Discord build)
-  - [ ] `domain/bets.py` — `BetCategory` enum + typed per-category payload models + validation
-  - [ ] `domain/scoring.py` — centralized points table + per-category grading (PURE)
-  - [ ] `domain/settlement.py` — grade every bet for a `MatchResult` (PURE, deterministic, idempotent)
+  - [x] `domain/bets.py` — `BetCategory` enum + typed per-category payload models + validation
+        (pydantic, frozen, `extra=forbid`); `parse_payload`/`serialize_payload`
+  - [x] `domain/scoring.py` — centralized `POINTS` table + per-category grading (PURE);
+        `GradingContext`, `is_correct`, `grade`, `first_genuine_scorer`
+  - [x] `domain/settlement.py` — grade every bet for a `MatchResult` (PURE, deterministic, idempotent)
   - [ ] `domain/text_pt.py` — pt-BR message templates (HTML parse mode)
-  - [ ] Exhaustive table-driven domain tests (§16): knockout 90′ draw, own-goal-first, 0-0 first
+  - [x] Exhaustive table-driven domain tests (§16): knockout 90′ draw, own-goal-first, 0-0 first
         scorer, advancing-team winner, O/U boundary at exactly 2 and 3, BTTS NEITHER on 0-0,
         settlement idempotency
   - **Done when:** domain modules exist, tests pass, `scoring.py` + `settlement.py` have ~100%
-    line+branch coverage, all gates green.
+    line+branch coverage, all gates green. _(scoring+settlement at **100% line+branch**, enforced by
+    `--cov-fail-under=100` in pytest addopts; text_pt.py pending.)_
 
 - [ ] **M4 — Bot skeleton**
   - [ ] `bot/app.py` — PTB `Application` builder (long polling) + handler/job registration
