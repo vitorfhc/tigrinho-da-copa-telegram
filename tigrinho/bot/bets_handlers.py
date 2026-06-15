@@ -49,6 +49,7 @@ from tigrinho.bot.keyboards import (
     squad_keyboard,
     winner_keyboard,
 )
+from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
 from tigrinho.db.models import Bet, Game, GameStatus, utcnow
 from tigrinho.db.repositories import (
@@ -128,7 +129,7 @@ def _category_prompt(session: Session, telegram_id: int, game: Game) -> str:
 async def _edit(
     query: CallbackQuery, text: str, *, keyboard: InlineKeyboardMarkup | None = None
 ) -> None:
-    await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await safe_edit_text(query, text, reply_markup=keyboard)
 
 
 # --- entry points ---------------------------------------------------------------------------

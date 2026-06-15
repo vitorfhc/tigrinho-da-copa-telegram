@@ -91,6 +91,19 @@ async def test_placar_empty(app_context: AppContext) -> None:
     assert "Ainda não há pontos" in message.reply_text.await_args.args[0]
 
 
+async def test_board_toggle_ignores_message_not_modified(app_context: AppContext) -> None:
+    from telegram.error import BadRequest
+
+    _seed_settled_bet(app_context)
+    query = AsyncMock(spec=CallbackQuery)
+    query.data = encode(BoardView("semana"))
+    query.edit_message_text.side_effect = BadRequest("Message is not modified")
+    update = MagicMock()
+    update.callback_query = query
+    update.effective_user = _USER
+    await board_toggle(cast(Update, update), _context(app_context))  # must not raise
+
+
 async def test_board_toggle_edits_message(app_context: AppContext) -> None:
     _seed_settled_bet(app_context)
     query = AsyncMock(spec=CallbackQuery)

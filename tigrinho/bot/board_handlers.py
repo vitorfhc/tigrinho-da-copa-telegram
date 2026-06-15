@@ -16,6 +16,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from tigrinho.board_data import load_board_records
 from tigrinho.bot.callbacks import BoardScope, BoardView, decode
 from tigrinho.bot.keyboards import board_toggle_keyboard
+from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
 from tigrinho.domain.text_pt import board_text
 from tigrinho.scoreboard import rank
@@ -69,7 +70,7 @@ async def board_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     app_context = get_app_context(context.application)
     user = update.effective_user
     text, keyboard = _render(app_context, data.scope, user.id if user is not None else None)
-    await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await safe_edit_text(query, text, reply_markup=keyboard)
 
 
 def register_board_handlers(application: AnyApplication) -> None:
