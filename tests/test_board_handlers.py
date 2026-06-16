@@ -12,10 +12,20 @@ from telegram.ext import ContextTypes
 from tigrinho.bot.board_handlers import (
     board_toggle,
     game_board_select,
+    games_board_compute,
+    games_board_toggle,
     placar_handler,
     placar_jogo_handler,
+    placar_jogos_handler,
 )
-from tigrinho.bot.callbacks import BoardView, GameBoard, decode, encode
+from tigrinho.bot.callbacks import (
+    BoardView,
+    GameBoard,
+    GamesBoardCompute,
+    GamesBoardToggle,
+    decode,
+    encode,
+)
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.db.models import Game, GameStatus, Stage, utcnow
 from tigrinho.db.repositories import BetRepository, PlayerRepository
@@ -289,3 +299,65 @@ async def test_game_board_select_unknown_game(app_context: AppContext) -> None:
     update, query = _callback_update(encode(GameBoard(999999)))
     await game_board_select(update, _context(app_context))
     assert "não encerrado" in query.edit_message_text.await_args.args[0]
+
+
+# --- /placar_jogos (combined scoreboard for a set of ended games) ---------------------------
+
+
+async def test_placar_jogos_lists_picker(app_context: AppContext) -> None:
+    _seed_finished_game_with_bets(app_context)
+    update, message = _cmd_update()
+    await placar_jogos_handler(update, _context(app_context))
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(keyboard, InlineKeyboardMarkup)
+    toggle = keyboard.inline_keyboard[0][0]
+    assert toggle.text == "☐ Brasil 2 x 1 Argentina"
+    assert isinstance(toggle.callback_data, str)
+    assert decode(toggle.callback_data) == GamesBoardToggle(0, 0)
+    compute = keyboard.inline_keyboard[-1][0]
+    assert compute.text == "✅ Calcular placar (0)"
+    assert isinstance(compute.callback_data, str)
+    assert decode(compute.callback_data) == GamesBoardCompute(0)
+
+
+async def test_placar_jogos_empty(app_context: AppContext) -> None:
+    update, message = _cmd_update()
+    await placar_jogos_handler(update, _context(app_context))
+    assert "Nenhum jogo encerrado" in message.reply_text.await_args.args[0]
+
+
+async def test_games_board_toggle_selects_game(app_context: AppContext) -> None:
+    _seed_finished_game_with_bets(app_context)
+    update, query = _callback_update(encode(GamesBoardToggle(0, 0)))
+    await games_board_toggle(update, _context(app_context))
+    query.answer.assert_awaited()
+    keyboard = query.edit_message_text.await_args.kwargs["reply_markup"]
+    toggle = keyboard.inline_keyboard[0][0]
+    assert toggle.text == "✅ Brasil 2 x 1 Argentina"
+    assert isinstance(toggle.callback_data, str)
+    assert decode(toggle.callback_data) == GamesBoardToggle(1, 0)
+    compute = keyboard.inline_keyboard[-1][0]
+    assert compute.text == "✅ Calcular placar (1)"
+    assert isinstance(compute.callback_data, str)
+    assert decode(compute.callback_data) == GamesBoardCompute(1)
+
+
+async def test_games_board_compute_sums_across_games(app_context: AppContext) -> None:
+    _seed_finished_game_with_bets(app_context, fixture_id=2002)
+    _seed_finished_game_with_bets(app_context, fixture_id=2003)
+    # Two games seeded -> mask 0b11 selects both. Alice: 8+8=16, Bob: 3+3=6.
+    update, query = _callback_update(encode(GamesBoardCompute(0b11)))
+    await games_board_compute(update, _context(app_context))
+    query.answer.assert_awaited()
+    text = query.edit_message_text.await_args.args[0]
+    assert "Placar — 2 jogos" in text
+    assert "🥇 Alice — <b>16</b> pts" in text
+    assert "🥈 Bob — <b>6</b> pts" in text
+
+
+async def test_games_board_compute_empty_selection_shows_toast(app_context: AppContext) -> None:
+    _seed_finished_game_with_bets(app_context)
+    update, query = _callback_update(encode(GamesBoardCompute(0)))
+    await games_board_compute(update, _context(app_context))
+    query.answer.assert_awaited_with("Selecione ao menos um jogo.")
+    query.edit_message_text.assert_not_awaited()

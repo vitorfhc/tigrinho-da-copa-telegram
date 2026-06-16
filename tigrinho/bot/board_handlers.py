@@ -13,18 +13,32 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
-from tigrinho.board_data import load_board_records, load_game_records
-from tigrinho.bot.callbacks import BoardScope, BoardView, GameBoard, decode
-from tigrinho.bot.keyboards import board_toggle_keyboard, ended_games_keyboard
+from tigrinho.board_data import load_board_records, load_game_records, load_games_records
+from tigrinho.bot.callbacks import (
+    BoardScope,
+    BoardView,
+    GameBoard,
+    GamesBoardCompute,
+    GamesBoardToggle,
+    decode,
+)
+from tigrinho.bot.keyboards import (
+    board_toggle_keyboard,
+    combined_games_keyboard,
+    ended_games_keyboard,
+)
 from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
 from tigrinho.db.repositories import GameRepository
-from tigrinho.domain.text_pt import board_text, game_board_text
+from tigrinho.domain.text_pt import board_text, game_board_text, games_board_text
 from tigrinho.scoreboard import rank
 
 _TOP_N = 15
 # How many recently-ended games to offer in the /placar_jogo picker (inline-button budget).
 _ENDED_GAMES_LIMIT = 15
+# How many recently-ended games to offer in the /placar_jogos multi-select picker.
+_COMBINED_GAMES_LIMIT = 10
+_COMBINED_PICKER_PROMPT = "Escolha os jogos para somar o placar (toque para marcar):"
 
 
 def _render(
@@ -146,9 +160,95 @@ async def game_board_select(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await safe_edit_text(query, text)
 
 
+def _render_picker(app_context: AppContext, mask: int) -> tuple[str, InlineKeyboardMarkup] | None:
+    """Build the /placar_jogos multi-select picker for ``mask``; None when no game has ended."""
+    with app_context.session_factory() as session:
+        games = GameRepository(session).list_recently_ended(_COMBINED_GAMES_LIMIT)
+        labels = [
+            _ended_game_label(g.home_team_name, g.away_team_name, g.home_goals_90, g.away_goals_90)
+            for g in games
+        ]
+    if not labels:
+        return None
+    return _COMBINED_PICKER_PROMPT, combined_games_keyboard(labels, mask)
+
+
+def _render_combined_board(app_context: AppContext, mask: int) -> str | None:
+    """Combined-board text for the games selected by ``mask``; None if nothing is selected."""
+    with app_context.session_factory() as session:
+        games = GameRepository(session).list_recently_ended(_COMBINED_GAMES_LIMIT)
+        selected = [g for i, g in enumerate(games) if mask & (1 << i)]
+        if not selected:
+            return None
+        records = load_games_records(session, [g.fixture_id for g in selected])
+        rows = [(e.rank, e.display_name, e.points) for e in rank(records)]
+        header_games = [
+            (g.home_team_name, g.away_team_name, g.home_goals_90, g.away_goals_90) for g in selected
+        ]
+    return games_board_text(games=header_games, rows=rows)
+
+
+async def placar_jogos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/placar_jogos — multi-select picker; sums points across the chosen ended games (§10)."""
+    message = update.effective_message
+    if message is None:
+        return
+    rendered = _render_picker(get_app_context(context.application), mask=0)
+    if rendered is None:
+        await message.reply_text("Nenhum jogo encerrado ainda. 🐯")
+        return
+    text, keyboard = rendered
+    await message.reply_text(text, reply_markup=keyboard)
+
+
+async def games_board_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Inline (^pjt:) — flip one game's selection bit and re-render the picker."""
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    try:
+        data = decode(query.data)
+    except ValueError:
+        await query.answer("Ação inválida.")
+        return
+    if not isinstance(data, GamesBoardToggle):
+        return
+    await query.answer()
+    new_mask = data.mask ^ (1 << data.index)
+    rendered = _render_picker(get_app_context(context.application), new_mask)
+    if rendered is None:
+        await safe_edit_text(query, "Nenhum jogo encerrado ainda. 🐯")
+        return
+    text, keyboard = rendered
+    await safe_edit_text(query, text, reply_markup=keyboard)
+
+
+async def games_board_compute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Inline (^pjc:) — render the combined board for the selected games (toast if none)."""
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    try:
+        data = decode(query.data)
+    except ValueError:
+        await query.answer("Ação inválida.")
+        return
+    if not isinstance(data, GamesBoardCompute):
+        return
+    text = _render_combined_board(get_app_context(context.application), data.mask)
+    if text is None:
+        await query.answer("Selecione ao menos um jogo.")
+        return
+    await query.answer()
+    await safe_edit_text(query, text)
+
+
 def register_board_handlers(application: AnyApplication) -> None:
-    """Register /placar + /placar_jogo and their callbacks (patterns precede the catch-all)."""
+    """Register /placar + /placar_jogo + /placar_jogos and their callbacks (precede catch-all)."""
     application.add_handler(CommandHandler("placar", placar_handler))
     application.add_handler(CommandHandler("placar_jogo", placar_jogo_handler))
+    application.add_handler(CommandHandler("placar_jogos", placar_jogos_handler))
     application.add_handler(CallbackQueryHandler(board_toggle, pattern="^bv:"))
     application.add_handler(CallbackQueryHandler(game_board_select, pattern="^gb:"))
+    application.add_handler(CallbackQueryHandler(games_board_toggle, pattern="^pjt:"))
+    application.add_handler(CallbackQueryHandler(games_board_compute, pattern="^pjc:"))
