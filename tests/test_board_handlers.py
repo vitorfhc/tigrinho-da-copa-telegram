@@ -361,3 +361,15 @@ async def test_games_board_compute_empty_selection_shows_toast(app_context: AppC
     await games_board_compute(update, _context(app_context))
     query.answer.assert_awaited_with("Selecione ao menos um jogo.")
     query.edit_message_text.assert_not_awaited()
+
+
+async def test_games_board_compute_ignores_out_of_range_bits(app_context: AppContext) -> None:
+    # Only two games exist (positions 0 and 1). Bit 2 is beyond the current list and must be
+    # ignored (the documented list-drift length guard), so mask 0b101 selects exactly one game.
+    _seed_finished_game_with_bets(app_context, fixture_id=2002)
+    _seed_finished_game_with_bets(app_context, fixture_id=2003)
+    update, query = _callback_update(encode(GamesBoardCompute(0b101)))
+    await games_board_compute(update, _context(app_context))
+    text = query.edit_message_text.await_args.args[0]
+    assert "Placar — 1 jogo" in text
+    assert "🥇 Alice — <b>8</b> pts" in text  # one game only -> not summed to 16
