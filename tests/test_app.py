@@ -138,9 +138,11 @@ async def test_post_init_schedules_all_jobs(app_context: AppContext) -> None:
         patch("tigrinho.bot.app.schedule_sync_job") as sync_mock,
         patch("tigrinho.bot.app.schedule_poll_job") as poll_mock,
         patch("tigrinho.bot.app.schedule_reminder_job") as reminder_mock,
+        patch("tigrinho.bot.app.schedule_reconcile_job") as reconcile_mock,
     ):
         await post_init(cast(AnyApplication, application))
 
     sync_mock.assert_called_once_with(application.job_queue, app_context.settings)
     poll_mock.assert_called_once_with(application.job_queue, app_context.settings)
     reminder_mock.assert_called_once_with(application.job_queue, app_context.settings)
+    reconcile_mock.assert_called_once_with(application.job_queue, app_context.settings)

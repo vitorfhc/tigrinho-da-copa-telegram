@@ -106,6 +106,25 @@ class GameRepository:
         )
         return list(self._session.execute(stmt).scalars())
 
+    def list_reconcilable(self, now: datetime, window_hours: int) -> list[Game]:
+        """Settled games still inside their post-settlement reconcile window (§8.3/§9.2).
+
+        ``FINISHED`` games with ``settled_at`` set whose kickoff is within ``window_hours`` of now
+        (``kickoff_utc >= now - window``). The reconcile job re-checks these for a changed 90′
+        outcome (late/VAR feed corrections); past the window they need manual CLI re-settle.
+        """
+        window_start = now - timedelta(hours=window_hours)
+        stmt = (
+            select(Game)
+            .where(
+                Game.status == GameStatus.FINISHED,
+                Game.settled_at.is_not(None),
+                Game.kickoff_utc >= window_start,
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
     def list_unannounced_within(self, now: datetime, horizon: timedelta) -> list[Game]:
         """Open, not-yet-announced games kicking off within ``horizon`` of now (§9.1).
 

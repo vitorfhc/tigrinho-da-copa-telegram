@@ -178,6 +178,48 @@ def results_text(
     return "\n".join(lines)
 
 
+def correction_text(
+    *,
+    home: str,
+    away: str,
+    home_goals: int,
+    away_goals: int,
+    corrected_from: tuple[int, int] | None,
+    first_team_name: str | None,
+    players: Sequence[tuple[int, str, int, int, Sequence[tuple[str, bool, int]]]],
+) -> str:
+    """Group post when a settled game is re-graded after a late provider correction (§8.3/§9.2).
+
+    ``corrected_from`` is the previous 90′ score, shown as ``(antes: H x A)`` only when the score
+    actually changed (``None`` for a first-scorer/advancing-only correction). ``players`` lists only
+    the **affected** bettors as ``(telegram_id, name, old_total, new_total, [(label, ok, pts)])``.
+    """
+    score_line = f"🏁 <b>{escape(home)} {home_goals} x {away_goals} {escape(away)}</b>"
+    if corrected_from is not None:
+        prev_home, prev_away = corrected_from
+        score_line += f" (antes: {prev_home} x {prev_away})"
+    lines = [
+        "⚠️ <b>Placar corrigido!</b>",
+        "Os pontos deste jogo foram recalculados — confira o /placar.",
+        score_line,
+    ]
+    if first_team_name:
+        lines.append(f"⚽ Primeira equipe a marcar: {escape(first_team_name)}")
+    else:
+        lines.append("⚽ Sem gol válido no tempo normal (0 a 0 ou só gol contra)")
+    lines.append("")
+    lines.append("<b>Pontuação recalculada:</b>")
+    for telegram_id, name, old_total, new_total, categories in players:
+        marks = " · ".join(
+            f"{'✓' if ok else '✗'} {label}{f' (+{pts})' if ok else ''}"
+            for label, ok, pts in categories
+        )
+        lines.append(
+            f"{mention(telegram_id, name)} — <b>{old_total} → {new_total}</b> pts\n  {marks}"
+        )
+    return "\n".join(lines)
+
+
 def kickoff_text(home_team: str, away_team: str) -> str:
     """Group post when a tracked game kicks off (§9.4)."""
     return (

@@ -22,6 +22,12 @@ poll_interval_minutes: 10              # live-poll cadence during match windows
 reminder_lead_minutes: 60              # post a betting reminder this long before kickoff
 reminder_interval_minutes: 10          # how often the reminder sweep runs
 match_window_hours: 3                  # how long after kickoff a game stays "active"
+# Post-settlement score reconciliation (§8.3/§9.2): re-check a settled game and re-grade if the
+# provider's 90′ outcome changed (late/VAR feed corrections), posting a "Placar corrigido" message.
+reconcile_window_hours: 6              # how long after kickoff a settled game stays re-checkable
+reconcile_first_delay_minutes: 5      # first re-check this long after settlement (also job tick)
+reconcile_interval_minutes: 30        # re-check cadence after the first check
+reconcile_budget_reserve: 25          # skip reconcile when fewer than this many requests remain
 api_daily_cap: 100                     # hard ceiling on provider requests per budget day
 api_budget_reset_tz: UTC               # timezone whose midnight resets the request counter
 db_path: /data/tigrinho.db             # SQLite file path (mounted volume)

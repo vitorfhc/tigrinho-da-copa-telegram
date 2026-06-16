@@ -134,6 +134,29 @@ def test_game_list_active(session: Session) -> None:
     assert [g.fixture_id for g in repo.list_active(now, 3)] == [1]
 
 
+def test_game_list_reconcilable(session: Session) -> None:
+    repo = GameRepository(session)
+    now = datetime(2026, 6, 16, 22, 0)
+
+    in_window = _game_at(1, datetime(2026, 6, 16, 19, 0), GameStatus.FINISHED)  # 3h ago, settled
+    in_window.settled_at = datetime(2026, 6, 16, 21, 0)
+    unsettled = _game_at(
+        2, datetime(2026, 6, 16, 20, 0), GameStatus.LIVE
+    )  # finished window but not settled
+    past_window = _game_at(
+        3, datetime(2026, 6, 16, 14, 0), GameStatus.FINISHED
+    )  # 8h ago > 6h window
+    past_window.settled_at = datetime(2026, 6, 16, 16, 0)
+    voided = _game_at(
+        4, datetime(2026, 6, 16, 20, 0), GameStatus.VOID
+    )  # settled-ish but not FINISHED
+    voided.settled_at = datetime(2026, 6, 16, 21, 0)
+    session.add_all([in_window, unsettled, past_window, voided])
+    session.flush()
+
+    assert [g.fixture_id for g in repo.list_reconcilable(now, 6)] == [1]
+
+
 # --- GameRepository.list_due_for_reminder / mark_reminded helper ----------------------------
 
 

@@ -644,3 +644,27 @@ same tie-breaks). Pure DB read; voided games excluded.
   catch-all. `/ajuda` + `app.PRIVATE/GROUP_COMMANDS` + COMPLETION.md §10/§21 updated (§11 rule).
 - Built via subagent-driven TDD (merged with main's live-notifications + /palpite work).
   Design + plan under `docs/superpowers/`.
+
+### 2026-06-16 — Bug fix + feature: post-settlement score reconciliation (§8.3, §9.5)
+
+Prod posted **France 3 × 0 Senegal** for fixture 1489383 and graded all 29 bets against it; the
+real score was **3 × 1** (Senegal 90+5′, I. Mbaye). Confirmed via the live API (now correctly 3-1),
+the prod DB row (`home_goals_90=3, away_goals_90=0, goals_announced=3`), and logs (`settled` at
+21:04:30 UTC). Root cause: the poll job settles on a **single** `score.fulltime` read and is
+idempotent; Senegal's stoppage-time goal was ingested into the feed *after* settlement, so the wrong
+score was frozen with no reconciliation. (The live game was corrected manually by the user.)
+
+Fix — a dedicated **reconcile job** (`tigrinho/bot/reconcile_job.py`) that re-checks settled games
+for a bounded window and re-grades on a changed outcome:
+- Config (`config.py` + `config.example.yaml`): `reconcile_window_hours` (6), `reconcile_first_delay_minutes`
+  (5), `reconcile_interval_minutes` (30), `reconcile_budget_reserve` (25).
+- `Game.last_reconciled_at` column + migration `e3f4a5b6c7d8` (down_revision `d2e3f4a5b6c7`).
+- `GameRepository.list_reconcilable`; `text_pt.correction_text` (affected-only mentions, `antes → agora`,
+  `(antes: H x A)` only when the score changed); `AppContext.reconcile_posts` per-game cap; wired in
+  `app.post_init`.
+- Backoff: first re-check ~5 min after settle, then every 30 min until kickoff+6h; lowest budget
+  priority (yields below the reserve); write-time re-assert skips voided/rescheduled games; transient
+  reads don't burn the cooldown; group correction posts only when a player's total moved, capped per
+  game (then silent + one admin DM).
+- TDD throughout; design + multi-POV review under `docs/superpowers/specs/2026-06-16-score-reconciliation-design.md`.
+  `/ajuda` unchanged (no command/category/scoring/grading change). All four gates green (424 tests).

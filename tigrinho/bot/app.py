@@ -25,6 +25,7 @@ from tigrinho.bot.help_handlers import cmd_ajuda
 from tigrinho.bot.palpite_handlers import register_palpite_handlers
 from tigrinho.bot.palpite_job import schedule_palpite_job
 from tigrinho.bot.poll_job import schedule_poll_job
+from tigrinho.bot.reconcile_job import schedule_reconcile_job
 from tigrinho.bot.reminder_job import schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
 from tigrinho.bot.sync_job import schedule_sync_job
@@ -97,6 +98,7 @@ async def post_init(application: AnyApplication) -> None:
     if application.job_queue is not None:
         schedule_sync_job(application.job_queue, app_context.settings)
         schedule_poll_job(application.job_queue, app_context.settings)
+        schedule_reconcile_job(application.job_queue, app_context.settings)
         schedule_reminder_job(application.job_queue, app_context.settings)
         schedule_palpite_job(application.job_queue, app_context.settings)
 

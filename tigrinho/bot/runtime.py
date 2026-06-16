@@ -48,6 +48,9 @@ class AppContext:
     # Fixture ids already alerted as "stuck" this process, so the poll job DMs the admin once per
     # stuck game rather than every cycle; pruned when a game stops being stuck so it can re-alert.
     stuck_alerted: set[int] = field(default_factory=set)
+    # Per-game count of group "Placar corrigido" posts made by the reconcile job this process, so a
+    # flapping (VAR-oscillating) feed cannot spam the group; capped, then it DMs the admin (§8.3).
+    reconcile_posts: dict[int, int] = field(default_factory=dict)
 
 
 def get_app_context(application: AnyApplication) -> AppContext:

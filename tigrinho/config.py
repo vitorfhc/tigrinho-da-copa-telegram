@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     reminder_lead_minutes: int = Field(default=60, gt=0)
     reminder_interval_minutes: int = Field(default=10, gt=0)
     match_window_hours: int = Field(default=3, gt=0)
+    # Post-settlement score reconciliation (§8.3/§9.2): re-check a settled game for a bounded window
+    # and re-grade if the provider's 90′ outcome changed (late/VAR feed corrections).
+    reconcile_window_hours: int = Field(default=6, gt=0)
+    reconcile_first_delay_minutes: int = Field(default=5, gt=0)
+    reconcile_interval_minutes: int = Field(default=30, gt=0)
+    reconcile_budget_reserve: int = Field(default=25, gt=0)
     api_daily_cap: int = Field(default=100, gt=0)
     api_budget_reset_tz: str = "UTC"
     db_path: str = "/data/tigrinho.db"

@@ -127,3 +127,13 @@ def test_game_live_notification_defaults(session: Session) -> None:
     assert stored is not None
     assert stored.started_at is None
     assert stored.goals_announced == 0
+
+
+def test_game_last_reconciled_at_defaults_none_and_persists(session: Session) -> None:
+    _player, game = _seed_player_and_game(session)
+    stored = session.get(Game, game.fixture_id)
+    assert stored is not None
+    assert stored.last_reconciled_at is None
+    stored.last_reconciled_at = datetime(2026, 6, 16, 21, 10)
+    session.commit()
+    assert session.get(Game, game.fixture_id).last_reconciled_at == datetime(2026, 6, 16, 21, 10)  # type: ignore[union-attr]

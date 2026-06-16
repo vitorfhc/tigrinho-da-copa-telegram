@@ -37,6 +37,10 @@ _FIELD_ENV_NAMES = [
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
     "PALPITE_TIME",
+    "RECONCILE_WINDOW_HOURS",
+    "RECONCILE_FIRST_DELAY_MINUTES",
+    "RECONCILE_INTERVAL_MINUTES",
+    "RECONCILE_BUDGET_RESERVE",
 ]
 
 VALID_YAML = """\
@@ -186,6 +190,26 @@ def test_reminder_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     assert settings.reminder_lead_minutes == 60
     assert settings.reminder_interval_minutes == 10
     assert settings.reminder_lead == timedelta(minutes=60)
+
+
+def test_reconcile_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.reconcile_window_hours == 6
+    assert settings.reconcile_first_delay_minutes == 5
+    assert settings.reconcile_interval_minutes == 30
+    assert settings.reconcile_budget_reserve == 25
+
+
+def test_reconcile_window_must_be_positive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, env={"RECONCILE_WINDOW_HOURS": "0"})
+
+
+def test_reconcile_budget_reserve_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, env={"RECONCILE_BUDGET_RESERVE": "0"})
 
 
 def test_reminder_interval_must_be_positive(

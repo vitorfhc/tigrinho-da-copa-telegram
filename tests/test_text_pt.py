@@ -21,6 +21,7 @@ from tigrinho.domain.text_pt import (
     announcement_text,
     board_text,
     category_button_label,
+    correction_text,
     describe_bet,
     format_kickoff_local,
     format_kickoff_short,
@@ -240,6 +241,41 @@ def test_results_text_no_team_and_no_players() -> None:
     )
     assert "Sem gol válido" in text
     assert "Ninguém apostou" in text
+
+
+def test_correction_text_score_changed_shows_previous_and_deltas() -> None:
+    text = correction_text(
+        home="France",
+        away="Senegal",
+        home_goals=3,
+        away_goals=1,
+        corrected_from=(3, 0),
+        first_team_name="France",
+        players=[(42, "Alice", 5, 7, [("Resultado", True, 2), ("Ambas marcam", True, 2)])],
+    )
+    assert "Placar corrigido" in text
+    assert "recalculados" in text
+    assert "France 3 x 1 Senegal" in text
+    assert "(antes: 3 x 0)" in text
+    assert "tg://user?id=42" in text
+    assert "5 → 7" in text  # per-player delta
+
+
+def test_correction_text_outcome_only_change_omits_previous_score() -> None:
+    # Score unchanged (first-scorer reclassified): no "(antes: …)" suffix.
+    text = correction_text(
+        home="France",
+        away="Senegal",
+        home_goals=3,
+        away_goals=1,
+        corrected_from=None,
+        first_team_name="Senegal",
+        players=[(42, "Alice", 2, 0, [("Primeira equipe a marcar", False, 0)])],
+    )
+    assert "France 3 x 1 Senegal" in text
+    assert "antes:" not in text
+    assert "Primeira equipe a marcar: Senegal" in text
+    assert "2 → 0" in text  # a player who LOST points
 
 
 def test_board_text_geral_with_medals() -> None:

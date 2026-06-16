@@ -527,6 +527,18 @@ When a game becomes `FINISHED` (see §9), the bot:
    acknowledged.
 4. Marks the game `settled_at`. Settlement is **idempotent** (re-running corrects values).
 
+**Post-settlement reconciliation (§9.5 reconcile job).** A provider can finalize `score.fulltime`
+late (a stoppage-time / VAR-reviewed goal ingested minutes after the whistle), so a single
+settlement read can freeze a wrong score. For a bounded window after kickoff
+(`reconcile_window_hours`, default 6h) the reconcile job re-reads each settled game and, if the
+graded **outcome** changed (90′ score, first scorer, advancing team, or any bet's grade), re-grades
+via the same idempotent `settle_fixture`. When the re-grade actually moves a player's total it posts
+**one** correction to the group — `⚠️ Placar corrigido!` with the new 90′ score (`(antes: H x A)`
+only when the score changed) and each **affected** player mentioned with their `antes → agora`
+points. Per-game group corrections are capped (an oscillating feed re-grades silently and DMs the
+admin once). `/ajuda` is unchanged: no command, category, scoring, or grading-rule change — only
+*when* the final score is read.
+
 ---
 
 ## 9. Feature 2 — Games sync, polling & lifecycle
@@ -615,6 +627,33 @@ fetches):
 Best-effort group sends: a failure logs + DMs the admin and never crashes the bot (§14). Grading /
 settlement are **unchanged** — they still use the 90′ regulation score and the ≤90′ timeline; these
 notifications are display-only.
+
+### 9.5 Post-settlement score reconciliation
+
+A PTB **`JobQueue.run_repeating`** job (base tick `reconcile_first_delay_minutes`), separate from the
+live poll and acting on **already-settled** games — it fixes the late-data / single-read failure
+where the provider finalizes `score.fulltime` after the bot settled (stoppage-time / VAR goals).
+Per sweep:
+1. **Lowest budget priority (§7.3):** if `RequestBudget.remaining() < reconcile_budget_reserve`,
+   return without any call — settlement/sync are never starved.
+2. Select **reconcilable** games (`FINISHED`, `settled_at` set, `kickoff_utc + reconcile_window_hours`
+   not yet passed; default 6h) and narrow to those **due** by the per-game backoff: first check
+   ~`reconcile_first_delay_minutes` (5) after `settled_at`, then every `reconcile_interval_minutes`
+   (30), tracked by `games.last_reconciled_at` (survives restarts).
+3. For each due game, one budgeted `get_match_result()`. Re-assert the row is still `FINISHED`/settled
+   (skip if voided/rescheduled). A non-FINISHED / incomplete read is **transient** — do not advance
+   the cursor, retry next tick.
+4. If the graded **outcome** changed (90′ score, first scorer, advancing team, or any bet's grade),
+   re-grade via the idempotent `settle_fixture` (§8.3) and advance `last_reconciled_at`. Post a group
+   correction **only when a player's total moved**; a score change with no standing impact re-grades
+   silently. Per-game corrections are capped (`CORRECTION_POST_CAP`); beyond it, silent re-grade + a
+   one-time admin DM, so an oscillating feed can't spam the group. The correction mentions only
+   **affected** players.
+
+Coverage for a game is `max(0, kickoff + window − settled_at)` (~4h for a normal 2h settle). Past the
+window, a still-wrong score is the manual-CLI `set-result` case (§9.2 stuck safeguard). Note: a
+re-settle rewrites `settled_at`, so a corrected game re-sorts to the top of the `/placar_jogo[s]`
+recently-ended picker — accepted (it genuinely was just re-settled).
 
 ---
 

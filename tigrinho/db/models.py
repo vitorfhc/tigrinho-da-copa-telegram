@@ -89,6 +89,8 @@ class Game(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     goals_announced: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     settled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    # Last time the reconcile job re-checked this game's result post-settlement (§8.3/§9.2).
+    last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
 
     bets: Mapped[list[Bet]] = relationship(back_populates="game", cascade="all, delete-orphan")
     ai_palpites: Mapped[list[AiPalpite]] = relationship(
