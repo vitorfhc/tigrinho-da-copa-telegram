@@ -286,8 +286,8 @@ def test_game_board_text_no_bettors() -> None:
 def test_reminder_text_lists_games_with_weekday() -> None:
     text = reminder_text(
         [
-            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0)),
-            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0)),
+            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 3)]),
+            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0), []),
         ]
     )
     assert "Falta ~1h" in text
@@ -297,6 +297,24 @@ def test_reminder_text_lists_games_with_weekday() -> None:
 
 
 def test_reminder_text_escapes_team_names() -> None:
-    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0))])
+    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0), [])])
     assert "A &amp; B" in text
     assert "C &gt; D" in text
+
+
+def test_reminder_text_lists_bettors_with_counts() -> None:
+    text = reminder_text(
+        [("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 3), ("Ana", 5)])]
+    )
+    # "/5" is the total number of bet categories (one bet per category).
+    assert "👥 Já palpitaram: Felipe (3/5), Ana (5/5)" in text
+
+
+def test_reminder_text_no_bettors_shows_nudge() -> None:
+    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [])])
+    assert "Ninguém palpitou ainda" in text
+
+
+def test_reminder_text_escapes_bettor_names() -> None:
+    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("A & B", 2)])])
+    assert "A &amp; B (2/5)" in text

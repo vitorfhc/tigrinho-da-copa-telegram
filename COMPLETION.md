@@ -577,7 +577,10 @@ to bet ~1h before kickoff. Each sweep:
    `now < kickoff_utc <= now + reminder_lead`, narrowed to those sharing the soonest `kickoff_utc`.
    If none, **return without posting**.
 2. Posts **one** consolidated reminder to the group (HTML, pt-BR), with one `🎯 Apostar` deep-link
-   button per game in the slot — combining games that kick off at the **same time**.
+   button per game in the slot — combining games that kick off at the **same time**. Each game line
+   is followed by a `👥` line naming **who has already bet and how many of the 5 categories** each
+   filled (e.g. `👥 Já palpitaram: Ana (5/5), Felipe (3/5)`), ordered most-complete first
+   (count desc, then name); when nobody has bet yet it reads `👥 Ninguém palpitou ainda 👀`.
 3. Marks those games `reminded_at` **only on a successful send** (re-validated to skip games
    voided/rescheduled mid-flight); a failed send is retried on the next sweep and DMs the admin.
 

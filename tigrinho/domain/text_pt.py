@@ -38,6 +38,9 @@ CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.OVER_UNDER: "Mais/Menos 2.5 gols",
 }
 
+# Total number of bet categories — the "5" in "3/5" (one bet per category per game).
+TOTAL_CATEGORIES = len(BetCategory)
+
 
 def btts_labels(home_team: str, away_team: str) -> dict[BttsSel, str]:
     """Both-teams-to-score option labels, naming the two real teams (plain text, for buttons)."""
@@ -97,16 +100,30 @@ def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
     )
 
 
-def reminder_text(games: Sequence[tuple[str, str, datetime]]) -> str:
+def _bettors_line(bettors: Sequence[tuple[str, int]]) -> str:
+    """Inline 'who already bet' line for one game (§9.3).
+
+    ``bettors``: ``(display_name, bets_placed)`` in display order. Shows each bettor's count out
+    of :data:`TOTAL_CATEGORIES`, e.g. ``Felipe (3/5)``; nudges when nobody has bet yet.
+    """
+    if not bettors:
+        return "👥 Ninguém palpitou ainda 👀"
+    listing = ", ".join(f"{escape(name)} ({count}/{TOTAL_CATEGORIES})" for name, count in bettors)
+    return f"👥 Já palpitaram: {listing}"
+
+
+def reminder_text(games: Sequence[tuple[str, str, datetime, Sequence[tuple[str, int]]]]) -> str:
     """~1h pre-kickoff betting reminder for one kickoff slot (§9.3).
 
-    Each item: ``(home, away, kickoff_local)``. Combined into a single message when several
-    games share the slot. Followed by one ``🎯 Apostar`` button per game (built separately).
+    Each item: ``(home, away, kickoff_local, bettors)`` where ``bettors`` is an ordered
+    ``(display_name, bets_placed)`` list. Combined into a single message when several games share
+    the slot; each game line is followed by a ``👥`` line naming who already bet and how many of
+    the 5 categories. Followed by one ``🎯 Apostar`` button per game (built separately).
     """
-    lines = [
-        f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}"
-        for home, away, kickoff in games
-    ]
+    lines: list[str] = []
+    for home, away, kickoff, bettors in games:
+        lines.append(f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}")
+        lines.append(f"  {_bettors_line(bettors)}")
     body = "\n".join(lines)
     return (
         "⏰ <b>Falta ~1h pro apito! Ainda dá pra palpitar:</b>\n\n"

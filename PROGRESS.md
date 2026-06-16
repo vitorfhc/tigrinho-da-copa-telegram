@@ -560,3 +560,15 @@ from the message); (c) **single-flight generation**: a process-wide `asyncio.Loc
 lock-holder re-checks the warm cache before generating); (d) `strip_citation_tags` removes grounding
 tags (`[1]`/`[1.1.7]`) from `analysis`/`curiosity` at validation time (old cached rows cleaned on
 load). §20.1/§20.2 updated. 349 tests; all four gates green.
+
+### 2026-06-16 — Feature: pre-game reminder shows who bet & how many (§9.3)
+
+User request (worktree). The ~1h reminder (`reminder_text`) now appends a `👥` line per game naming
+who already bet and how many of the **5** categories each filled — inline compact format chosen by
+the user: `👥 Já palpitaram: Ana (5/5), Felipe (3/5)`, ordered most-complete first (count desc, then
+name); empty state reads `👥 Ninguém palpitou ainda 👀`. `reminder_text` items became 4-tuples
+`(home, away, kickoff_local, bettors)`; `reminder_job` gathers bettors via `BetRepository`
+(keyed on `telegram_id` so same-name players don't merge) inside the existing read session. New
+`TOTAL_CATEGORIES = len(BetCategory)` constant (single source of truth for the "5"). No schema/
+migration/provider change; pure DB read + group post. COMPLETION.md §9.3 updated; `/ajuda` unchanged
+(no command/category/scoring/grading change). 354 tests; all four gates green.

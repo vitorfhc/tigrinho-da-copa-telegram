@@ -21,7 +21,7 @@ from tigrinho.bot.keyboards import announcement_keyboard
 from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, utcnow
-from tigrinho.db.repositories import GameRepository
+from tigrinho.db.repositories import BetRepository, GameRepository
 from tigrinho.domain.text_pt import escape, reminder_text
 from tigrinho.logging import get_logger
 
@@ -38,14 +38,29 @@ class _GameView:
     home_team_name: str
     away_team_name: str
     kickoff_local: datetime
+    bettors: tuple[tuple[str, int], ...]
 
 
-def _view(game: Game) -> _GameView:
+def _bettors_for_game(bets: BetRepository, fixture_id: int) -> tuple[tuple[str, int], ...]:
+    """Players who bet on this game and how many of the 5 categories each filled (§9.3).
+
+    Ordered most-complete first (count desc, then name) so the keenest bettors lead the list.
+    """
+    counts: dict[int, tuple[str, int]] = {}
+    for bet in bets.list_for_game(fixture_id):
+        name, placed = counts.get(bet.player_telegram_id, (bet.player.display_name, 0))
+        counts[bet.player_telegram_id] = (name, placed + 1)
+    ordered = sorted(counts.values(), key=lambda nc: (-nc[1], nc[0]))
+    return tuple(ordered)
+
+
+def _view(game: Game, bettors: tuple[tuple[str, int], ...]) -> _GameView:
     return _GameView(
         fixture_id=game.fixture_id,
         home_team_name=game.home_team_name,
         away_team_name=game.away_team_name,
         kickoff_local=game.kickoff_local,
+        bettors=bettors,
     )
 
 
@@ -68,11 +83,14 @@ async def _run_reminder(app_context: AppContext, context: ContextTypes.DEFAULT_T
     now = utcnow()
     with app_context.session_factory() as session:
         games = GameRepository(session).list_due_for_reminder(now, settings.reminder_lead)
-        views = [_view(g) for g in games]
+        bets = BetRepository(session)
+        views = [_view(g, _bettors_for_game(bets, g.fixture_id)) for g in games]
     if not views:
         return
 
-    text = reminder_text([(v.home_team_name, v.away_team_name, v.kickoff_local) for v in views])
+    text = reminder_text(
+        [(v.home_team_name, v.away_team_name, v.kickoff_local, v.bettors) for v in views]
+    )
     keyboard = announcement_keyboard(
         [(v.fixture_id, f"{v.home_team_name} x {v.away_team_name}") for v in views],
         settings.bot_username,

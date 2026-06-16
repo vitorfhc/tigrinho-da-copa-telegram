@@ -13,7 +13,7 @@ from telegram.ext import ContextTypes, JobQueue
 from tigrinho.bot.reminder_job import REMINDER_JOB_NAME, reminder_job, schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.config import Settings
-from tigrinho.db.models import Game, GameStatus, Stage
+from tigrinho.db.models import Bet, Game, GameStatus, Player, Stage
 from tigrinho.db.repositories import GameRepository
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.fake import FakeProvider
@@ -44,6 +44,28 @@ def _seed(
                 kickoff_local=kickoff,
                 status=GameStatus.SCHEDULED,
                 announced_at=_now() if announced else None,
+            )
+        )
+        session.commit()
+
+
+def _seed_bet(
+    session_factory: sessionmaker[Session],
+    *,
+    fixture_id: int,
+    telegram_id: int,
+    name: str,
+    category: str,
+) -> None:
+    with session_factory() as session:
+        if session.get(Player, telegram_id) is None:
+            session.add(Player(telegram_id=telegram_id, display_name=name))
+        session.add(
+            Bet(
+                fixture_id=fixture_id,
+                player_telegram_id=telegram_id,
+                category=category,
+                payload_json="{}",
             )
         )
         session.commit()
@@ -147,6 +169,35 @@ async def test_send_failure_leaves_unflagged_and_alerts_admin(
     # The reminder send failed, then a best-effort admin DM was attempted (2 send_message calls).
     assert bot.send_message.await_count == 2
     assert _reminded_at(session_factory, 1) is None  # not flagged -> will retry next sweep
+
+
+async def test_reminder_lists_bettors_ordered_by_count(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed(session_factory, fixture_id=1, kickoff=_now() + timedelta(minutes=30))
+    # Felipe bet 3 categories; Ana bet all 5 -> Ana (5/5) sorts ahead of Felipe (3/5).
+    for category in ("EXACT_SCORE", "FIRST_TEAM", "BTTS"):
+        _seed_bet(session_factory, fixture_id=1, telegram_id=10, name="Felipe", category=category)
+    for category in ("EXACT_SCORE", "FIRST_TEAM", "BTTS", "WINNER", "OVER_UNDER"):
+        _seed_bet(session_factory, fixture_id=1, telegram_id=20, name="Ana", category=category)
+    context, bot = _ctx(_app_context(settings, session_factory))
+
+    await reminder_job(cast(ContextTypes.DEFAULT_TYPE, context))
+
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "👥 Já palpitaram: Ana (5/5), Felipe (3/5)" in text
+
+
+async def test_reminder_with_no_bettors_shows_nudge(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed(session_factory, fixture_id=1, kickoff=_now() + timedelta(minutes=30))
+    context, bot = _ctx(_app_context(settings, session_factory))
+
+    await reminder_job(cast(ContextTypes.DEFAULT_TYPE, context))
+
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "Ninguém palpitou ainda" in text
 
 
 def test_schedule_reminder_job(settings: Settings) -> None:
