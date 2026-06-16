@@ -17,6 +17,8 @@ Opcodes:
   ``q``                               cancel/close the wizard
   ``bv:<g|s>``                        scoreboard view toggle (Geral / Semana)
   ``gb:<fixture>``                    per-game scoreboard for an ended game (§10)
+  ``pjt:<mask>:<index>``              combined board picker: toggle game ``index`` in selection
+  ``pjc:<mask>``                      combined board picker: compute the board for ``mask`` (§10)
 """
 
 from __future__ import annotations
@@ -134,6 +136,17 @@ class GameBoard:
     fixture_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class GamesBoardToggle:
+    mask: int
+    index: int
+
+
+@dataclass(frozen=True, slots=True)
+class GamesBoardCompute:
+    mask: int
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -147,6 +160,8 @@ CallbackData = (
     | Cancel
     | BoardView
     | GameBoard
+    | GamesBoardToggle
+    | GamesBoardCompute
 )
 
 
@@ -177,6 +192,10 @@ def encode(data: CallbackData) -> str:
             result = f"bv:{_BOARD_SCOPE_TO_CODE[scope]}"
         case GameBoard(fixture_id):
             result = f"gb:{fixture_id}"
+        case GamesBoardToggle(mask, index):
+            result = f"pjt:{mask}:{index}"
+        case GamesBoardCompute(mask):
+            result = f"pjc:{mask}"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -213,6 +232,10 @@ def decode(data: str) -> CallbackData:
             return BoardView(_CODE_TO_BOARD_SCOPE[parts[1]])
         if op == "gb":
             return GameBoard(int(parts[1]))
+        if op == "pjt":
+            return GamesBoardToggle(int(parts[1]), int(parts[2]))
+        if op == "pjc":
+            return GamesBoardCompute(int(parts[1]))
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"invalid callback_data: {data!r}") from exc
     raise ValueError(f"unknown callback_data opcode: {data!r}")
