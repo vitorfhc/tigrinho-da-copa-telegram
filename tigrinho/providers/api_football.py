@@ -147,6 +147,40 @@ def parse_goals(events: list[dict[str, Any]]) -> tuple[GoalEvent, ...]:
     return tuple(goals)
 
 
+def parse_goal_timeline(events: list[dict[str, Any]]) -> tuple[GoalEvent, ...]:
+    """Full goal timeline for live notifications (§9.4): like ``parse_goals`` but **uncapped**
+    (keeps extra-time goals). Excludes ``Missed Penalty`` and the penalty shootout (null elapsed).
+    """
+    goals: list[GoalEvent] = []
+    for event in events:
+        if event.get("type") != "Goal":
+            continue
+        detail = event.get("detail")
+        if detail == "Missed Penalty":
+            continue
+        time_ = event.get("time") or {}
+        elapsed = time_.get("elapsed")
+        if elapsed is None:  # penalty shootout / malformed → not a running-score goal
+            continue
+        team = event.get("team") or {}
+        team_id = _opt_int(team.get("id"))
+        if team_id is None:
+            continue
+        player = event.get("player") or {}
+        goals.append(
+            GoalEvent(
+                minute=int(elapsed),
+                team_id=team_id,
+                player_id=_opt_int(player.get("id")),
+                player_name=player.get("name"),
+                is_own_goal=(detail == "Own Goal"),
+                is_penalty=(detail == "Penalty"),
+                extra=_opt_int(time_.get("extra")),
+            )
+        )
+    return tuple(goals)
+
+
 def advancing_team_id(teams: dict[str, Any]) -> int | None:
     home = teams.get("home") or {}
     away = teams.get("away") or {}
@@ -161,6 +195,7 @@ def map_match_result(item: dict[str, Any], events: list[dict[str, Any]]) -> Matc
     """Map a ``/fixtures`` item + its ``/fixtures/events`` to a MatchResult (90′ score)."""
     fixture = item.get("fixture") or {}
     fulltime = (item.get("score") or {}).get("fulltime") or {}
+    live = item.get("goals") or {}
     return MatchResult(
         fixture_id=int(fixture["id"]),
         stage=classify_stage((item.get("league") or {}).get("round")),
@@ -169,6 +204,8 @@ def map_match_result(item: dict[str, Any], events: list[dict[str, Any]]) -> Matc
         away_goals_90=_opt_int(fulltime.get("away")),
         goals=parse_goals(events),
         advancing_team_id=advancing_team_id(item.get("teams") or {}),
+        live_home_goals=_opt_int(live.get("home")),
+        live_away_goals=_opt_int(live.get("away")),
     )
 
 
@@ -250,3 +287,8 @@ class ApiFootballProvider:
             raise ProviderError(f"no fixture returned for id={fixture_id}")
         events = await self._get("/fixtures/events", {"fixture": fixture_id})
         return map_match_result(items[0], events)
+
+    async def get_goal_events(self, fixture_id: int) -> tuple[GoalEvent, ...]:
+        """Full goal timeline (incl. extra time) for live notifications (§9.4)."""
+        events = await self._get("/fixtures/events", {"fixture": fixture_id})
+        return parse_goal_timeline(events)
