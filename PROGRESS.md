@@ -519,3 +519,33 @@ difficulties within base-rate noise).
 - UX: category-picker buttons now show the value (`Placar exato · 5 pts`, singular `pt` for 1) via
   new pure helper `text_pt.category_button_label`, wired into `keyboards.category_keyboard`.
 - Tests updated (scoring/settlement/text_pt) + new helper test + button-label assertion. 299 green.
+
+### 2026-06-16 — Feature: AI palpites (`/palpite`, Gemini 3.1 Pro + grounding) (§20)
+
+User request, built in an isolated git worktree. New **optional** AI feature: analyze each game in
+the next 24h with Gemini (Google Search grounding, high thinking) and give a palpite per bet
+category, cached in the DB and posted by `/palpite`.
+
+**Grounded (per §2)** against `google-genai` **2.8.0** (`ai.google.dev/gemini-api/docs/gemini-3` +
+`.../docs/google-search`). Decisions (in §20.3): use the **direct google-genai SDK** (not ADK — its
+`google_search` is Gemini-2 only); get JSON via **prompt + pydantic validation** (not
+`response_schema`, which conflicted with grounding); async via the SDK's native `client.aio`.
+
+- **Config:** `gemini_api_key` (optional secret, `.env`), `gemini_model`
+  (`gemini-3.1-pro-preview`), `palpite_time` (`06:00`) + `palpite_time_obj`.
+- **AI layer** `tigrinho/ai/`: `base.py` (`PalpiteGenerator` Protocol), `schemas.py`
+  (`PalpiteBatch`/`GamePalpite` + `extract_json`/`parse_batch`, PURE; reuses domain bet enums),
+  `prompt.py` (`GameInfo` + `build_palpite_prompt`, PURE), `gemini.py` (`GeminiPalpiteGenerator`).
+- **Service** `palpite_service.py` (telegram-free): `generate_palpites` (fills only games missing
+  today's palpite → at most one Gemini call/day; DB is the cache) + `load_today_palpites`.
+- **Persistence:** `ai_palpites` table (one row per `(fixture_id, palpite_date)`), append-only
+  migration `c1a2b3d4e5f6`, `PalpiteRepository`, `GameRepository.list_upcoming_within`.
+- **Bot:** `bot/palpite_handlers.py` (`/palpite`: no-key error / no-games / cold-cache on-demand
+  generate with a "working" message / warm-cache instant), `bot/palpite_job.py` (daily 06h
+  cache-warm job, no group post). `AppContext.palpite_generator` (None when no key). Wired into
+  `app.py` (handler + job + private/group command lists) and `__main__.make_palpite_generator`.
+- **Maintenance rule (§11):** `/ajuda`, COMPLETION.md (§4.1/§4.2 + new §20 + §8.2 command scope),
+  README, `.env.example`, `config.example.yaml` all updated in this change.
+- **Tests (+44):** config, ai schemas/prompt, repo+migration+models, service (cache/missing-only/
+  unknown-fixture), text rendering, handler (4 branches), job (no-key/cache-warm/failure/schedule),
+  generator (SDK mocked — grounding+thinking config asserted). 341 tests; all four gates green.

@@ -7,6 +7,8 @@ before this module starts.
 
 from __future__ import annotations
 
+from tigrinho.ai.base import PalpiteGenerator
+from tigrinho.ai.gemini import GeminiPalpiteGenerator
 from tigrinho.bot.app import build_application
 from tigrinho.bot.runtime import AnyApplication, AppContext
 from tigrinho.config import Settings, get_settings
@@ -16,6 +18,13 @@ from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.factory import make_provider
 
 _log = get_logger("tigrinho.main")
+
+
+def make_palpite_generator(settings: Settings) -> PalpiteGenerator | None:
+    """Build the Gemini palpite generator, or None when no key is configured (§20)."""
+    if not settings.gemini_api_key:
+        return None
+    return GeminiPalpiteGenerator(api_key=settings.gemini_api_key, model=settings.gemini_model)
 
 
 def create_application_from_settings(settings: Settings) -> AnyApplication:
@@ -31,6 +40,7 @@ def create_application_from_settings(settings: Settings) -> AnyApplication:
             daily_cap=settings.api_daily_cap,
             reset_tz=settings.budget_tzinfo,
         ),
+        palpite_generator=make_palpite_generator(settings),
     )
     return build_application(app_context)
 

@@ -22,6 +22,8 @@ from tigrinho.bot.alerts import error_handler
 from tigrinho.bot.bets_handlers import register_bet_handlers, start_handler
 from tigrinho.bot.board_handlers import register_board_handlers
 from tigrinho.bot.help_handlers import cmd_ajuda
+from tigrinho.bot.palpite_handlers import register_palpite_handlers
+from tigrinho.bot.palpite_job import schedule_palpite_job
 from tigrinho.bot.poll_job import schedule_poll_job
 from tigrinho.bot.reminder_job import schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
@@ -38,12 +40,14 @@ PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand("jogos", "Próximos jogos e o que falta palpitar"),
     BotCommand("placar", "Ver o placar (Geral / Semana)"),
     BotCommand("placar_jogo", "Placar de um jogo já encerrado"),
+    BotCommand("palpite", "Palpites da IA para os jogos de hoje"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 GROUP_COMMANDS: list[BotCommand] = [
     BotCommand("jogos", "Próximos jogos"),
     BotCommand("placar", "Ver o placar (Geral / Semana)"),
     BotCommand("placar_jogo", "Placar de um jogo já encerrado"),
+    BotCommand("palpite", "Palpites da IA para os jogos de hoje"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 
@@ -92,6 +96,7 @@ async def post_init(application: AnyApplication) -> None:
         schedule_sync_job(application.job_queue, app_context.settings)
         schedule_poll_job(application.job_queue, app_context.settings)
         schedule_reminder_job(application.job_queue, app_context.settings)
+        schedule_palpite_job(application.job_queue, app_context.settings)
 
 
 def build_application(app_context: AppContext) -> AnyApplication:
@@ -108,6 +113,7 @@ def build_application(app_context: AppContext) -> AnyApplication:
     # Board callbacks (pattern ^bv:) MUST be registered before the wizard's catch-all
     # CallbackQueryHandler so the toggle is matched first.
     register_board_handlers(application)
+    register_palpite_handlers(application)
     register_bet_handlers(application)
     application.add_error_handler(error_handler)
     return application

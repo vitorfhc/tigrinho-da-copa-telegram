@@ -71,6 +71,8 @@ cp config.example.yaml config.yaml   # fill group_chat_id, admin_user_id, bot_us
 - **`.env`** (secrets only — never commit):
   - `TELEGRAM_BOT_TOKEN` — from BotFather
   - `API_FOOTBALL_KEY` — from API-Football
+  - `GEMINI_API_KEY` — *optional*, from Google AI Studio. Enables the AI `/palpite` feature; leave
+    blank to disable it.
 - **`config.yaml`** (everything else). Settings reference:
 
   | Key | Required | Default | Purpose |
@@ -84,6 +86,8 @@ cp config.example.yaml config.yaml   # fill group_chat_id, admin_user_id, bot_us
   | `wc_season` | no | `2026` | Season. |
   | `timezone` | no | `America/Sao_Paulo` | Sync time, displayed kickoffs, weekly reset. |
   | `sync_time` | no | `06:00` | Daily fixtures sync (local time). |
+  | `palpite_time` | no | `06:00` | Daily AI palpite generation (needs `GEMINI_API_KEY`). |
+  | `gemini_model` | no | `gemini-3.1-pro-preview` | Gemini model for `/palpite`. |
   | `poll_interval_minutes` | no | `10` | Live-poll cadence during matches. |
   | `match_window_hours` | no | `3` | How long after kickoff a game stays "active". |
   | `api_daily_cap` | no | `100` | Hard ceiling on provider requests/day. |
@@ -121,6 +125,8 @@ All commands are in pt-BR (the players' language):
 - **`/minhas_apostas`** — list and delete your bets (private).
 - **`/jogos`** — upcoming games and what you still have to predict.
 - **`/placar`** — the scoreboard (toggle **Geral** ↔ **Semana**).
+- **`/palpite`** — the AI's palpites (Gemini, with web search) for the next 24h of games. Requires
+  `GEMINI_API_KEY`; otherwise it explains that the feature is disabled.
 - **`/ajuda`** — how the bolão works, categories, points, rules.
 - **`/start`** — welcome (a `bet_<id>` deep link jumps straight into the wizard).
 

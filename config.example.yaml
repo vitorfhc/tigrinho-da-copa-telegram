@@ -16,6 +16,8 @@ wc_league_id: 1                        # FIFA World Cup league id (verify agains
 wc_season: 2026
 timezone: America/Sao_Paulo            # drives sync time, displayed kickoffs, weekly reset
 sync_time: "06:00"                     # daily fixtures sync (local time)
+palpite_time: "06:00"                  # daily AI palpite generation (local; needs GEMINI_API_KEY)
+gemini_model: gemini-3.1-pro-preview   # Gemini model for /palpite
 poll_interval_minutes: 10              # live-poll cadence during match windows
 reminder_lead_minutes: 60              # post a betting reminder this long before kickoff
 reminder_interval_minutes: 10          # how often the reminder sweep runs

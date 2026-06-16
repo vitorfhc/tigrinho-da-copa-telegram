@@ -32,6 +32,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from tigrinho.enums import GameStatus, Stage
 
 __all__ = [
+    "AiPalpite",
     "ApiUsage",
     "Base",
     "Bet",
@@ -88,6 +89,9 @@ class Game(Base):
     settled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
 
     bets: Mapped[list[Bet]] = relationship(back_populates="game", cascade="all, delete-orphan")
+    ai_palpites: Mapped[list[AiPalpite]] = relationship(
+        back_populates="game", cascade="all, delete-orphan"
+    )
 
 
 class Bet(Base):
@@ -125,3 +129,23 @@ class ApiUsage(Base):
 
     budget_date: Mapped[date] = mapped_column(Date, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AiPalpite(Base):
+    """A cached AI palpite for one fixture on one day (§20).
+
+    One row per ``(fixture_id, palpite_date)`` (the cache key) holds the validated JSON of the
+    whole per-game analysis. ``palpite_date`` is the local date the palpite was generated for,
+    so a day's predictions are computed at most once and reused by every ``/palpite``.
+    """
+
+    __tablename__ = "ai_palpites"
+    __table_args__ = (UniqueConstraint("fixture_id", "palpite_date", name="uq_palpite_per_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("games.fixture_id"))
+    palpite_date: Mapped[date] = mapped_column(Date)
+    payload_json: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    game: Mapped[Game] = relationship(back_populates="ai_palpites")

@@ -8,12 +8,13 @@ Telegram bot and the Typer admin CLI.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import ApiUsage, Bet, Game, GameStatus, Player
+from tigrinho.db.models import AiPalpite, ApiUsage, Bet, Game, GameStatus, Player
 
 
 class PlayerRepository:
@@ -70,6 +71,22 @@ class GameRepository:
         stmt = (
             select(Game)
             .where(Game.status == GameStatus.SCHEDULED, Game.kickoff_utc > now)
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def list_upcoming_within(self, now: datetime, horizon: timedelta) -> list[Game]:
+        """Open games kicking off within ``horizon`` of now — the AI palpite set (§20).
+
+        ``SCHEDULED`` games with ``now < kickoff_utc <= now + horizon``, soonest first.
+        """
+        stmt = (
+            select(Game)
+            .where(
+                Game.status == GameStatus.SCHEDULED,
+                Game.kickoff_utc > now,
+                Game.kickoff_utc <= now + horizon,
+            )
             .order_by(Game.kickoff_utc)
         )
         return list(self._session.execute(stmt).scalars())
@@ -285,3 +302,42 @@ class ApiUsageRepository:
             row.count += by
         self._session.flush()
         return row.count
+
+
+class PalpiteRepository:
+    """Cached AI palpites, one per ``(fixture_id, palpite_date)`` (§20)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(self, fixture_id: int, palpite_date: date) -> AiPalpite | None:
+        stmt = select(AiPalpite).where(
+            AiPalpite.fixture_id == fixture_id,
+            AiPalpite.palpite_date == palpite_date,
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
+    def upsert(self, *, fixture_id: int, palpite_date: date, payload_json: str) -> AiPalpite:
+        """Create the day's palpite for a fixture, or overwrite an existing one (idempotent)."""
+        existing = self.get(fixture_id, palpite_date)
+        if existing is not None:
+            existing.payload_json = payload_json
+            self._session.flush()
+            return existing
+        row = AiPalpite(fixture_id=fixture_id, palpite_date=palpite_date, payload_json=payload_json)
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def list_for_date(self, fixture_ids: Sequence[int], palpite_date: date) -> list[AiPalpite]:
+        if not fixture_ids:
+            return []
+        stmt = select(AiPalpite).where(
+            AiPalpite.palpite_date == palpite_date,
+            AiPalpite.fixture_id.in_(fixture_ids),
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def existing_fixture_ids(self, fixture_ids: Sequence[int], palpite_date: date) -> set[int]:
+        """Which of ``fixture_ids`` already have a palpite cached for ``palpite_date``."""
+        return {p.fixture_id for p in self.list_for_date(fixture_ids, palpite_date)}

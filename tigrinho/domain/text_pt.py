@@ -283,6 +283,7 @@ def help_text() -> str:
         "• /jogos — próximos jogos e o que falta palpitar\n"
         "• /placar — ranking (Geral e da Semana)\n"
         "• /placar_jogo — placar de um jogo já encerrado\n"
+        "• /palpite — palpites da IA (Gemini) para os jogos das próximas 24h\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
@@ -302,3 +303,54 @@ def help_text() -> str:
         "• As apostas <b>fecham no apito inicial</b> de cada jogo.\n\n"
         "Boa sorte! 🍀"
     )
+
+
+def palpite_text(
+    *,
+    home: str,
+    away: str,
+    kickoff_local: datetime,
+    analysis: str,
+    payloads: Sequence[Payload],
+    confidence: int | None,
+) -> str:
+    """One game's AI palpite (§20): header, analysis, a line per category, optional confidence."""
+    lines = [
+        f"🤖 <b>Palpite da IA</b> — {escape(home)} x {escape(away)}",
+        f"🗓 {format_kickoff_local(kickoff_local)}",
+        "",
+    ]
+    if analysis:
+        lines.append(f"📊 {escape(analysis)}")
+        lines.append("")
+    lines.extend(f"• {describe_bet(p, home_team=home, away_team=away)}" for p in payloads)
+    if confidence is not None:
+        lines.append("")
+        lines.append(f"🎯 Confiança: <b>{confidence}%</b>")
+    lines.append("")
+    lines.append("<i>Gerado por IA com busca na web — sem garantias. 🐯</i>")
+    return "\n".join(lines)
+
+
+def palpite_no_key_text() -> str:
+    """Shown when /palpite runs but no Gemini key is configured (§20)."""
+    return (
+        "🤖 <b>Palpite da IA indisponível</b>\n\n"
+        "Nenhuma chave do Gemini foi configurada. Para habilitar os palpites da IA, adicione "
+        "<code>GEMINI_API_KEY</code> ao arquivo <code>.env</code> e reinicie o bot."
+    )
+
+
+def palpite_no_games_text() -> str:
+    """Shown when /palpite runs but no game kicks off within the next 24h (§20)."""
+    return "🤖 Nenhum jogo nas próximas 24h para palpitar. 🐯"
+
+
+def palpite_working_text() -> str:
+    """Sent while the (slow) grounded Gemini analysis runs (§20)."""
+    return "🧠 Analisando os jogos com a IA (busca na web)… isso pode levar um minutinho."
+
+
+def palpite_error_text() -> str:
+    """Shown when the AI palpite generation fails (§20)."""
+    return "🤖 Não consegui gerar os palpites agora. Tente de novo mais tarde. 🐯"

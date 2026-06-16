@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # --- Secrets: environment / .env (§4.1) -------------------------------------------------
     telegram_bot_token: str = Field(min_length=1)
     api_football_key: str = Field(min_length=1)
+    # Optional secret. When set, enables the AI "palpite" feature (/palpite + daily 06h job).
+    # When unset, /palpite reports that no Gemini key is configured and the job is skipped.
+    gemini_api_key: str | None = None
 
     # --- Settings: config.yaml (§4.2) -------------------------------------------------------
     group_chat_id: int
@@ -61,6 +64,9 @@ class Settings(BaseSettings):
     wc_season: int = 2026
     timezone: str = "America/Sao_Paulo"
     sync_time: str = "06:00"
+    # AI palpite settings (the feature is gated on ``gemini_api_key`` being present).
+    palpite_time: str = "06:00"
+    gemini_model: str = "gemini-3.1-pro-preview"
     poll_interval_minutes: int = Field(default=10, gt=0)
     reminder_lead_minutes: int = Field(default=60, gt=0)
     reminder_interval_minutes: int = Field(default=10, gt=0)
@@ -85,20 +91,26 @@ class Settings(BaseSettings):
             raise ValueError(f"invalid timezone: {value!r}") from exc
         return value
 
-    @field_validator("sync_time")
+    @field_validator("sync_time", "palpite_time")
     @classmethod
-    def _valid_sync_time(cls, value: str) -> str:
+    def _valid_clock_time(cls, value: str) -> str:
         try:
             hours, minutes = value.split(":")
             time(int(hours), int(minutes))
         except (ValueError, TypeError) as exc:
-            raise ValueError(f"invalid sync_time, expected HH:MM: {value!r}") from exc
+            raise ValueError(f"invalid time, expected HH:MM: {value!r}") from exc
         return value
 
     @property
     def sync_time_obj(self) -> time:
         """The configured daily sync time as a ``datetime.time`` (local to ``timezone``)."""
         hours, minutes = self.sync_time.split(":")
+        return time(int(hours), int(minutes))
+
+    @property
+    def palpite_time_obj(self) -> time:
+        """The configured daily AI-palpite generation time (local to ``timezone``)."""
+        hours, minutes = self.palpite_time.split(":")
         return time(int(hours), int(minutes))
 
     @property

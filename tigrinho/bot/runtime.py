@@ -14,6 +14,7 @@ from typing import Any, Final
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application
 
+from tigrinho.ai.base import PalpiteGenerator
 from tigrinho.config import Settings
 from tigrinho.providers.base import FootballProvider
 from tigrinho.providers.budget import RequestBudget
@@ -33,6 +34,8 @@ class AppContext:
     provider: FootballProvider
     session_factory: sessionmaker[Session]
     budget: RequestBudget
+    # AI palpite generator (§20); None when no GEMINI_API_KEY is configured (feature disabled).
+    palpite_generator: PalpiteGenerator | None = None
     # Budget days for which the "cap reached" admin alert was already sent (dedup, once/day, §14).
     alerted_cap_days: set[date] = field(default_factory=set)
 

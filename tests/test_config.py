@@ -34,6 +34,9 @@ _FIELD_ENV_NAMES = [
     "DB_PATH",
     "LOG_LEVEL",
     "LOG_FORMAT",
+    "GEMINI_API_KEY",
+    "GEMINI_MODEL",
+    "PALPITE_TIME",
 ]
 
 VALID_YAML = """\
@@ -195,3 +198,34 @@ def test_reminder_interval_must_be_positive(
 def test_reminder_lead_must_be_positive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         _build(monkeypatch, tmp_path, env={"REMINDER_LEAD_MINUTES": "0"})
+
+
+def test_gemini_api_key_optional_defaults_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.gemini_api_key is None
+
+
+def test_gemini_api_key_read_from_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = _build(monkeypatch, tmp_path, env={"GEMINI_API_KEY": "g-secret"})
+    assert settings.gemini_api_key == "g-secret"
+
+
+def test_gemini_model_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.gemini_model == "gemini-3.1-pro-preview"
+
+
+def test_palpite_time_default_and_property(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.palpite_time == "06:00"
+    assert settings.palpite_time_obj == time(6, 0)
+
+
+def test_invalid_palpite_time_fails_fast(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    yaml_content = VALID_YAML + 'palpite_time: "nope"\n'
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, yaml_content=yaml_content)

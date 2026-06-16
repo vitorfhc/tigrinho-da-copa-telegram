@@ -13,6 +13,7 @@ from tigrinho.domain.bets import (
     FirstTeamSel,
     OverUnderPayload,
     OverUnderSel,
+    Payload,
     WinnerPayload,
     WinnerSel,
 )
@@ -26,6 +27,9 @@ from tigrinho.domain.text_pt import (
     game_board_text,
     help_text,
     mention,
+    palpite_no_games_text,
+    palpite_no_key_text,
+    palpite_text,
     points_table_text,
     reannounce_text,
     reminder_text,
@@ -104,10 +108,58 @@ def test_help_text_covers_required_content() -> None:
     assert "privado" in text  # DM betting
     assert "Placar exato" in text  # categories present
     assert "Primeira equipe a marcar" in text  # team-based first-scorer category
+    assert "/palpite" in text  # AI palpite command
 
 
 def test_welcome_text_points_to_help() -> None:
     assert "/ajuda" in welcome_text()
+
+
+def test_palpite_text_renders_each_category() -> None:
+    payloads: list[Payload] = [
+        ExactScorePayload(home=2, away=1),
+        FirstTeamPayload(sel=FirstTeamSel.HOME),
+        BttsPayload(sel=BttsSel.BOTH),
+        WinnerPayload(sel=WinnerSel.HOME),
+        OverUnderPayload(sel=OverUnderSel.OVER),
+    ]
+    text = palpite_text(
+        home="Brasil",
+        away="Argentina",
+        kickoff_local=datetime(2026, 6, 16, 16, 0),
+        analysis="Brasil joga em casa e está em alta.",
+        payloads=payloads,
+        confidence=70,
+    )
+    assert "Brasil" in text and "Argentina" in text
+    assert "2x1" in text  # exact score
+    assert "Brasil joga em casa" in text  # analysis included
+    assert "70%" in text  # confidence rendered
+    # every category label appears
+    for label in ("Placar exato", "Primeira equipe", "Ambas marcam", "Vencedor", "Mais"):
+        assert label in text
+
+
+def test_palpite_text_escapes_team_names() -> None:
+    text = palpite_text(
+        home="A<b>X",
+        away="Y&Z",
+        kickoff_local=datetime(2026, 6, 16, 16, 0),
+        analysis="ok",
+        payloads=[WinnerPayload(sel=WinnerSel.HOME)],
+        confidence=None,
+    )
+    assert "A<b>X" not in text  # raw HTML must be escaped
+    assert "&amp;Z" in text
+
+
+def test_palpite_no_key_text_mentions_gemini() -> None:
+    text = palpite_no_key_text()
+    assert "Gemini" in text or "GEMINI_API_KEY" in text
+
+
+def test_palpite_no_games_text() -> None:
+    assert "24h" in palpite_no_games_text()
 
 
 def test_format_kickoff_local() -> None:
