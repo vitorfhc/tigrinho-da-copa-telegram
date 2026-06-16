@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -149,3 +150,41 @@ async def test_generation_failure_reports_error(app_context: AppContext) -> None
 
     texts = [c.args[0] for c in message.reply_text.await_args_list]
     assert any("não consegui" in t.lower() for t in texts)
+
+
+async def test_does_not_generate_while_a_generation_is_in_progress(app_context: AppContext) -> None:
+    _seed_game(app_context, 1)
+    gen = FakeGenerator([1])
+    actx = _with_generator(app_context, gen)
+    await actx.palpite_lock.acquire()  # simulate an in-flight generation
+    try:
+        update, message = _update()
+        await palpite_handler(update, _ctx(actx))
+    finally:
+        actx.palpite_lock.release()
+
+    assert gen.calls == 0  # must NOT start a second Gemini request
+    texts = [c.args[0] for c in message.reply_text.await_args_list]
+    assert any("já estou analisando" in t.lower() for t in texts)
+
+
+async def test_concurrent_cold_cache_generates_only_once(app_context: AppContext) -> None:
+    _seed_game(app_context, 1)
+
+    class SlowGenerator:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate(self, *, system_instruction: str, user_content: str) -> str:
+            self.calls += 1
+            await asyncio.sleep(0.05)  # hold the lock long enough for the 2nd call to arrive
+            return '{"palpites": [' + _palpite_json(1) + "]}"
+
+    gen = SlowGenerator()
+    actx = _with_generator(app_context, cast(FakeGenerator, gen))  # shared lock across both calls
+    u1, _m1 = _update()
+    u2, _m2 = _update()
+
+    await asyncio.gather(palpite_handler(u1, _ctx(actx)), palpite_handler(u2, _ctx(actx)))
+
+    assert gen.calls == 1  # exactly one AI request despite two concurrent /palpite

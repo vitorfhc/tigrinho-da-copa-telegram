@@ -47,6 +47,11 @@ conta; em 0 a 0 ninguém acerta — ainda assim escolha a equipe mais provável 
 NÃO existe empate — escolha HOME ou AWAY (a equipe que avança); nunca use DRAW no mata-mata.
 - over_under: OVER se você prevê 3 ou mais gols no total; UNDER se prevê 2 ou menos.
 
+Para "curiosity", traga UMA curiosidade interessante e VERÍDICA sobre este confronto (o histórico \
+entre as duas seleções, um recorde, um marco etc.), confirmada pela Pesquisa Google. Você NÃO PODE \
+inventar: se não encontrar uma curiosidade real e verificável, deixe "curiosity" como \
+string vazia "".
+
 Responda com APENAS UM objeto JSON (sem texto fora do JSON, sem markdown), neste formato exato:
 {
   "palpites": [
@@ -58,7 +63,7 @@ Responda com APENAS UM objeto JSON (sem texto fora do JSON, sem markdown), neste
       "btts": "BOTH" | "ONLY_HOME" | "ONLY_AWAY" | "NEITHER",
       "winner": "HOME" | "DRAW" | "AWAY",
       "over_under": "OVER" | "UNDER",
-      "confidence": <int 0-100, sua confiança geral no palpite>
+      "curiosity": "<curiosidade real e verificada sobre o confronto, ou \\"\\" se não houver>"
     }
   ]
 }

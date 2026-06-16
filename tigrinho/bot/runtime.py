@@ -7,6 +7,7 @@ without import cycles.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Final
@@ -36,6 +37,9 @@ class AppContext:
     budget: RequestBudget
     # AI palpite generator (§20); None when no GEMINI_API_KEY is configured (feature disabled).
     palpite_generator: PalpiteGenerator | None = None
+    # Serializes AI palpite generation so concurrent /palpite calls don't fire duplicate Gemini
+    # requests when the cache is cold (§20).
+    palpite_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Budget days for which the "cap reached" admin alert was already sent (dedup, once/day, §14).
     alerted_cap_days: set[date] = field(default_factory=set)
 

@@ -549,3 +549,14 @@ category, cached in the DB and posted by `/palpite`.
 - **Tests (+44):** config, ai schemas/prompt, repo+migration+models, service (cache/missing-only/
   unknown-fixture), text rendering, handler (4 branches), job (no-key/cache-warm/failure/schedule),
   generator (SDK mocked — grounding+thinking config asserted). 341 tests; all four gates green.
+
+### 2026-06-16 — /palpite refinements: curiosity, single-flight, citation stripping
+
+User request after the first prod deploy. (a) Removed `confidence`; (b) added `curiosity` — a
+**web-grounded** head-to-head fact the model must NOT invent (empty string when none found → omitted
+from the message); (c) **single-flight generation**: a process-wide `asyncio.Lock`
+(`AppContext.palpite_lock`, shared by `/palpite` and the daily job) so a cold-cache burst of
+`/palpite` fires **one** Gemini request (a concurrent caller gets "já estou analisando"; the
+lock-holder re-checks the warm cache before generating); (d) `strip_citation_tags` removes grounding
+tags (`[1]`/`[1.1.7]`) from `analysis`/`curiosity` at validation time (old cached rows cleaned on
+load). §20.1/§20.2 updated. 349 tests; all four gates green.

@@ -38,9 +38,11 @@ async def palpite_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     now = utcnow()
     palpite_date = datetime.now(settings.tzinfo).date()
     try:
-        generated = await generate_palpites(
-            app_context.session_factory, generator, now=now, palpite_date=palpite_date
-        )
+        # Share the lock with /palpite so the job and an on-demand call never generate concurrently.
+        async with app_context.palpite_lock:
+            generated = await generate_palpites(
+                app_context.session_factory, generator, now=now, palpite_date=palpite_date
+            )
     except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the bot (§14)
         _log.error("palpite_job_failed", error=str(exc), error_type=type(exc).__name__)
         await notify_admin(

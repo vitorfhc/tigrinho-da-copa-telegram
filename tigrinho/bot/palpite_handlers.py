@@ -20,6 +20,7 @@ from tigrinho.db.models import utcnow
 from tigrinho.db.repositories import GameRepository
 from tigrinho.domain.text_pt import (
     palpite_error_text,
+    palpite_generating_text,
     palpite_no_games_text,
     palpite_no_key_text,
     palpite_text,
@@ -45,7 +46,7 @@ async def _post_palpites(message: Message, rendered: list[RenderablePalpite]) ->
                 kickoff_local=item.kickoff_local,
                 analysis=item.palpite.analysis,
                 payloads=item.palpite.payloads(),
-                confidence=item.palpite.confidence,
+                curiosity=item.palpite.curiosity,
             ),
             parse_mode=ParseMode.HTML,
         )
@@ -74,20 +75,38 @@ async def palpite_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     rendered = load_today_palpites(app_context.session_factory, now=now, palpite_date=palpite_date)
     if len(rendered) < upcoming_count:
-        # Cold (or partial) cache: generate the missing palpites once. This is slow (grounded
-        # "think hard" call), so tell the user first.
-        await message.reply_text(palpite_working_text(), parse_mode=ParseMode.HTML)
-        try:
-            await generate_palpites(
-                app_context.session_factory, generator, now=now, palpite_date=palpite_date
-            )
-        except Exception as exc:  # noqa: BLE001 - surface a friendly error, never crash the bot
-            _log.error("palpite_generation_failed", error=str(exc), error_type=type(exc).__name__)
-            await message.reply_text(palpite_error_text(), parse_mode=ParseMode.HTML)
+        # Cold (or partial) cache. Another /palpite may already be generating — if so, don't fire a
+        # second Gemini request; tell the caller to retry shortly.
+        if app_context.palpite_lock.locked():
+            await message.reply_text(palpite_generating_text(), parse_mode=ParseMode.HTML)
             return
-        rendered = load_today_palpites(
-            app_context.session_factory, now=now, palpite_date=palpite_date
-        )
+        async with app_context.palpite_lock:
+            # Re-read under the lock: a generation that finished while we waited may have warmed it.
+            rendered = load_today_palpites(
+                app_context.session_factory, now=now, palpite_date=palpite_date
+            )
+            if len(rendered) < upcoming_count:
+                # We hold the lock and the cache is still cold: we are the single generator. This is
+                # slow (grounded "think hard" call), so tell the user first.
+                await message.reply_text(palpite_working_text(), parse_mode=ParseMode.HTML)
+                try:
+                    await generate_palpites(
+                        app_context.session_factory,
+                        generator,
+                        now=now,
+                        palpite_date=palpite_date,
+                    )
+                except Exception as exc:  # noqa: BLE001 - friendly error, never crash the bot
+                    _log.error(
+                        "palpite_generation_failed",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+                    await message.reply_text(palpite_error_text(), parse_mode=ParseMode.HTML)
+                    return
+                rendered = load_today_palpites(
+                    app_context.session_factory, now=now, palpite_date=palpite_date
+                )
 
     if not rendered:
         await message.reply_text(palpite_error_text(), parse_mode=ParseMode.HTML)

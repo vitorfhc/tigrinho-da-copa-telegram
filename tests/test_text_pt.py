@@ -27,6 +27,7 @@ from tigrinho.domain.text_pt import (
     game_board_text,
     help_text,
     mention,
+    palpite_generating_text,
     palpite_no_games_text,
     palpite_no_key_text,
     palpite_text,
@@ -129,33 +130,51 @@ def test_palpite_text_renders_each_category() -> None:
         kickoff_local=datetime(2026, 6, 16, 16, 0),
         analysis="Brasil joga em casa e está em alta.",
         payloads=payloads,
-        confidence=70,
+        curiosity="As seleções decidiram a última Copa América.",
     )
     assert "Brasil" in text and "Argentina" in text
     assert "2x1" in text  # exact score
     assert "Brasil joga em casa" in text  # analysis included
-    assert "70%" in text  # confidence rendered
+    assert "Copa América" in text  # curiosity rendered
     # every category label appears
     for label in ("Placar exato", "Primeira equipe", "Ambas marcam", "Vencedor", "Mais"):
         assert label in text
 
 
-def test_palpite_text_escapes_team_names() -> None:
+def test_palpite_text_omits_empty_curiosity() -> None:
+    text = palpite_text(
+        home="Brasil",
+        away="Argentina",
+        kickoff_local=datetime(2026, 6, 16, 16, 0),
+        analysis="ok",
+        payloads=[WinnerPayload(sel=WinnerSel.HOME)],
+        curiosity="",
+    )
+    assert "Curiosidade" not in text  # no empty curiosity line
+
+
+def test_palpite_text_escapes_team_names_and_curiosity() -> None:
     text = palpite_text(
         home="A<b>X",
         away="Y&Z",
         kickoff_local=datetime(2026, 6, 16, 16, 0),
         analysis="ok",
         payloads=[WinnerPayload(sel=WinnerSel.HOME)],
-        confidence=None,
+        curiosity="fato com <tag> & cia",
     )
     assert "A<b>X" not in text  # raw HTML must be escaped
     assert "&amp;Z" in text
+    assert "<tag>" not in text  # curiosity escaped too
+    assert "&amp; cia" in text
 
 
 def test_palpite_no_key_text_mentions_gemini() -> None:
     text = palpite_no_key_text()
     assert "Gemini" in text or "GEMINI_API_KEY" in text
+
+
+def test_palpite_generating_text() -> None:
+    assert len(palpite_generating_text()) > 0
 
 
 def test_palpite_no_games_text() -> None:

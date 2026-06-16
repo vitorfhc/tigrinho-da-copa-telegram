@@ -312,9 +312,9 @@ def palpite_text(
     kickoff_local: datetime,
     analysis: str,
     payloads: Sequence[Payload],
-    confidence: int | None,
+    curiosity: str,
 ) -> str:
-    """One game's AI palpite (§20): header, analysis, a line per category, optional confidence."""
+    """One game's AI palpite (§20): header, analysis, a line per category, optional curiosity."""
     lines = [
         f"🤖 <b>Palpite da IA</b> — {escape(home)} x {escape(away)}",
         f"🗓 {format_kickoff_local(kickoff_local)}",
@@ -324,9 +324,9 @@ def palpite_text(
         lines.append(f"📊 {escape(analysis)}")
         lines.append("")
     lines.extend(f"• {describe_bet(p, home_team=home, away_team=away)}" for p in payloads)
-    if confidence is not None:
+    if curiosity:
         lines.append("")
-        lines.append(f"🎯 Confiança: <b>{confidence}%</b>")
+        lines.append(f"💡 <b>Curiosidade:</b> {escape(curiosity)}")
     lines.append("")
     lines.append("<i>Gerado por IA com busca na web — sem garantias. 🐯</i>")
     return "\n".join(lines)
@@ -349,6 +349,11 @@ def palpite_no_games_text() -> str:
 def palpite_working_text() -> str:
     """Sent while the (slow) grounded Gemini analysis runs (§20)."""
     return "🧠 Analisando os jogos com a IA (busca na web)… isso pode levar um minutinho."
+
+
+def palpite_generating_text() -> str:
+    """Shown when a generation is already in progress (avoid duplicate AI requests; §20)."""
+    return "🧠 Já estou analisando os jogos. Aguarde um instante e mande /palpite de novo. 🐯"
 
 
 def palpite_error_text() -> str:
