@@ -896,7 +896,9 @@ telegram-free). `bot/palpite_handlers.py` (`/palpite`), `bot/palpite_job.py` (da
 
 ---
 
-### 2026-06-16 — Feature: combined scoreboard for a set of ended games (`/placar_jogos`, §10)
+## 21. Change log
+
+### 21.1 — 2026-06-16 — Combined scoreboard for a set of ended games (`/placar_jogos`, §10)
 
 User request. New `/placar_jogos` (group + DM): inline **multi-select** picker over the last 10
 ended games; tapping toggles `☐`/`✅` (editing the same message), then `✅ Calcular placar` edits
