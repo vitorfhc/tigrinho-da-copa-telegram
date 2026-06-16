@@ -25,6 +25,7 @@ from tigrinho.domain.text_pt import (
     format_kickoff_local,
     format_kickoff_short,
     game_board_text,
+    games_board_text,
     help_text,
     mention,
     palpite_no_games_text,
@@ -281,3 +282,27 @@ def test_reminder_text_escapes_team_names() -> None:
     text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0))])
     assert "A &amp; B" in text
     assert "C &gt; D" in text
+
+
+def test_games_board_text_combines_games_and_medals() -> None:
+    text = games_board_text(
+        games=[("França", "Espanha", 0, 0), ("Japão", "Coreia", 1, 0)],
+        rows=[(1, "Ana", 7), (2, "Bruno", 4), (3, "Caio", 2)],
+    )
+    assert "Placar — 2 jogos" in text
+    assert "• França 0x0 Espanha" in text
+    assert "• Japão 1x0 Coreia" in text
+    assert "🥇 Ana — <b>7</b> pts" in text
+    assert "🥈 Bruno" in text
+    assert "🥉 Caio" in text
+
+
+def test_games_board_text_singular_and_escapes() -> None:
+    text = games_board_text(games=[("A & B", "C", 2, 1)], rows=[(1, "Z", 5)])
+    assert "Placar — 1 jogo" in text
+    assert "A &amp; B 2x1 C" in text
+
+
+def test_games_board_text_no_bettors() -> None:
+    text = games_board_text(games=[("A", "B", 1, 0)], rows=[])
+    assert "Ninguém apostou nesses jogos" in text

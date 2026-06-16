@@ -208,6 +208,36 @@ def game_board_text(
     return "\n".join(lines)
 
 
+def games_board_text(
+    *,
+    games: Sequence[tuple[str, str, int | None, int | None]],
+    rows: Sequence[tuple[int, str, int]],
+) -> str:
+    """Combined scoreboard over a set of ended games (§10).
+
+    ``games``: ``(home, away, home_goals_90, away_goals_90)`` for each selected game (header lines).
+    ``rows``: ``(rank, name, points)`` summed across those games (same tie-breaks as /placar).
+    """
+    count = len(games)
+    title = f"🏆 <b>Placar — {count} {'jogo' if count == 1 else 'jogos'}</b>"
+    game_lines = []
+    for home, away, home_goals, away_goals in games:
+        score = (
+            f" {home_goals}x{away_goals} "
+            if home_goals is not None and away_goals is not None
+            else " x "
+        )
+        game_lines.append(f"• {escape(home)}{score}{escape(away)}")
+    header = "\n".join([title, *game_lines])
+    if not rows:
+        return f"{header}\n\nNinguém apostou nesses jogos. 🙈"
+    lines = [header, ""]
+    for position, name, points in rows:
+        marker = _MEDALS.get(position, f"{position}.")
+        lines.append(f"{marker} {escape(name)} — <b>{points}</b> pts")
+    return "\n".join(lines)
+
+
 def mention(telegram_id: int, name: str) -> str:
     """An HTML inline mention that works even without an @username."""
     return f'<a href="tg://user?id={telegram_id}">{escape(name)}</a>'
