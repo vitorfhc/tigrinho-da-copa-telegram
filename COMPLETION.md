@@ -355,11 +355,16 @@ Define `FootballProvider` as a `Protocol` returning **value objects** (never raw
 - `get_fixtures(window_hours: int) -> list[Fixture]` — upcoming WC fixtures within window.
 - `get_live_results() -> list[MatchResult]` — **one** call returning every currently-live WC fixture.
 - `get_match_result(fixture_id: int) -> MatchResult` — final result + goal timeline for one game.
+- `get_goal_events(fixture_id: int) -> tuple[GoalEvent, ...]` — the **uncapped** goal timeline (incl.
+  extra time; shootout excluded) for the live notifications in §9.4.
 
 Value objects (frozen dataclasses): `Fixture`, `MatchResult` (carries `home_goals_90`,
-`away_goals_90`, ordered `goals: list[GoalEvent]`, `advancing_team_id`, `status`, `stage`),
-`GoalEvent` (`minute`, `team_id`, `player_id`, `player_name`, `is_own_goal`, `is_penalty`).
-(No squad endpoint/value object — the first-scorer market is team-based; see §8.1 decision.)
+`away_goals_90`, ordered `goals: list[GoalEvent]`, `advancing_team_id`, `status`, `stage`, plus the
+display-only **live running score** `live_home_goals` / `live_away_goals` from `goals.{home,away}`
+used by §9.4), `GoalEvent` (`minute`, `team_id`, `player_id`, `player_name`, `is_own_goal`,
+`is_penalty`, optional `extra` stoppage minutes for live display). The live-score / `extra` fields do
+**not** affect grading. (No squad endpoint/value object — the first-scorer market is team-based; see
+§8.1 decision.)
 
 `ApiFootballProvider` implements this against API-Football v3. `FakeProvider` returns scripted
 fixtures/results for tests and local development (selected via the `provider_mode` setting).
@@ -588,6 +593,28 @@ Makes **no provider calls** and is independent of the API budget (§7.3). Idempo
 `reminded_at` (no double-posting across sweeps or restarts). On reschedule, `reminded_at` is cleared
 (§9.1) so a moved game is reminded again before its new kickoff. Games at *different* kickoff times
 each get their own reminder; only same-slot games are combined.
+
+### 9.4 Live group notifications — kickoff + goals
+
+The live-poll job (§9.2) also posts two in-match group messages, riding the same
+`poll_interval_minutes` cadence (no separate job, no extra polling beyond the live feed it already
+fetches):
+
+- **Kickoff.** When `get_live_results()` first reports a tracked game `LIVE`, post a "Bola rolando"
+  message and set `games.started_at` (dedups across polls + restarts). Skipped for a game first seen
+  already `FINISHED` (e.g. downtime through the match); the settlement results post (§9.2) covers it.
+- **Goals.** The live feed carries the running score (`MatchResult.live_home_goals` /
+  `live_away_goals` from `goals.{home,away}`). When a *started* game's running total exceeds
+  `games.goals_announced`, one budgeted `get_goal_events(fixture_id)` call fetches the **uncapped**
+  goal timeline (incl. extra time; penalty shootout excluded). Each new goal is posted with the
+  running score, scorer, and minute (`(pênalti)` / `(gol contra)` tags; own goals credited to the
+  opposing side). The cursor `goals_announced` then advances to the timeline length. A VAR-disallowed
+  goal (running total drops) resyncs the cursor down and posts nothing. The events endpoint is hit
+  only when a game actually scores (~1 call per goal); cycles with no goal cost nothing extra.
+
+Best-effort group sends: a failure logs + DMs the admin and never crashes the bot (§14). Grading /
+settlement are **unchanged** — they still use the 90′ regulation score and the ≤90′ timeline; these
+notifications are display-only.
 
 ---
 

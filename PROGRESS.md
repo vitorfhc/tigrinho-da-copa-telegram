@@ -609,3 +609,21 @@ re-trigger forever) and shows the chosen game — preserving §20.1 "computed at
 `CallbackQueryHandler` is registered before the wizard's catch-all (like `^bv:`/`^gb:`). Maintenance
 rule (§11): `/ajuda`, the `palpite` BotCommand descriptions, and COMPLETION.md §20.1 updated. 365
 tests; all four gates green.
+
+### 2026-06-16 — Feature: live group notifications (kickoff + goals) (§9.4)
+
+User request, built in an isolated worktree. The live-poll job now posts a "Bola rolando" message
+when a tracked game goes LIVE and one message per goal (running score + scorer + minute, incl. extra
+time), gated on a **free running-score check** so the `/fixtures/events` endpoint is hit only when a
+game actually scores. New provider surface (`MatchResult.live_home_goals/live_away_goals`,
+`GoalEvent.extra`, `get_goal_events` returning the uncapped timeline), pure
+`domain/live.goal_progression` (own-goal flip → running score + scoring side), pt-BR `kickoff_text` /
+`goal_text`, new `games.started_at` + `games.goals_announced` columns + append-only migration
+`d2e3f4a5b6c7`.
+- Kickoff dedups via `started_at` (restart-safe); a game first seen FINISHED gets no kickoff post and
+  no retroactive goal dump — the settlement results post covers it.
+- Goal cursor `goals_announced` advances to the timeline length; a VAR-disallowed goal resyncs the
+  cursor down and posts nothing. Best-effort group sends (failure → log + admin DM, never crashes).
+- Grading/settlement untouched (still 90′ score + ≤90′ timeline). `/ajuda` unaffected (no command/
+  category/scoring/grading change). Spec + plan under `docs/superpowers/`. 385 tests (after rebase
+  onto main); all four gates green.
