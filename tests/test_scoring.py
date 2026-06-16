@@ -66,7 +66,7 @@ def _ctx(
 def test_points_table() -> None:
     assert POINTS == {
         BetCategory.EXACT_SCORE: 5,
-        BetCategory.FIRST_TEAM: 3,
+        BetCategory.FIRST_TEAM: 2,
         BetCategory.BTTS: 2,
         BetCategory.WINNER: 2,
         BetCategory.OVER_UNDER: 1,
@@ -211,7 +211,7 @@ def test_first_team_loses_when_scorer_team_unknown() -> None:
     [
         (ExactScorePayload(home=2, away=1), _ctx(2, 1), True, 5),
         (ExactScorePayload(home=2, away=1), _ctx(0, 0), False, 0),
-        (FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 0, goals=(_goal(5, 10, 100),)), True, 3),
+        (FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 0, goals=(_goal(5, 10, 100),)), True, 2),
         (BttsPayload(sel=BttsSel.BOTH), _ctx(1, 1), True, 2),
         (WinnerPayload(sel=WinnerSel.HOME), _ctx(3, 0), True, 2),
         (OverUnderPayload(sel=OverUnderSel.OVER), _ctx(2, 1), True, 1),

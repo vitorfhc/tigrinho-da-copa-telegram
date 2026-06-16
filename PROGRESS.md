@@ -505,3 +505,17 @@ User request. Each open-game button in the `/apostar` DM picker now reads
 Wired into `_show_open_games` (`bot/bets_handlers.py`). §8.2 updated. `/ajuda` unchanged
 (no command/category/scoring/grading change). Tests: `test_format_kickoff_short`,
 `test_apostar_dm_lists_open_games` asserts the button label.
+
+### 2026-06-16 — Fairness: re-price FIRST_TEAM 3→2 + show points on wizard buttons
+
+User request, driven by a multi-agent fairness analysis. `POINTS[FIRST_TEAM]` 3→2, so the table is
+now **5/2/2/2/1**. Rationale: first-team-to-score is a *sub-coinflip* binary (p≈0.44 — ~8–10% of
+matches void everyone via 0-0 / own-goal-only), so the old 3 pts ranked it **above** the genuinely
+harder 3-way `WINNER` (p≈0.48) and made it the single highest-EV "farm" bet. The new table is
+monotonic with rarity, with no dominant strategy (`FIRST_TEAM`/`BTTS`/`WINNER` tie at 2 — true
+difficulties within base-rate noise).
+- `domain/scoring.py` POINTS updated (single source of truth; the `/ajuda` points table auto-derives).
+- COMPLETION.md §8.1 table + dated 2026-06-16 decision note (§11 maintenance rule).
+- UX: category-picker buttons now show the value (`Placar exato · 5 pts`, singular `pt` for 1) via
+  new pure helper `text_pt.category_button_label`, wired into `keyboards.category_keyboard`.
+- Tests updated (scoring/settlement/text_pt) + new helper test + button-label assertion. 299 green.

@@ -408,7 +408,7 @@ Live polling is the first thing to throttle/skip. Bet **closing never consumes b
 | Category | `BetCategory` | Payload | Wins when | Points |
 |---|---|---|---|---|
 | Exact score | `EXACT_SCORE` | `{home:int, away:int}` | both equal the 90′ score | **5** |
-| First team to score | `FIRST_TEAM` | `{sel: HOME\|AWAY}` | that team scores the first genuine (non-own-goal) goal within 90′ | **3** |
+| First team to score | `FIRST_TEAM` | `{sel: HOME\|AWAY}` | that team scores the first genuine (non-own-goal) goal within 90′ | **2** |
 | Both teams to score | `BTTS` | `{sel: BOTH\|ONLY_HOME\|ONLY_AWAY\|NEITHER}` | the 90′ scoring pattern matches | **2** |
 | Winner | `WINNER` | `{sel: HOME\|DRAW\|AWAY}` | see knockout rule below | **2** |
 | Over/Under 2.5 | `OVER_UNDER` | `{sel: OVER\|UNDER}` | `OVER` ⇢ `total90 ≥ 3`; `UNDER` ⇢ `total90 ≤ 2` | **1** |
@@ -418,10 +418,19 @@ Live polling is the first thing to throttle/skip. Bet **closing never consumes b
 > the `SquadPlayer` value object, the `squad_players` table + `SquadRepository`, the CLI `squads`
 > commands, and the paginated squad keyboard) is removed. Reason: it eliminates the only per-team
 > roster dependency and the seeding step, simplifying setup. Points dropped 4→3 since a 2-way team
-> pick is much easier than naming the exact scorer (still > the 2-pt 1X2 winner — there is no draw
-> escape and first-to-score ≠ match winner). The goal timeline (`/fixtures/events`) is still parsed
+> pick is much easier than naming the exact scorer. **(Later re-priced 3→2 — see the 2026-06-16
+> decision below.)** The goal timeline (`/fixtures/events`) is still parsed
 > (it determines which team scored first). `games.first_scorer_player_id` is still recorded from the
 > goal event (no squad needed) for the record/results display.
+
+> **Decision (2026-06-16):** `FIRST_TEAM` re-priced **3→2** for fairness. A multi-method analysis
+> (empirical WC base rates, information-theoretic surprisal, fair-odds/equal-EV, game-design) found
+> first-team-to-score is a *sub-coinflip* binary (p≈0.44 — ~8–10% of matches finish 0-0 / own-goal-only
+> and void everyone), so the old 3 pts ranked it **above** the genuinely harder 3-way `WINNER` (p≈0.48)
+> and made it the single highest-EV "farm" bet. The fair table is **5/2/2/2/1**
+> (`EXACT_SCORE`/`FIRST_TEAM`/`BTTS`/`WINNER`/`OVER_UNDER`): points now move monotonically with rarity
+> and no category dominates on expected points. `FIRST_TEAM`/`BTTS`/`WINNER` tie at 2 because their
+> true difficulties sit within base-rate noise (~0.44–0.48); a manufactured spread would overstate it.
 
 **Winner grading rule:**
 - **Group stage:** compare to 90′ result — `HOME` if `home>away`, `DRAW` if equal, `AWAY` if `away>home`.

@@ -249,6 +249,16 @@ def points_table_text() -> str:
     return "\n".join(lines)
 
 
+def category_button_label(category: BetCategory) -> str:
+    """Category picker button label with its point value, e.g. ``Placar exato · 5 pts``.
+
+    Plain text (inline-button labels don't parse HTML); points come from scoring.POINTS.
+    """
+    points = POINTS[category]
+    unit = "pt" if points == 1 else "pts"
+    return f"{CATEGORY_LABELS[category]} · {points} {unit}"
+
+
 def welcome_text() -> str:
     """`/start` with no payload — short welcome pointing to /ajuda."""
     return (

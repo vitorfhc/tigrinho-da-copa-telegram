@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from tigrinho.domain.bets import (
+    BetCategory,
     BttsPayload,
     BttsSel,
     ExactScorePayload,
@@ -18,6 +19,7 @@ from tigrinho.domain.bets import (
 from tigrinho.domain.text_pt import (
     announcement_text,
     board_text,
+    category_button_label,
     describe_bet,
     format_kickoff_local,
     format_kickoff_short,
@@ -72,8 +74,15 @@ def test_describe_bet_all_categories() -> None:
 def test_points_table_reflects_scoring() -> None:
     text = points_table_text()
     assert "Placar exato: <b>5</b> pts" in text
-    assert "Primeira equipe a marcar: <b>3</b> pts" in text
+    assert "Primeira equipe a marcar: <b>2</b> pts" in text
     assert "Mais/Menos 2.5 gols: <b>1</b> pts" in text
+
+
+def test_category_button_label_includes_points() -> None:
+    assert category_button_label(BetCategory.EXACT_SCORE) == "Placar exato · 5 pts"
+    assert category_button_label(BetCategory.FIRST_TEAM) == "Primeira equipe a marcar · 2 pts"
+    # 1 point uses the singular unit
+    assert category_button_label(BetCategory.OVER_UNDER) == "Mais/Menos 2.5 gols · 1 pt"
 
 
 def test_help_text_covers_required_content() -> None:

@@ -29,7 +29,7 @@ from tigrinho.providers.base import GoalEvent
 # Single source of truth for the points table (§8.1) — trivially tunable.
 POINTS: dict[BetCategory, int] = {
     BetCategory.EXACT_SCORE: 5,
-    BetCategory.FIRST_TEAM: 3,
+    BetCategory.FIRST_TEAM: 2,
     BetCategory.BTTS: 2,
     BetCategory.WINNER: 2,
     BetCategory.OVER_UNDER: 1,

@@ -64,6 +64,13 @@ def test_category_keyboard_has_five_categories() -> None:
     assert all(c.fixture_id == 1001 for c in categories)
 
 
+def test_category_keyboard_buttons_show_points() -> None:
+    labels = [button.text for row in category_keyboard(1001).inline_keyboard for button in row]
+    assert "Placar exato · 5 pts" in labels
+    assert "Primeira equipe a marcar · 2 pts" in labels
+    assert "Mais/Menos 2.5 gols · 1 pt" in labels  # singular for 1
+
+
 def test_home_score_pad_has_zero_to_ten() -> None:
     values = sorted(
         d.value for d in _decoded(home_score_keyboard(1001)) if isinstance(d, HomeScore)

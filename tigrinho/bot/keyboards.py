@@ -29,10 +29,10 @@ from tigrinho.bot.callbacks import (
 )
 from tigrinho.domain.bets import BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 from tigrinho.domain.text_pt import (
-    CATEGORY_LABELS,
     CATEGORY_ORDER,
     OVER_UNDER_LABELS,
     btts_labels,
+    category_button_label,
 )
 from tigrinho.enums import Stage
 
@@ -73,7 +73,7 @@ def games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
 def category_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
     """The five bet categories for a fixture."""
     rows = [
-        [_button(CATEGORY_LABELS[category], ChooseCategory(fixture_id, category))]
+        [_button(category_button_label(category), ChooseCategory(fixture_id, category))]
         for category in CATEGORY_ORDER
     ]
     rows.append([_button("✖️ Cancelar", Cancel())])

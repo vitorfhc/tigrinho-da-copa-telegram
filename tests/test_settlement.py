@@ -110,7 +110,7 @@ def test_settle_first_team() -> None:
         ),
     ]
     graded = settle_game(bets, _result(1, 0, goals=goals), home_team_id=10, away_team_id=20)
-    assert graded[0] == GradedBet(1, True, 3)
+    assert graded[0] == GradedBet(1, True, 2)
     assert graded[1] == GradedBet(2, False, 0)
 
 
