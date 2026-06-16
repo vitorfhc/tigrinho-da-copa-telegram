@@ -516,24 +516,27 @@ When a game becomes `FINISHED` (see §9), the bot:
 Implemented as a PTB **`JobQueue.run_daily`** job. Flow (1 provider call, highest budget priority):
 1. Fetch WC fixtures for the next **48h** (window configurable internally).
 2. For each fixture **with both real teams decided** (skip placeholders like "Winner Group A"/TBD):
-   - **New** (`fixture_id` unseen) → insert, queue for announcement.
+   - **New** (`fixture_id` unseen) → insert. (Newly-discovered games are **not** announced as they
+     appear — see step 3.)
    - **Rescheduled** (known `fixture_id`, kickoff changed) → update kickoff + `match_hash`, queue a
      re-announcement; existing bets remain valid (now tied to the new time).
    - **Postponed/Cancelled** (status) → set `status = VOID`, **void its bets** (no points), queue a
      player notification.
-3. Send **one consolidated announcement** to the group for all newly-opened games. Each game line
-   carries its `🎯 Apostar` deep-link button. Re-announcements and void notices are separate concise
-   messages.
+3. Send **one consolidated "next 24h" announcement** to the group: every still-unannounced
+   `SCHEDULED` game with `now < kickoff_utc <= now + 24h`. Each game line carries its `🎯 Apostar`
+   deep-link button. `announced_at` is set **only on a successful send** (so a failure is retried
+   next morning) and dedups a game across mornings. Re-announcements and void notices are separate
+   concise messages.
 
 Announcement text is pt-BR (HTML), e.g.:
 ```
-🐯 Novos jogos abertos para apostas!
+🐯 Jogos das próximas 24h — apostas abertas!
 • Brasil x Argentina — Sáb 16/06 16:00
 • França x Alemanha — Sáb 16/06 19:00
 
 Toque em "🎯 Apostar" abaixo para palpitar no privado (fecha no apito inicial).
 ```
-…followed by one `🎯 Apostar: <jogo>` inline button per open game (deep-links into DM).
+…followed by one `🎯 Apostar: <jogo>` inline button per game in the next 24h (deep-links into DM).
 
 > Because everyone in the group is notified by the post itself, there is **no role ping** and no
 > subscription concept.
@@ -769,8 +772,8 @@ green and update `PROGRESS.md`.
 - **M4 — Bot skeleton:** PTB `Application` (long polling), `post_init` config validation (verify
   `get_me().username == bot_username`, can reach `group_chat_id`), `setMyCommands` with scopes,
   `/ajuda`, `/start` (welcome), error handler.
-- **M5 — Sync job:** daily fixtures sync (`JobQueue.run_daily`), consolidated group announcement with
-  per-game `🎯 Apostar` deep-link buttons, reschedule/void handling.
+- **M5 — Sync job:** daily fixtures sync (`JobQueue.run_daily`), consolidated morning "next 24h"
+  group announcement with per-game `🎯 Apostar` deep-link buttons, reschedule/void handling.
 - **M6 — Bet handlers:** `/start bet_<fixture_id>` deep-link entry, `/apostar` wizard
   (`ConversationHandler` + inline keyboards: game → category → payload → confirm/upsert), score
   number-pad, first-team selector, DRAW hidden for knockout, `/minhas_apostas` (with delete),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
@@ -147,10 +147,14 @@ def test_sync_does_not_reset_live_or_finished_game(session: Session) -> None:
     assert after.status is GameStatus.LIVE  # untouched
 
 
-async def test_sync_job_announces_new_games(
+async def test_sync_job_announces_next_24h_games(
     settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:
-    provider = FakeProvider(fixtures=[_fx(1), _fx(2)])
+    # Clock-relative fixtures: one inside the 24h window, one beyond it.
+    now = datetime.now(tz=UTC)
+    soon = _fx(1, kickoff=now + timedelta(hours=6))
+    later = _fx(2, kickoff=now + timedelta(hours=30))
+    provider = FakeProvider(fixtures=[soon, later])
     budget = RequestBudget(
         session_factory, daily_cap=settings.api_daily_cap, reset_tz=settings.budget_tzinfo
     )
@@ -166,10 +170,37 @@ async def test_sync_job_announces_new_games(
     assert context.bot.send_message.await_count == 1  # one consolidated announcement
     call = context.bot.send_message.await_args
     assert call.kwargs["chat_id"] == settings.group_chat_id
-    assert "Novos jogos" in call.kwargs["text"]
+    assert "próximas 24h" in call.kwargs["text"]
     assert budget.current_count() == 1  # exactly one provider call, via the budget
     with session_factory() as check:
-        assert len(GameRepository(check).list_all()) == 2
+        games = GameRepository(check)
+        assert len(games.list_all()) == 2  # both synced into the DB
+        # Only the game within 24h is announced; the +30h one stays unannounced for now.
+        assert games.get(1) is not None and games.get(1).announced_at is not None  # type: ignore[union-attr]
+        assert games.get(2) is not None and games.get(2).announced_at is None  # type: ignore[union-attr]
+
+
+async def test_sync_job_skips_announcement_when_nothing_in_24h(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # A game more than 24h out is synced but not announced (no group post).
+    now = datetime.now(tz=UTC)
+    provider = FakeProvider(fixtures=[_fx(1, kickoff=now + timedelta(hours=30))])
+    budget = RequestBudget(
+        session_factory, daily_cap=settings.api_daily_cap, reset_tz=settings.budget_tzinfo
+    )
+    app_context = AppContext(
+        settings=settings, provider=provider, session_factory=session_factory, budget=budget
+    )
+    context = MagicMock()
+    context.application.bot_data = {APP_CONTEXT_KEY: app_context}
+    context.bot = AsyncMock()
+
+    await sync_job(cast(ContextTypes.DEFAULT_TYPE, context))
+
+    context.bot.send_message.assert_not_awaited()  # nothing kicks off in the next 24h
+    with session_factory() as check:
+        assert len(GameRepository(check).list_all()) == 1  # still synced
 
 
 async def test_announcement_failure_is_retried_next_sync(
@@ -179,7 +210,7 @@ async def test_announcement_failure_is_retried_next_sync(
 
     from tigrinho.db.repositories import GameRepository
 
-    provider = FakeProvider(fixtures=[_fx(1)])
+    provider = FakeProvider(fixtures=[_fx(1, kickoff=datetime.now(tz=UTC) + timedelta(hours=6))])
     budget = RequestBudget(
         session_factory, daily_cap=settings.api_daily_cap, reset_tz=settings.budget_tzinfo
     )

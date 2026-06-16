@@ -454,6 +454,22 @@ first-team, and the score prompts already did). Replaced the static `BTTS_LABELS
 reworded the static `/ajuda` category lines that still said "Mandante/Visitante" to neutral
 phrasing. Spec §8.2 + `/ajuda` updated per the §11 maintenance rule. Gates green.
 
+### 2026-06-16 — Change: morning "next 24h" announcement (was: announce new games on sync)
+
+User request. The daily sync no longer announces games as they are *discovered*; instead each
+morning's `sync_job` posts one consolidated announcement of the games kicking off in the **next
+24h**. The sync (insert/reschedule/void) is unchanged — only the announcement set changed.
+- `GameRepository.list_unannounced(now)` → `list_unannounced_within(now, horizon)`: adds the
+  `kickoff_utc <= now + horizon` upper bound (still `announced_at IS NULL` + `SCHEDULED`).
+- `sync_job._announce_new_games` → `_announce_upcoming_games` with `ANNOUNCE_HORIZON = 24h`.
+  `announced_at` is still set only on a successful send (failure retried next morning) and dedups a
+  game across mornings, so each game is announced once — the first morning it's within 24h.
+- `text_pt.announcement_text` heading: "Novos jogos abertos…" → "Jogos das próximas 24h — apostas
+  abertas!". Reminder job (§9.3) still keys off `announced_at`, so ~1h reminders keep working.
+- Spec §9.1 + M5 summary updated. Tests reworked to be clock-relative (kickoffs `now ± Nh`) and to
+  assert the 24h window (within-24h announced, +30h synced-but-not-announced; empty-window no-post).
+- `/ajuda` unchanged (no command/category/scoring/grading change). Gates green.
+
 ### 2026-06-15 — Feature: pre-game betting reminder (§9.3)
 
 User request. New `JobQueue.run_repeating` reminder sweep (`bot/reminder_job.py`) posts one group

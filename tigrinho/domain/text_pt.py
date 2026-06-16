@@ -79,14 +79,14 @@ def format_kickoff_local(kickoff_local: datetime) -> str:
 
 
 def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
-    """Consolidated 'new games open' announcement (§9.1). Each item: (home, away, kickoff_local)."""
+    """Morning 'next 24h' announcement (§9.1). Each item: ``(home, away, kickoff_local)``."""
     lines = [
         f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}"
         for home, away, kickoff in games
     ]
     body = "\n".join(lines)
     return (
-        "🐯 <b>Novos jogos abertos para apostas!</b>\n\n"
+        "🐯 <b>Jogos das próximas 24h — apostas abertas!</b>\n\n"
         f"{body}\n\n"
         'Toque em "🎯 Apostar" abaixo para palpitar no privado (fecha no apito inicial).'
     )

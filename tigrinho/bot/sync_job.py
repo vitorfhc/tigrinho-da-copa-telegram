@@ -1,9 +1,11 @@
-"""Daily fixtures sync + group announcements (COMPLETION.md §9.1).
+"""Daily fixtures sync + morning "next 24h" announcement (COMPLETION.md §9.1).
 
 A ``JobQueue.run_daily`` job: one provider call (top budget priority), then for each fixture with
-both real teams decided — insert new games (queue announcement), update rescheduled ones (bets stay
-valid), and VOID postponed/cancelled ones (void their bets). New games get one consolidated group
-announcement with a per-game 🎯 Apostar deep-link button; reschedules and voids are concise notices.
+both real teams decided — insert new games, update rescheduled ones (bets stay valid), and VOID
+postponed/cancelled ones (void their bets). New games are **not** announced as they are discovered;
+instead each morning the job posts one consolidated announcement of the games kicking off in the
+**next 24h** (with a per-game 🎯 Apostar deep-link button). Reschedules and voids are concise
+notices.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -38,6 +40,7 @@ from tigrinho.providers.base import Fixture
 _log = get_logger("tigrinho.sync_job")
 
 SYNC_WINDOW_HOURS = 48
+ANNOUNCE_HORIZON = timedelta(hours=24)
 SYNC_JOB_NAME = "daily_sync"
 
 
@@ -136,8 +139,9 @@ def _view(game: Game) -> _GameView:
 async def _run_sync(app_context: AppContext) -> tuple[list[_GameView], list[_GameView]]:
     """Fetch fixtures (budgeted) and apply them; returns (rescheduled, voided) snapshots.
 
-    New games are not returned here — they are announced from the persisted ``announced_at IS NULL``
-    set so a failed announcement is retried on the next sync (see :func:`_announce_new_games`).
+    New games are not announced here — the morning "next 24h" announcement runs separately over the
+    persisted ``announced_at IS NULL`` set, so a failed send is retried next morning (see
+    :func:`_announce_upcoming_games`).
     """
     fixtures = await app_context.budget.guarded(
         lambda: app_context.provider.get_fixtures(SYNC_WINDOW_HOURS)
@@ -169,12 +173,18 @@ async def _send_group(
     return True
 
 
-async def _announce_new_games(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Announce every still-unannounced open game; only mark them announced on a successful send."""
+async def _announce_upcoming_games(
+    app_context: AppContext, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Announce the still-unannounced games kicking off in the next 24h (§9.1).
+
+    Only marks them announced on a successful send, so a failed send is retried next morning (the
+    games are still inside the 24h window). ``announced_at`` also dedups across mornings.
+    """
     settings = app_context.settings
     now = utcnow()
     with app_context.session_factory() as session:
-        games = GameRepository(session).list_unannounced(now)
+        games = GameRepository(session).list_unannounced_within(now, ANNOUNCE_HORIZON)
         views = [_view(g) for g in games]
     if not views:
         return
@@ -197,7 +207,7 @@ async def _announce_new_games(app_context: AppContext, context: ContextTypes.DEF
         await notify_admin(
             context.bot,
             settings.admin_user_id,
-            f"⚠️ Falha ao anunciar {len(views)} jogo(s) no grupo (será reenviado no próximo sync): "
+            f"⚠️ Falha ao anunciar {len(views)} jogo(s) no grupo (será reenviado amanhã de manhã): "
             f"<code>{escape(str(exc))}</code>",
         )
         return
@@ -223,7 +233,7 @@ async def sync_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     _log.info("sync_done", rescheduled=len(rescheduled), voided=len(voided))
 
-    await _announce_new_games(app_context, context)
+    await _announce_upcoming_games(app_context, context)
 
     for game in rescheduled:
         await _send_group(

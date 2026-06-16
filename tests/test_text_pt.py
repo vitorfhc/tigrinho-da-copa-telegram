@@ -98,7 +98,7 @@ def test_format_kickoff_local() -> None:
 
 def test_announcement_text() -> None:
     text = announcement_text([("Brasil", "Argentina", datetime(2026, 6, 16, 16, 0))])
-    assert "Novos jogos" in text
+    assert "próximas 24h" in text
     assert "Brasil x Argentina" in text
     assert "16/06 16:00" in text
 

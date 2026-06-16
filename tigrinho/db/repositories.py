@@ -89,13 +89,19 @@ class GameRepository:
         )
         return list(self._session.execute(stmt).scalars())
 
-    def list_unannounced(self, now: datetime) -> list[Game]:
-        """Open games not yet announced to the group (announced or failed-to-announce; §9.1)."""
+    def list_unannounced_within(self, now: datetime, horizon: timedelta) -> list[Game]:
+        """Open, not-yet-announced games kicking off within ``horizon`` of now (§9.1).
+
+        Selects ``SCHEDULED`` games with ``now < kickoff_utc <= now + horizon`` and
+        ``announced_at IS NULL`` — the daily "next 24h" announcement set. A failed announcement
+        leaves ``announced_at`` NULL, so it is retried on the next morning sweep (still in window).
+        """
         stmt = (
             select(Game)
             .where(
                 Game.status == GameStatus.SCHEDULED,
                 Game.kickoff_utc > now,
+                Game.kickoff_utc <= now + horizon,
                 Game.announced_at.is_(None),
             )
             .order_by(Game.kickoff_utc)
