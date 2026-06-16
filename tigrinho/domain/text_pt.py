@@ -178,6 +178,49 @@ def results_text(
     return "\n".join(lines)
 
 
+def kickoff_text(home_team: str, away_team: str) -> str:
+    """Group post when a tracked game kicks off (§9.4)."""
+    return (
+        f"🔥 <b>Bola rolando!</b> {escape(home_team)} x {escape(away_team)} "
+        "— boa sorte, Tigrinhos! 🐯"
+    )
+
+
+def goal_minute_label(minute: int, extra: int | None) -> str:
+    """Render a goal minute, e.g. ``23'`` or ``90+3'`` (§9.4)."""
+    return f"{minute}+{extra}'" if extra else f"{minute}'"
+
+
+def goal_text(
+    *,
+    scoring_team: str,
+    home_team: str,
+    away_team: str,
+    home_score: int,
+    away_score: int,
+    minute: int,
+    extra: int | None,
+    scorer: str | None,
+    is_penalty: bool,
+    is_own_goal: bool,
+) -> str:
+    """Group post for one goal: running score + scorer + minute (§9.4)."""
+    tags: list[str] = []
+    if is_penalty:
+        tags.append("pênalti")
+    if is_own_goal:
+        tags.append("gol contra")
+    detail = goal_minute_label(minute, extra)
+    if tags:
+        detail = f"{', '.join(tags)}, {detail}"
+    scorer_part = f" — {escape(scorer)}" if scorer else ""
+    return (
+        f"⚽ <b>GOL do {escape(scoring_team)}!</b> "
+        f"{escape(home_team)} {home_score} x {away_score} {escape(away_team)}"
+        f"{scorer_part} ({detail})"
+    )
+
+
 _MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 

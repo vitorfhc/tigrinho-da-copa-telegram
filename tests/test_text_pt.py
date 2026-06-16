@@ -25,7 +25,9 @@ from tigrinho.domain.text_pt import (
     format_kickoff_local,
     format_kickoff_short,
     game_board_text,
+    goal_text,
     help_text,
+    kickoff_text,
     mention,
     palpite_generating_text,
     palpite_no_games_text,
@@ -318,3 +320,79 @@ def test_reminder_text_no_bettors_shows_nudge() -> None:
 def test_reminder_text_escapes_bettor_names() -> None:
     text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("A & B", 2)])])
     assert "A &amp; B (2/5)" in text
+
+
+def test_kickoff_text() -> None:
+    text = kickoff_text("Brasil", "Argentina")
+    assert "Bola rolando" in text
+    assert "Brasil x Argentina" in text
+
+
+def test_goal_text_basic() -> None:
+    text = goal_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=23,
+        extra=None,
+        scorer="Vini Jr",
+        is_penalty=False,
+        is_own_goal=False,
+    )
+    assert "GOL do Brasil" in text
+    assert "Brasil 1 x 0 Argentina" in text
+    assert "Vini Jr" in text
+    assert "(23')" in text
+
+
+def test_goal_text_penalty_and_stoppage() -> None:
+    text = goal_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=90,
+        extra=3,
+        scorer="Neymar",
+        is_penalty=True,
+        is_own_goal=False,
+    )
+    assert "pênalti" in text
+    assert "90+3'" in text
+
+
+def test_goal_text_own_goal_without_scorer() -> None:
+    text = goal_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=45,
+        extra=None,
+        scorer=None,
+        is_own_goal=True,
+        is_penalty=False,
+    )
+    assert "gol contra" in text
+    assert "—" not in text  # no scorer dash when the provider gives no name
+
+
+def test_goal_text_escapes_html() -> None:
+    text = goal_text(
+        scoring_team="A&B",
+        home_team="A&B",
+        away_team="C<D",
+        home_score=0,
+        away_score=1,
+        minute=5,
+        extra=None,
+        scorer="x<y",
+        is_penalty=False,
+        is_own_goal=False,
+    )
+    assert "&amp;" in text
+    assert "&lt;" in text
