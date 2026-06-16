@@ -27,7 +27,14 @@ from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import GameStatus, utcnow
 from tigrinho.db.repositories import GameRepository
-from tigrinho.domain.text_pt import CATEGORY_LABELS, escape, results_text
+from tigrinho.domain.live import Side, goal_progression
+from tigrinho.domain.text_pt import (
+    CATEGORY_LABELS,
+    escape,
+    goal_text,
+    kickoff_text,
+    results_text,
+)
 from tigrinho.logging import get_logger
 from tigrinho.providers.budget import BudgetExceeded
 from tigrinho.settlement_service import settle_fixture
@@ -98,10 +105,13 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
     if not in_progress:
         return
 
-    # (2) Lower-priority live poll for games still in progress (catches early finishes).
+    # (2) Lower-priority live poll for in-progress games: status, kickoff + goal posts (§9.4),
+    #     and early finishes.
     live = await app_context.budget.guarded(app_context.provider.get_live_results)
     live_by_id = {result.fixture_id: result for result in live}
     finished: list[int] = []
+    kickoffs: list[tuple[str, str]] = []
+    goal_fixtures: list[int] = []
     with app_context.session_factory() as session:
         games = GameRepository(session)
         for fixture_id in in_progress:
@@ -111,12 +121,86 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
                 continue
             if result.status is GameStatus.FINISHED:
                 finished.append(fixture_id)
-            elif result.status is GameStatus.LIVE and game.status is not GameStatus.LIVE:
+                continue
+            if result.status is not GameStatus.LIVE:
+                continue
+            if game.status is not GameStatus.LIVE:
                 game.status = GameStatus.LIVE
+            if game.started_at is None:
+                game.started_at = now  # kickoff detected this cycle
+                kickoffs.append((game.home_team_name, game.away_team_name))
+            # Goals only after kickoff; same-cycle catch-up is fine (started_at just set above).
+            live_total = (result.live_home_goals or 0) + (result.live_away_goals or 0)
+            if live_total > game.goals_announced:
+                goal_fixtures.append(fixture_id)
+            elif live_total < game.goals_announced:
+                game.goals_announced = live_total  # VAR disallowed a goal — resync, post nothing
         session.commit()
+
+    for home, away in kickoffs:
+        text = kickoff_text(home, away)
+        await _post_to_group(app_context, context, text, what="o início do jogo")
+
+    for fixture_id in goal_fixtures:
+        await _announce_goals(app_context, context, fixture_id)
 
     for fixture_id in finished:
         await _settle_and_announce(app_context, context, fixture_id)
+
+
+async def _post_to_group(
+    app_context: AppContext, context: ContextTypes.DEFAULT_TYPE, text: str, *, what: str
+) -> None:
+    """Best-effort live group post; on failure log + DM admin, never crash the bot (§14)."""
+    try:
+        await context.bot.send_message(
+            chat_id=app_context.settings.group_chat_id, text=text, parse_mode=ParseMode.HTML
+        )
+    except TelegramError as exc:
+        _log.error("group_post_failed", what=what, error=str(exc))
+        await notify_admin(
+            context.bot,
+            app_context.settings.admin_user_id,
+            f"⚠️ Falha ao postar {what} no grupo: <code>{escape(str(exc))}</code>",
+        )
+
+
+async def _announce_goals(
+    app_context: AppContext, context: ContextTypes.DEFAULT_TYPE, fixture_id: int
+) -> None:
+    """Fetch the goal timeline and post one message per *new* goal (§9.4)."""
+    events = await app_context.budget.guarded(
+        lambda: app_context.provider.get_goal_events(fixture_id)
+    )
+    messages: list[str] = []
+    with app_context.session_factory() as session:
+        game = GameRepository(session).get(fixture_id)
+        if game is None:
+            return
+        progression = goal_progression(game.home_team_id, game.away_team_id, events)
+        for prog in progression[game.goals_announced :]:
+            scoring_team = (
+                game.home_team_name if prog.scoring_side is Side.HOME else game.away_team_name
+            )
+            messages.append(
+                goal_text(
+                    scoring_team=scoring_team,
+                    home_team=game.home_team_name,
+                    away_team=game.away_team_name,
+                    home_score=prog.home_score,
+                    away_score=prog.away_score,
+                    minute=prog.goal.minute,
+                    extra=prog.goal.extra,
+                    scorer=prog.goal.player_name,
+                    is_penalty=prog.goal.is_penalty,
+                    is_own_goal=prog.goal.is_own_goal,
+                )
+            )
+        game.goals_announced = len(progression)
+        session.commit()
+
+    for message in messages:
+        await _post_to_group(app_context, context, message, what="um gol")
 
 
 async def _settle_and_announce(
