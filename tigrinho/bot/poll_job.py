@@ -71,13 +71,19 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
             for g in games.list_stuck(now, settings.match_window_hours)
         ]
 
+    # Alert the admin once per stuck game, not every cycle. Prune ids that are no longer stuck
+    # (settled or rescheduled) so a game that gets stuck again later can re-alert.
+    app_context.stuck_alerted.intersection_update(fixture_id for fixture_id, _ in stuck)
     for fixture_id, label in stuck:
+        if fixture_id in app_context.stuck_alerted:
+            continue
         await notify_admin(
             context.bot,
             settings.admin_user_id,
             f"⏳ Jogo {label} (#{fixture_id}) segue sem resultado após a janela. "
             "Pode precisar de settle manual via CLI.",
         )
+        app_context.stuck_alerted.add(fixture_id)
 
     if not active:
         return  # NO API call when nothing is active (§9.2)

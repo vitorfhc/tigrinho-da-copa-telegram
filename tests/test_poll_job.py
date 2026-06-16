@@ -228,3 +228,23 @@ async def test_poll_alerts_admin_for_stuck_game(
     bot.send_message.assert_awaited()  # admin alerted
     assert bot.send_message.await_args.kwargs["chat_id"] == settings.admin_user_id
     assert provider.call_log == []  # nothing active -> no provider call
+
+
+async def test_stuck_game_admin_alert_is_deduped_across_cycles(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # The same stuck game must alert the admin once, not on every ~10-min poll cycle (§9.2).
+    _seed_game(session_factory, hours_ago=5)  # past the 3h window, still unsettled -> stuck
+    provider = FakeProvider()
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+    await poll_job(context)  # second sweep, same stuck game still stuck
+
+    stuck_alerts = [
+        c
+        for c in bot.send_message.await_args_list
+        if c.kwargs.get("chat_id") == settings.admin_user_id
+    ]
+    assert len(stuck_alerts) == 1  # deduped — not one per cycle

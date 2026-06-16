@@ -42,6 +42,9 @@ class AppContext:
     palpite_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Budget days for which the "cap reached" admin alert was already sent (dedup, once/day, §14).
     alerted_cap_days: set[date] = field(default_factory=set)
+    # Fixture ids already alerted as "stuck" this process, so the poll job DMs the admin once per
+    # stuck game rather than every cycle; pruned when a game stops being stuck so it can re-alert.
+    stuck_alerted: set[int] = field(default_factory=set)
 
 
 def get_app_context(application: AnyApplication) -> AppContext:
