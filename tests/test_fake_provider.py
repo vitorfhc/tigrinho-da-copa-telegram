@@ -89,3 +89,19 @@ async def test_fake_provider_logs_calls() -> None:
         "get_live_results",
         "get_match_result:1001",
     ]
+
+
+async def test_fake_provider_scripts_goal_events() -> None:
+    goal = GoalEvent(
+        minute=23,
+        team_id=10,
+        player_id=100,
+        player_name="Vini",
+        is_own_goal=False,
+        is_penalty=False,
+    )
+    provider = FakeProvider(goal_events={1001: (goal,)})
+    events = await provider.get_goal_events(1001)
+    assert [g.player_name for g in events] == ["Vini"]
+    assert await provider.get_goal_events(9999) == ()  # unknown fixture → empty
+    assert provider.call_log == ["get_goal_events:1001", "get_goal_events:9999"]

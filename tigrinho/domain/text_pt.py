@@ -38,6 +38,9 @@ CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.OVER_UNDER: "Mais/Menos 2.5 gols",
 }
 
+# Total number of bet categories — the "5" in "3/5" (one bet per category per game).
+TOTAL_CATEGORIES = len(BetCategory)
+
 
 def btts_labels(home_team: str, away_team: str) -> dict[BttsSel, str]:
     """Both-teams-to-score option labels, naming the two real teams (plain text, for buttons)."""
@@ -97,16 +100,30 @@ def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
     )
 
 
-def reminder_text(games: Sequence[tuple[str, str, datetime]]) -> str:
+def _bettors_line(bettors: Sequence[tuple[str, int]]) -> str:
+    """Inline 'who already bet' line for one game (§9.3).
+
+    ``bettors``: ``(display_name, bets_placed)`` in display order. Shows each bettor's count out
+    of :data:`TOTAL_CATEGORIES`, e.g. ``Felipe (3/5)``; nudges when nobody has bet yet.
+    """
+    if not bettors:
+        return "👥 Ninguém palpitou ainda 👀"
+    listing = ", ".join(f"{escape(name)} ({count}/{TOTAL_CATEGORIES})" for name, count in bettors)
+    return f"👥 Já palpitaram: {listing}"
+
+
+def reminder_text(games: Sequence[tuple[str, str, datetime, Sequence[tuple[str, int]]]]) -> str:
     """~1h pre-kickoff betting reminder for one kickoff slot (§9.3).
 
-    Each item: ``(home, away, kickoff_local)``. Combined into a single message when several
-    games share the slot. Followed by one ``🎯 Apostar`` button per game (built separately).
+    Each item: ``(home, away, kickoff_local, bettors)`` where ``bettors`` is an ordered
+    ``(display_name, bets_placed)`` list. Combined into a single message when several games share
+    the slot; each game line is followed by a ``👥`` line naming who already bet and how many of
+    the 5 categories. Followed by one ``🎯 Apostar`` button per game (built separately).
     """
-    lines = [
-        f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}"
-        for home, away, kickoff in games
-    ]
+    lines: list[str] = []
+    for home, away, kickoff, bettors in games:
+        lines.append(f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}")
+        lines.append(f"  {_bettors_line(bettors)}")
     body = "\n".join(lines)
     return (
         "⏰ <b>Falta ~1h pro apito! Ainda dá pra palpitar:</b>\n\n"
@@ -159,6 +176,49 @@ def results_text(
         )
         lines.append(f"{mention(telegram_id, name)} — <b>{total}</b> pts\n  {marks}")
     return "\n".join(lines)
+
+
+def kickoff_text(home_team: str, away_team: str) -> str:
+    """Group post when a tracked game kicks off (§9.4)."""
+    return (
+        f"🔥 <b>Bola rolando!</b> {escape(home_team)} x {escape(away_team)} "
+        "— boa sorte, Tigrinhos! 🐯"
+    )
+
+
+def goal_minute_label(minute: int, extra: int | None) -> str:
+    """Render a goal minute, e.g. ``23'`` or ``90+3'`` (§9.4)."""
+    return f"{minute}+{extra}'" if extra else f"{minute}'"
+
+
+def goal_text(
+    *,
+    scoring_team: str,
+    home_team: str,
+    away_team: str,
+    home_score: int,
+    away_score: int,
+    minute: int,
+    extra: int | None,
+    scorer: str | None,
+    is_penalty: bool,
+    is_own_goal: bool,
+) -> str:
+    """Group post for one goal: running score + scorer + minute (§9.4)."""
+    tags: list[str] = []
+    if is_penalty:
+        tags.append("pênalti")
+    if is_own_goal:
+        tags.append("gol contra")
+    detail = goal_minute_label(minute, extra)
+    if tags:
+        detail = f"{', '.join(tags)}, {detail}"
+    scorer_part = f" — {escape(scorer)}" if scorer else ""
+    return (
+        f"⚽ <b>GOL do {escape(scoring_team)}!</b> "
+        f"{escape(home_team)} {home_score} x {away_score} {escape(away_team)}"
+        f"{scorer_part} ({detail})"
+    )
 
 
 _MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
@@ -314,7 +374,7 @@ def help_text() -> str:
         "• /placar — ranking (Geral e da Semana)\n"
         "• /placar_jogo — placar de um jogo já encerrado\n"
         "• /placar_jogos — placar somando vários jogos encerrados\n"
-        "• /palpite — palpites da IA (Gemini) para os jogos das próximas 24h\n"
+        "• /palpite — escolha um jogo das próximas 24h e veja o palpite da IA (Gemini)\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
@@ -343,9 +403,9 @@ def palpite_text(
     kickoff_local: datetime,
     analysis: str,
     payloads: Sequence[Payload],
-    confidence: int | None,
+    curiosity: str,
 ) -> str:
-    """One game's AI palpite (§20): header, analysis, a line per category, optional confidence."""
+    """One game's AI palpite (§20): header, analysis, a line per category, optional curiosity."""
     lines = [
         f"🤖 <b>Palpite da IA</b> — {escape(home)} x {escape(away)}",
         f"🗓 {format_kickoff_local(kickoff_local)}",
@@ -355,12 +415,17 @@ def palpite_text(
         lines.append(f"📊 {escape(analysis)}")
         lines.append("")
     lines.extend(f"• {describe_bet(p, home_team=home, away_team=away)}" for p in payloads)
-    if confidence is not None:
+    if curiosity:
         lines.append("")
-        lines.append(f"🎯 Confiança: <b>{confidence}%</b>")
+        lines.append(f"💡 <b>Curiosidade:</b> {escape(curiosity)}")
     lines.append("")
     lines.append("<i>Gerado por IA com busca na web — sem garantias. 🐯</i>")
     return "\n".join(lines)
+
+
+def palpite_pick_text() -> str:
+    """`/palpite` prompt — pick a next-24h game to see its AI palpite (§20)."""
+    return "🤖 Escolha um jogo para ver o palpite da IA:"
 
 
 def palpite_no_key_text() -> str:
@@ -380,6 +445,11 @@ def palpite_no_games_text() -> str:
 def palpite_working_text() -> str:
     """Sent while the (slow) grounded Gemini analysis runs (§20)."""
     return "🧠 Analisando os jogos com a IA (busca na web)… isso pode levar um minutinho."
+
+
+def palpite_generating_text() -> str:
+    """Shown when a generation is already in progress (avoid duplicate AI requests; §20)."""
+    return "🧠 Já estou analisando os jogos. Aguarde um instante e toque no jogo de novo. 🐯"
 
 
 def palpite_error_text() -> str:

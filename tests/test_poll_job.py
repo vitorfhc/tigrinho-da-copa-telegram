@@ -71,6 +71,66 @@ def _finished_result(fixture_id: int = 1001) -> MatchResult:
     )
 
 
+def _seed_live_game(
+    session_factory: sessionmaker[Session],
+    *,
+    fixture_id: int = 1001,
+    started: bool = True,
+    goals_announced: int = 0,
+    hours_ago: float = 0.5,
+) -> None:
+    kickoff = _now() - timedelta(hours=hours_ago)
+    with session_factory() as session:
+        session.add(
+            Game(
+                fixture_id=fixture_id,
+                match_hash="h",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="Brasil",
+                away_team_id=20,
+                away_team_name="Argentina",
+                kickoff_utc=kickoff,
+                kickoff_local=kickoff,
+                status=GameStatus.LIVE if started else GameStatus.SCHEDULED,
+                started_at=_now() if started else None,
+                goals_announced=goals_announced,
+            )
+        )
+        session.commit()
+
+
+def _live_result(
+    *, fixture_id: int = 1001, home: int = 0, away: int = 0, status: GameStatus = GameStatus.LIVE
+) -> MatchResult:
+    return MatchResult(
+        fixture_id=fixture_id,
+        stage=Stage.GROUP,
+        status=status,
+        home_goals_90=None,
+        away_goals_90=None,
+        goals=(),
+        advancing_team_id=None,
+        live_home_goals=home,
+        live_away_goals=away,
+    )
+
+
+def _goal(minute: int, team_id: int, *, name: str | None = None, own: bool = False) -> GoalEvent:
+    return GoalEvent(
+        minute=minute,
+        team_id=team_id,
+        player_id=None,
+        player_name=name,
+        is_own_goal=own,
+        is_penalty=False,
+    )
+
+
+def _sent_texts(bot: AsyncMock) -> list[str]:
+    return [call.kwargs["text"] for call in bot.send_message.await_args_list]
+
+
 def _app_context(
     settings: Settings, session_factory: sessionmaker[Session], provider: FakeProvider
 ) -> AppContext:
@@ -228,3 +288,131 @@ async def test_poll_alerts_admin_for_stuck_game(
     bot.send_message.assert_awaited()  # admin alerted
     assert bot.send_message.await_args.kwargs["chat_id"] == settings.admin_user_id
     assert provider.call_log == []  # nothing active -> no provider call
+
+
+async def test_stuck_game_admin_alert_is_deduped_across_cycles(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # The same stuck game must alert the admin once, not on every ~10-min poll cycle (§9.2).
+    _seed_game(session_factory, hours_ago=5)  # past the 3h window, still unsettled -> stuck
+    provider = FakeProvider()
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+    await poll_job(context)  # second sweep, same stuck game still stuck
+
+    stuck_alerts = [
+        c
+        for c in bot.send_message.await_args_list
+        if c.kwargs.get("chat_id") == settings.admin_user_id
+    ]
+    assert len(stuck_alerts) == 1  # deduped — not one per cycle
+
+
+async def test_kickoff_announced_once(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=False, goals_announced=0)  # SCHEDULED, not started
+    provider = FakeProvider(results=[_live_result(home=0, away=0)])
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+    assert any("Bola rolando" in t for t in _sent_texts(bot))
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.started_at is not None
+
+    bot.send_message.reset_mock()
+    await poll_job(context)  # second cycle: already started, score still 0-0
+    assert not any("Bola rolando" in t for t in _sent_texts(bot))
+
+
+async def test_kickoff_not_announced_when_first_seen_finished(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=False)  # SCHEDULED
+    provider = FakeProvider(results=[_finished_result()])  # feed reports FINISHED
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+    assert not any("Bola rolando" in t for t in _sent_texts(bot))
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.started_at is None
+
+
+async def test_goal_announced_on_score_increase(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=True, goals_announced=0)
+    provider = FakeProvider(
+        results=[_live_result(home=1, away=0)],
+        goal_events={1001: (_goal(23, 10, name="Vini Jr"),)},
+    )
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    texts = _sent_texts(bot)
+    assert any("GOL do Brasil" in t and "1 x 0" in t and "Vini Jr" in t for t in texts)
+    assert "get_goal_events:1001" in provider.call_log
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.goals_announced == 1
+
+
+async def test_no_event_fetch_when_score_unchanged(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=True, goals_announced=1)
+    provider = FakeProvider(results=[_live_result(home=1, away=0)])  # total 1 == goals_announced
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    assert not any(c.startswith("get_goal_events") for c in provider.call_log)
+    assert not any("GOL" in t for t in _sent_texts(bot))
+
+
+async def test_var_disallowed_goal_resyncs_without_posting(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=True, goals_announced=2)
+    provider = FakeProvider(results=[_live_result(home=1, away=0)])  # total 1 < goals_announced 2
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    assert not any(c.startswith("get_goal_events") for c in provider.call_log)
+    assert not any("GOL" in t for t in _sent_texts(bot))
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.goals_announced == 1
+
+
+async def test_multiple_new_goals_posted_in_order(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=True, goals_announced=0)
+    provider = FakeProvider(
+        results=[_live_result(home=1, away=1)],
+        goal_events={1001: (_goal(10, 10, name="Home One"), _goal(25, 20, name="Away One"))},
+    )
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    goal_texts = [t for t in _sent_texts(bot) if "GOL" in t]
+    assert len(goal_texts) == 2
+    assert "1 x 0" in goal_texts[0]
+    assert "1 x 1" in goal_texts[1]
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.goals_announced == 2

@@ -355,11 +355,16 @@ Define `FootballProvider` as a `Protocol` returning **value objects** (never raw
 - `get_fixtures(window_hours: int) -> list[Fixture]` — upcoming WC fixtures within window.
 - `get_live_results() -> list[MatchResult]` — **one** call returning every currently-live WC fixture.
 - `get_match_result(fixture_id: int) -> MatchResult` — final result + goal timeline for one game.
+- `get_goal_events(fixture_id: int) -> tuple[GoalEvent, ...]` — the **uncapped** goal timeline (incl.
+  extra time; shootout excluded) for the live notifications in §9.4.
 
 Value objects (frozen dataclasses): `Fixture`, `MatchResult` (carries `home_goals_90`,
-`away_goals_90`, ordered `goals: list[GoalEvent]`, `advancing_team_id`, `status`, `stage`),
-`GoalEvent` (`minute`, `team_id`, `player_id`, `player_name`, `is_own_goal`, `is_penalty`).
-(No squad endpoint/value object — the first-scorer market is team-based; see §8.1 decision.)
+`away_goals_90`, ordered `goals: list[GoalEvent]`, `advancing_team_id`, `status`, `stage`, plus the
+display-only **live running score** `live_home_goals` / `live_away_goals` from `goals.{home,away}`
+used by §9.4), `GoalEvent` (`minute`, `team_id`, `player_id`, `player_name`, `is_own_goal`,
+`is_penalty`, optional `extra` stoppage minutes for live display). The live-score / `extra` fields do
+**not** affect grading. (No squad endpoint/value object — the first-scorer market is team-based; see
+§8.1 decision.)
 
 `ApiFootballProvider` implements this against API-Football v3. `FakeProvider` returns scripted
 fixtures/results for tests and local development (selected via the `provider_mode` setting).
@@ -577,7 +582,10 @@ to bet ~1h before kickoff. Each sweep:
    `now < kickoff_utc <= now + reminder_lead`, narrowed to those sharing the soonest `kickoff_utc`.
    If none, **return without posting**.
 2. Posts **one** consolidated reminder to the group (HTML, pt-BR), with one `🎯 Apostar` deep-link
-   button per game in the slot — combining games that kick off at the **same time**.
+   button per game in the slot — combining games that kick off at the **same time**. Each game line
+   is followed by a `👥` line naming **who has already bet and how many of the 5 categories** each
+   filled (e.g. `👥 Já palpitaram: Ana (5/5), Felipe (3/5)`), ordered most-complete first
+   (count desc, then name); when nobody has bet yet it reads `👥 Ninguém palpitou ainda 👀`.
 3. Marks those games `reminded_at` **only on a successful send** (re-validated to skip games
    voided/rescheduled mid-flight); a failed send is retried on the next sweep and DMs the admin.
 
@@ -585,6 +593,28 @@ Makes **no provider calls** and is independent of the API budget (§7.3). Idempo
 `reminded_at` (no double-posting across sweeps or restarts). On reschedule, `reminded_at` is cleared
 (§9.1) so a moved game is reminded again before its new kickoff. Games at *different* kickoff times
 each get their own reminder; only same-slot games are combined.
+
+### 9.4 Live group notifications — kickoff + goals
+
+The live-poll job (§9.2) also posts two in-match group messages, riding the same
+`poll_interval_minutes` cadence (no separate job, no extra polling beyond the live feed it already
+fetches):
+
+- **Kickoff.** When `get_live_results()` first reports a tracked game `LIVE`, post a "Bola rolando"
+  message and set `games.started_at` (dedups across polls + restarts). Skipped for a game first seen
+  already `FINISHED` (e.g. downtime through the match); the settlement results post (§9.2) covers it.
+- **Goals.** The live feed carries the running score (`MatchResult.live_home_goals` /
+  `live_away_goals` from `goals.{home,away}`). When a *started* game's running total exceeds
+  `games.goals_announced`, one budgeted `get_goal_events(fixture_id)` call fetches the **uncapped**
+  goal timeline (incl. extra time; penalty shootout excluded). Each new goal is posted with the
+  running score, scorer, and minute (`(pênalti)` / `(gol contra)` tags; own goals credited to the
+  opposing side). The cursor `goals_announced` then advances to the timeline length. A VAR-disallowed
+  goal (running total drops) resyncs the cursor down and posts nothing. The events endpoint is hit
+  only when a game actually scores (~1 call per goal); cycles with no goal cost nothing extra.
+
+Best-effort group sends: a failure logs + DMs the admin and never crashes the bot (§14). Grading /
+settlement are **unchanged** — they still use the 90′ regulation score and the ≤90′ timeline; these
+notifications are display-only.
 
 ---
 
@@ -846,18 +876,27 @@ information.
 
 ### 20.1 Behaviour
 
-- **`/palpite`** (group + DM, posts in the invoking chat) shows the cached AI palpites for the
-  next-24h games — one message per game: a header (teams + kickoff), the AI's short pt-BR analysis,
-  a line per category (rendered via the same `describe_bet` as a human bet), and an optional
-  confidence. It also carries a visible "generated by AI — no guarantees" disclaimer.
+- **`/palpite`** (group + DM, posts in the invoking chat) lists the next-24h games as inline
+  buttons (one per game, labelled `home x away · dd/mm HH:MM`). **Tapping a game** edits the message
+  in place to show that game's palpite: a header (teams + kickoff), the AI's short pt-BR analysis, a
+  line per category (rendered via the same `describe_bet` as a human bet), and a **curiosity** about
+  the head-to-head when one was found. It carries a visible "generated by AI — no guarantees"
+  disclaimer. (Decision, 2026-06-16: a per-game picker replaces the old "one message per game" dump
+  so the chat isn't flooded; the chosen game is generated on demand if its cache is cold.)
 - **Daily job** (`palpite_time`, default `06:00` local, `JobQueue.run_daily`) pre-computes and
   caches the day's palpites with no user interaction, so `/palpite` is normally an instant cache
   read. The job only warms the cache; it does **not** post to the group.
 - **Cache (the DB is the cache).** Palpites are stored one row per `(fixture_id, palpite_date)` in
   `ai_palpites`. Generation only ever fills games **missing** today's palpite, so a day's
-  predictions are computed **at most once**, whether triggered by the 06h job or by the first
-  `/palpite` (cold-cache on-demand generation, e.g. when the key was just added or a new game
-  entered the window).
+  predictions are computed **at most once**, whether triggered by the 06h job or by the first tap on
+  a cold game (cold-cache on-demand generation, e.g. when the key was just added or a new game
+  entered the window). The on-demand call fills the whole day's batch, so subsequent taps are warm.
+- **Single-flight generation.** A process-wide `asyncio.Lock` (`AppContext.palpite_lock`, shared by
+  the picker callback and the job) serializes generation: if a generation is already running, a
+  concurrent tap replies "already analyzing, try again shortly" instead of firing a **second**
+  Gemini request, and a caller that acquires the lock re-checks the (now-warm) cache before
+  generating. A fixture the model keeps omitting is recorded in `AppContext.palpite_attempted` so a
+  tap on it won't re-trigger the batch forever (computed at most once still holds).
 - **No key configured →** `/palpite` replies that no Gemini key is set (how to add it) and the
   daily job is a no-op.
 
@@ -870,9 +909,16 @@ information.
   uses up-to-date form/injuries/lineups.
 - **Validated JSON:** the prompt pins the model to the project's grading rules (everything on the
   90′ result; knockout has no draw; first team ignores own goals; over = 3+ goals) and asks for a
-  single JSON object. The Python backend **extracts and validates** it with pydantic
-  (`PalpiteBatch` → `GamePalpite`, reusing the domain bet enums) before storing — an out-of-range
-  or unknown-fixture value can never be saved.
+  single JSON object (`fixture_id`, `analysis`, the five category picks, and `curiosity`). The
+  Python backend **extracts and validates** it with pydantic (`PalpiteBatch` → `GamePalpite`,
+  reusing the domain bet enums) before storing — an out-of-range or unknown-fixture value can never
+  be saved.
+- **Curiosity (grounded-only).** `curiosity` is a real, web-verified fact about the head-to-head;
+  the model is told never to invent one and to return an empty string if none is found (empty →
+  omitted from the message).
+- **Citation stripping.** Grounded text carries inline citation tags (`[1]`, `[1.1.7]`, …);
+  `strip_citation_tags` removes them from `analysis`/`curiosity` at validation time, so stored and
+  displayed text is clean (old cached rows are cleaned on load too).
 
 ### 20.3 Decisions (grounded June 2026; per §2)
 

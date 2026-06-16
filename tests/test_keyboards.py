@@ -14,6 +14,7 @@ from tigrinho.bot.callbacks import (
     GamesBoardCompute,
     GamesBoardToggle,
     HomeScore,
+    PalpiteView,
     WinnerInput,
     decode,
 )
@@ -28,6 +29,7 @@ from tigrinho.bot.keyboards import (
     games_keyboard,
     home_score_keyboard,
     over_under_keyboard,
+    palpite_games_keyboard,
     winner_keyboard,
 )
 from tigrinho.domain.bets import FirstTeamSel, WinnerSel
@@ -59,6 +61,15 @@ def test_announcement_keyboard_one_button_per_game() -> None:
 
 def test_games_keyboard() -> None:
     assert _decoded(games_keyboard([(1001, "Brasil x Argentina")])) == [ChooseGame(1001)]
+
+
+def test_palpite_games_keyboard_one_button_per_game() -> None:
+    keyboard = palpite_games_keyboard(
+        [(1001, "Brasil x Argentina · 16/06 16:00"), (1002, "França x Alemanha · 16/06 19:00")]
+    )
+    assert _decoded(keyboard) == [PalpiteView(1001), PalpiteView(1002)]
+    labels = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert labels == ["Brasil x Argentina · 16/06 16:00", "França x Alemanha · 16/06 19:00"]
 
 
 def test_category_keyboard_has_five_categories() -> None:

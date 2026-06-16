@@ -86,6 +86,8 @@ class Game(Base):
     first_scorer_player_id: Mapped[int | None] = mapped_column(Integer, default=None)
     announced_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     reminded_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    goals_announced: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     settled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
 
     bets: Mapped[list[Bet]] = relationship(back_populates="game", cascade="all, delete-orphan")

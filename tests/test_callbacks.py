@@ -20,6 +20,7 @@ from tigrinho.bot.callbacks import (
     GamesBoardToggle,
     HomeScore,
     OverUnderInput,
+    PalpiteView,
     WinnerInput,
     decode,
     encode,
@@ -55,6 +56,7 @@ _CASES: list[CallbackData] = [
     GamesBoardToggle(1023, 9),
     GamesBoardCompute(0),
     GamesBoardCompute(1023),
+    PalpiteView(123456),
 ]
 
 
@@ -97,6 +99,8 @@ def test_encode_rejects_oversized() -> None:
         "pjt:x:0",
         "pjt:1:x",
         "pjc:x",
+        "pv",
+        "pv:x",
     ],
 )
 def test_decode_rejects_malformed(bad: str) -> None:

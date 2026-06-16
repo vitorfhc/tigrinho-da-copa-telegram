@@ -19,6 +19,7 @@ Opcodes:
   ``gb:<fixture>``                    per-game scoreboard for an ended game (§10)
   ``pjt:<mask>:<index>``              combined board picker: toggle game ``index`` in selection
   ``pjc:<mask>``                      combined board picker: compute the board for ``mask`` (§10)
+  ``pv:<fixture>``                    show the AI palpite for a chosen game (§20)
 """
 
 from __future__ import annotations
@@ -147,6 +148,11 @@ class GamesBoardCompute:
     mask: int
 
 
+@dataclass(frozen=True, slots=True)
+class PalpiteView:
+    fixture_id: int
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -162,6 +168,7 @@ CallbackData = (
     | GameBoard
     | GamesBoardToggle
     | GamesBoardCompute
+    | PalpiteView
 )
 
 
@@ -196,6 +203,8 @@ def encode(data: CallbackData) -> str:
             result = f"pjt:{mask}:{index}"
         case GamesBoardCompute(mask):
             result = f"pjc:{mask}"
+        case PalpiteView(fixture_id):
+            result = f"pv:{fixture_id}"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -236,6 +245,8 @@ def decode(data: str) -> CallbackData:
             return GamesBoardToggle(int(parts[1]), int(parts[2]))
         if op == "pjc":
             return GamesBoardCompute(int(parts[1]))
+        if op == "pv":
+            return PalpiteView(int(parts[1]))
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"invalid callback_data: {data!r}") from exc
     raise ValueError(f"unknown callback_data opcode: {data!r}")

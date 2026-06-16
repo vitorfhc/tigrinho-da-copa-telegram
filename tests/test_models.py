@@ -119,3 +119,11 @@ def test_relationship_cascade_delete(session: Session) -> None:
     session.delete(game)
     session.commit()
     assert session.execute(select(Bet)).first() is None
+
+
+def test_game_live_notification_defaults(session: Session) -> None:
+    _player, game = _seed_player_and_game(session)
+    stored = session.get(Game, game.fixture_id)
+    assert stored is not None
+    assert stored.started_at is None
+    assert stored.goals_announced == 0

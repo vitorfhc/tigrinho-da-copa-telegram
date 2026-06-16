@@ -7,6 +7,7 @@ without import cycles.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Final
@@ -36,8 +37,17 @@ class AppContext:
     budget: RequestBudget
     # AI palpite generator (§20); None when no GEMINI_API_KEY is configured (feature disabled).
     palpite_generator: PalpiteGenerator | None = None
+    # Serializes AI palpite generation so concurrent /palpite calls don't fire duplicate Gemini
+    # requests when the cache is cold (§20).
+    palpite_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # (palpite_date, fixture_id) pairs already attempted this process, so a fixture the model
+    # omitted from its batch isn't re-requested on every /palpite (§20.1 "computed at most once").
+    palpite_attempted: set[tuple[date, int]] = field(default_factory=set)
     # Budget days for which the "cap reached" admin alert was already sent (dedup, once/day, §14).
     alerted_cap_days: set[date] = field(default_factory=set)
+    # Fixture ids already alerted as "stuck" this process, so the poll job DMs the admin once per
+    # stuck game rather than every cycle; pruned when a game stops being stuck so it can re-alert.
+    stuck_alerted: set[int] = field(default_factory=set)
 
 
 def get_app_context(application: AnyApplication) -> AppContext:

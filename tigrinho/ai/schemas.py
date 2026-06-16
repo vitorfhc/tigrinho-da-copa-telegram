@@ -10,7 +10,9 @@ PURE: no I/O, no clock, no DB.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tigrinho.domain.bets import (
     BttsPayload,
@@ -24,6 +26,17 @@ from tigrinho.domain.bets import (
     WinnerPayload,
     WinnerSel,
 )
+
+# Gemini grounding inserts inline citation tags like ``[1]`` / ``[1.1.7]`` / ``[2, 3]`` into the
+# grounded text. They are noise in a chat message, so we strip them from free-text fields.
+_CITATION_RE = re.compile(r"\s*\[\d[\d.,\s]*\]")
+
+
+def strip_citation_tags(text: str) -> str:
+    """Remove grounding citation tags (``[1]``, ``[1.1.7]``, …) and tidy the spacing."""
+    cleaned = _CITATION_RE.sub("", text)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
 
 
 class _AiModel(BaseModel):
@@ -46,7 +59,14 @@ class GamePalpite(_AiModel):
     btts: BttsSel
     winner: WinnerSel
     over_under: OverUnderSel
-    confidence: int | None = Field(default=None, ge=0, le=100)
+    # A real, web-grounded curiosity about this head-to-head; empty when none was found (the model
+    # is told never to invent one).
+    curiosity: str = ""
+
+    @field_validator("analysis", "curiosity")
+    @classmethod
+    def _clean_text(cls, value: str) -> str:
+        return strip_citation_tags(value)
 
     def payloads(self) -> list[Payload]:
         """Convert to the domain's typed bet payloads (in :data:`CATEGORY_ORDER` order)."""

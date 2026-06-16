@@ -17,6 +17,7 @@ from tigrinho.providers.api_football import (
     map_fixture,
     map_match_result,
     normalize_status,
+    parse_goal_timeline,
     parse_goals,
 )
 
@@ -300,4 +301,97 @@ async def test_http_error_raises() -> None:
     provider = _provider(handler)
     with pytest.raises(httpx.HTTPStatusError):
         await provider.get_match_result(10)
+    await provider.aclose()
+
+
+async def test_get_live_results_carries_live_score() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "errors": [],
+                "response": [
+                    {
+                        "fixture": {"id": 1001, "status": {"short": "2H"}},
+                        "league": {"round": "Group A - 1"},
+                        "teams": {"home": {"id": 10}, "away": {"id": 20}},
+                        "goals": {"home": 2, "away": 1},
+                        "score": {"fulltime": {"home": None, "away": None}},
+                    }
+                ],
+            },
+        )
+
+    provider = _provider(handler)
+    live = await provider.get_live_results()
+    assert live[0].live_home_goals == 2
+    assert live[0].live_away_goals == 1
+    assert live[0].home_goals_90 is None  # 90′ score still null mid-match
+    await provider.aclose()
+
+
+def test_parse_goal_timeline_keeps_extra_time_and_flags() -> None:
+    events: list[dict[str, Any]] = [
+        {
+            "time": {"elapsed": 10, "extra": None},
+            "team": {"id": 10},
+            "player": {"id": 100, "name": "Neymar"},
+            "type": "Goal",
+            "detail": "Normal Goal",
+        },
+        {  # extra-time goal (>90) -> KEPT (unlike parse_goals)
+            "time": {"elapsed": 105, "extra": 2},
+            "team": {"id": 20},
+            "player": {"id": 200, "name": "Late"},
+            "type": "Goal",
+            "detail": "Penalty",
+        },
+        {  # missed penalty -> excluded
+            "time": {"elapsed": 30},
+            "team": {"id": 10},
+            "player": {"id": 100, "name": "Neymar"},
+            "type": "Goal",
+            "detail": "Missed Penalty",
+        },
+        {  # penalty shootout (null elapsed) -> excluded
+            "time": {"elapsed": None},
+            "team": {"id": 10},
+            "player": {"id": 101, "name": "Shooter"},
+            "type": "Goal",
+            "detail": "Penalty",
+        },
+    ]
+    goals = parse_goal_timeline(events)
+    assert len(goals) == 2
+    assert goals[0].minute == 10
+    assert goals[1].minute == 105
+    assert goals[1].extra == 2
+    assert goals[1].is_penalty is True
+
+
+async def test_get_goal_events_calls_events_endpoint() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "errors": [],
+                "response": [
+                    {
+                        "time": {"elapsed": 23, "extra": None},
+                        "team": {"id": 10},
+                        "player": {"id": 100, "name": "Vini"},
+                        "type": "Goal",
+                        "detail": "Normal Goal",
+                    }
+                ],
+            },
+        )
+
+    provider = _provider(handler)
+    goals = await provider.get_goal_events(1001)
+    assert [g.player_name for g in goals] == ["Vini"]
+    assert paths == ["/fixtures/events"]
     await provider.aclose()

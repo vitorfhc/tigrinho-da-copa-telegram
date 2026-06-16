@@ -39,6 +39,7 @@ class GoalEvent:
     player_name: str | None
     is_own_goal: bool
     is_penalty: bool
+    extra: int | None = None  # added stoppage minutes (e.g. 90+`extra`); for live display
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,8 @@ class MatchResult:
     away_goals_90: int | None
     goals: tuple[GoalEvent, ...]
     advancing_team_id: int | None
+    live_home_goals: int | None = None  # current running score (incl. ET); from item.goals
+    live_away_goals: int | None = None
 
 
 @runtime_checkable
@@ -73,6 +76,10 @@ class FootballProvider(Protocol):
 
     async def get_match_result(self, fixture_id: int) -> MatchResult:
         """Final result + goal timeline for one fixture."""
+        ...
+
+    async def get_goal_events(self, fixture_id: int) -> tuple[GoalEvent, ...]:
+        """Full goal timeline (incl. extra time) for live notifications (§9.4)."""
         ...
 
 

@@ -41,7 +41,7 @@ PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand("placar", "Ver o placar (Geral / Semana)"),
     BotCommand("placar_jogo", "Placar de um jogo já encerrado"),
     BotCommand("placar_jogos", "Placar somando vários jogos encerrados"),
-    BotCommand("palpite", "Palpites da IA para os jogos de hoje"),
+    BotCommand("palpite", "Escolha um jogo e veja o palpite da IA"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 GROUP_COMMANDS: list[BotCommand] = [
@@ -49,7 +49,7 @@ GROUP_COMMANDS: list[BotCommand] = [
     BotCommand("placar", "Ver o placar (Geral / Semana)"),
     BotCommand("placar_jogo", "Placar de um jogo já encerrado"),
     BotCommand("placar_jogos", "Placar somando vários jogos encerrados"),
-    BotCommand("palpite", "Palpites da IA para os jogos de hoje"),
+    BotCommand("palpite", "Escolha um jogo e veja o palpite da IA"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 

@@ -26,8 +26,11 @@ from tigrinho.domain.text_pt import (
     format_kickoff_short,
     game_board_text,
     games_board_text,
+    goal_text,
     help_text,
+    kickoff_text,
     mention,
+    palpite_generating_text,
     palpite_no_games_text,
     palpite_no_key_text,
     palpite_text,
@@ -131,33 +134,51 @@ def test_palpite_text_renders_each_category() -> None:
         kickoff_local=datetime(2026, 6, 16, 16, 0),
         analysis="Brasil joga em casa e está em alta.",
         payloads=payloads,
-        confidence=70,
+        curiosity="As seleções decidiram a última Copa América.",
     )
     assert "Brasil" in text and "Argentina" in text
     assert "2x1" in text  # exact score
     assert "Brasil joga em casa" in text  # analysis included
-    assert "70%" in text  # confidence rendered
+    assert "Copa América" in text  # curiosity rendered
     # every category label appears
     for label in ("Placar exato", "Primeira equipe", "Ambas marcam", "Vencedor", "Mais"):
         assert label in text
 
 
-def test_palpite_text_escapes_team_names() -> None:
+def test_palpite_text_omits_empty_curiosity() -> None:
+    text = palpite_text(
+        home="Brasil",
+        away="Argentina",
+        kickoff_local=datetime(2026, 6, 16, 16, 0),
+        analysis="ok",
+        payloads=[WinnerPayload(sel=WinnerSel.HOME)],
+        curiosity="",
+    )
+    assert "Curiosidade" not in text  # no empty curiosity line
+
+
+def test_palpite_text_escapes_team_names_and_curiosity() -> None:
     text = palpite_text(
         home="A<b>X",
         away="Y&Z",
         kickoff_local=datetime(2026, 6, 16, 16, 0),
         analysis="ok",
         payloads=[WinnerPayload(sel=WinnerSel.HOME)],
-        confidence=None,
+        curiosity="fato com <tag> & cia",
     )
     assert "A<b>X" not in text  # raw HTML must be escaped
     assert "&amp;Z" in text
+    assert "<tag>" not in text  # curiosity escaped too
+    assert "&amp; cia" in text
 
 
 def test_palpite_no_key_text_mentions_gemini() -> None:
     text = palpite_no_key_text()
     assert "Gemini" in text or "GEMINI_API_KEY" in text
+
+
+def test_palpite_generating_text() -> None:
+    assert len(palpite_generating_text()) > 0
 
 
 def test_palpite_no_games_text() -> None:
@@ -269,8 +290,8 @@ def test_game_board_text_no_bettors() -> None:
 def test_reminder_text_lists_games_with_weekday() -> None:
     text = reminder_text(
         [
-            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0)),
-            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0)),
+            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 3)]),
+            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0), []),
         ]
     )
     assert "Falta ~1h" in text
@@ -280,7 +301,7 @@ def test_reminder_text_lists_games_with_weekday() -> None:
 
 
 def test_reminder_text_escapes_team_names() -> None:
-    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0))])
+    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0), [])])
     assert "A &amp; B" in text
     assert "C &gt; D" in text
 
@@ -308,3 +329,97 @@ def test_games_board_text_singular_and_escapes() -> None:
 def test_games_board_text_no_bettors() -> None:
     text = games_board_text(games=[("A", "B", 1, 0)], rows=[])
     assert "Ninguém apostou nesses jogos" in text
+
+
+def test_reminder_text_lists_bettors_with_counts() -> None:
+    text = reminder_text(
+        [("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 3), ("Ana", 5)])]
+    )
+    # "/5" is the total number of bet categories (one bet per category).
+    assert "👥 Já palpitaram: Felipe (3/5), Ana (5/5)" in text
+
+
+def test_reminder_text_no_bettors_shows_nudge() -> None:
+    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [])])
+    assert "Ninguém palpitou ainda" in text
+
+
+def test_reminder_text_escapes_bettor_names() -> None:
+    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("A & B", 2)])])
+    assert "A &amp; B (2/5)" in text
+
+
+def test_kickoff_text() -> None:
+    text = kickoff_text("Brasil", "Argentina")
+    assert "Bola rolando" in text
+    assert "Brasil x Argentina" in text
+
+
+def test_goal_text_basic() -> None:
+    text = goal_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=23,
+        extra=None,
+        scorer="Vini Jr",
+        is_penalty=False,
+        is_own_goal=False,
+    )
+    assert "GOL do Brasil" in text
+    assert "Brasil 1 x 0 Argentina" in text
+    assert "Vini Jr" in text
+    assert "(23')" in text
+
+
+def test_goal_text_penalty_and_stoppage() -> None:
+    text = goal_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=90,
+        extra=3,
+        scorer="Neymar",
+        is_penalty=True,
+        is_own_goal=False,
+    )
+    assert "pênalti" in text
+    assert "90+3'" in text
+
+
+def test_goal_text_own_goal_without_scorer() -> None:
+    text = goal_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=45,
+        extra=None,
+        scorer=None,
+        is_own_goal=True,
+        is_penalty=False,
+    )
+    assert "gol contra" in text
+    assert "—" not in text  # no scorer dash when the provider gives no name
+
+
+def test_goal_text_escapes_html() -> None:
+    text = goal_text(
+        scoring_team="A&B",
+        home_team="A&B",
+        away_team="C<D",
+        home_score=0,
+        away_score=1,
+        minute=5,
+        extra=None,
+        scorer="x<y",
+        is_penalty=False,
+        is_own_goal=False,
+    )
+    assert "&amp;" in text
+    assert "&lt;" in text

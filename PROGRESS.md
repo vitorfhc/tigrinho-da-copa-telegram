@@ -550,6 +550,84 @@ category, cached in the DB and posted by `/palpite`.
   unknown-fixture), text rendering, handler (4 branches), job (no-key/cache-warm/failure/schedule),
   generator (SDK mocked — grounding+thinking config asserted). 341 tests; all four gates green.
 
+### 2026-06-16 — /palpite refinements: curiosity, single-flight, citation stripping
+
+User request after the first prod deploy. (a) Removed `confidence`; (b) added `curiosity` — a
+**web-grounded** head-to-head fact the model must NOT invent (empty string when none found → omitted
+from the message); (c) **single-flight generation**: a process-wide `asyncio.Lock`
+(`AppContext.palpite_lock`, shared by `/palpite` and the daily job) so a cold-cache burst of
+`/palpite` fires **one** Gemini request (a concurrent caller gets "já estou analisando"; the
+lock-holder re-checks the warm cache before generating); (d) `strip_citation_tags` removes grounding
+tags (`[1]`/`[1.1.7]`) from `analysis`/`curiosity` at validation time (old cached rows cleaned on
+load). §20.1/§20.2 updated. 349 tests; all four gates green.
+
+### 2026-06-16 — Feature: pre-game reminder shows who bet & how many (§9.3)
+
+User request (worktree). The ~1h reminder (`reminder_text`) now appends a `👥` line per game naming
+who already bet and how many of the **5** categories each filled — inline compact format chosen by
+the user: `👥 Já palpitaram: Ana (5/5), Felipe (3/5)`, ordered most-complete first (count desc, then
+name); empty state reads `👥 Ninguém palpitou ainda 👀`. `reminder_text` items became 4-tuples
+`(home, away, kickoff_local, bettors)`; `reminder_job` gathers bettors via `BetRepository`
+(keyed on `telegram_id` so same-name players don't merge) inside the existing read session. New
+`TOTAL_CATEGORIES = len(BetCategory)` constant (single source of truth for the "5"). No schema/
+migration/provider change; pure DB read + group post. COMPLETION.md §9.3 updated; `/ajuda` unchanged
+(no command/category/scoring/grading change). 354 tests; all four gates green.
+
+### 2026-06-16 — Bug fixes: 4 medium findings from the exhaustive multi-agent hunt
+
+Fixed the four medium-severity bugs surfaced (and adversarially verified) by the bug-hunt workflow
+`wf_a260e64b-f20`. Each TDD'd (failing test first) with a focused regression test. 358 tests, all
+four gates green. None touch commands/categories/scoring/grading, so `/ajuda` is unchanged.
+- **U3 — un-void leaks phantom scoreboard rows** (`sync_job.py`): postpone→reschedule flipped the
+  game back to `SCHEDULED` but never reset its voided bets, so `settled_at`+`points_awarded=0`
+  survived and leaked 0-point/0-correct rows onto `/placar`. New `_unvoid_bets` resets them to
+  pending in the un-void branch (mirrors `BetRepository.upsert`). Test
+  `test_sync_unvoid_resets_bets_to_pending`.
+- **U2 — `/minhas_apostas` showed in-progress bets as a loss** (`bets_handlers.py`): bets on a
+  kicked-off-but-unsettled game rendered under "Encerrados" as `✗ (0 pts)`. Added a third
+  `Em andamento` bucket (`settled_at is None` and not open) showing `⏳ aguardando resultado` with
+  no verdict/points. Test `test_minhas_apostas_shows_started_ungraded_bet_as_pending`.
+- **U4 — stuck-game admin DM spam** (`poll_job.py` + `runtime.py`): the "needs manual settlement"
+  DM fired every ~10-min poll cycle. Added `AppContext.stuck_alerted` (in-memory, pruned when a
+  game stops being stuck) so it alerts once per stuck game. Test
+  `test_stuck_game_admin_alert_is_deduped_across_cycles`.
+- **U8 — `/palpite` re-ran the full AI batch on every call** (`palpite_handlers.py` + `runtime.py`)
+  when the model omitted any requested fixture (`len(rendered) < upcoming_count` stayed true
+  forever). Trigger is now the set of upcoming−cached−attempted fixtures, with
+  `AppContext.palpite_attempted` marking every requested fixture (even omitted ones) per day. Test
+  `test_incomplete_generation_does_not_regenerate_every_call`.
+
+### 2026-06-16 — /palpite: pick a game instead of dumping all of them (§20)
+
+User request (worktree): `/palpite` flooded the chat with one message per next-24h game. It now
+posts a **game picker** (one inline button per next-24h game, labelled `home x away · dd/mm HH:MM`);
+**tapping a game** edits the message in place to show just that game's palpite. New `PalpiteView`
+callback (opcode `pv:<fixture>`) + `palpite_games_keyboard` + `palpite_pick_text`. Generation moved
+from the command to the new `palpite_select` callback: a tap on a cold game generates the day's batch
+on demand (single-flight via `palpite_lock`, `palpite_attempted` so an omitted fixture doesn't
+re-trigger forever) and shows the chosen game — preserving §20.1 "computed at most once". The `^pv:`
+`CallbackQueryHandler` is registered before the wizard's catch-all (like `^bv:`/`^gb:`). Maintenance
+rule (§11): `/ajuda`, the `palpite` BotCommand descriptions, and COMPLETION.md §20.1 updated. 365
+tests; all four gates green.
+
+### 2026-06-16 — Feature: live group notifications (kickoff + goals) (§9.4)
+
+User request, built in an isolated worktree. The live-poll job now posts a "Bola rolando" message
+when a tracked game goes LIVE and one message per goal (running score + scorer + minute, incl. extra
+time), gated on a **free running-score check** so the `/fixtures/events` endpoint is hit only when a
+game actually scores. New provider surface (`MatchResult.live_home_goals/live_away_goals`,
+`GoalEvent.extra`, `get_goal_events` returning the uncapped timeline), pure
+`domain/live.goal_progression` (own-goal flip → running score + scoring side), pt-BR `kickoff_text` /
+`goal_text`, new `games.started_at` + `games.goals_announced` columns + append-only migration
+`d2e3f4a5b6c7`.
+- Kickoff dedups via `started_at` (restart-safe); a game first seen FINISHED gets no kickoff post and
+  no retroactive goal dump — the settlement results post covers it.
+- Goal cursor `goals_announced` advances to the timeline length; a VAR-disallowed goal resyncs the
+  cursor down and posts nothing. Best-effort group sends (failure → log + admin DM, never crashes).
+- Grading/settlement untouched (still 90′ score + ≤90′ timeline). `/ajuda` unaffected (no command/
+  category/scoring/grading change). Spec + plan under `docs/superpowers/`. 385 tests (after rebase
+  onto main); all four gates green.
+
 ### 2026-06-16 — Feature: combined scoreboard for a set of ended games (`/placar_jogos`, §10)
 
 User request. New `/placar_jogos` (group + DM): inline **multi-select** picker over the last 10
@@ -564,5 +642,5 @@ same tie-breaks). Pure DB read; voided games excluded.
   `board_data.load_games_records`; `text_pt.games_board_text`; `board_handlers.placar_jogos_handler`
   + `games_board_toggle` (`^pjt:`) + `games_board_compute` (`^pjc:`), registered before the wizard
   catch-all. `/ajuda` + `app.PRIVATE/GROUP_COMMANDS` + COMPLETION.md §10/§21 updated (§11 rule).
-- Built via subagent-driven TDD (6 tasks, two-stage review each). 366 tests; all four gates green.
+- Built via subagent-driven TDD (merged with main's live-notifications + /palpite work).
   Design + plan under `docs/superpowers/`.
