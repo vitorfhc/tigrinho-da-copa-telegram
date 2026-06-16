@@ -298,9 +298,10 @@ def test_games_board_text_combines_games_and_medals() -> None:
 
 
 def test_games_board_text_singular_and_escapes() -> None:
-    text = games_board_text(games=[("A & B", "C", 2, 1)], rows=[(1, "Z", 5)])
+    text = games_board_text(games=[("A & B", "C", 2, 1)], rows=[(1, "Z & Y", 5)])
     assert "Placar — 1 jogo" in text
     assert "A &amp; B 2x1 C" in text
+    assert "Z &amp; Y" in text  # player name escaped in the medal row
 
 
 def test_games_board_text_no_bettors() -> None:
