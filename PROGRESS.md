@@ -443,6 +443,17 @@ dropping `squad_players` (initial migration untouched, per guardrail). Grading r
 `/ajuda` + README updated per the §11 maintenance rule. 267 tests, all gates green, both migrations
 apply.
 
+### 2026-06-16 — Fix: BTTS keyboard names the real teams (not "Mandante/Visitante")
+
+User request. The both-teams-to-score selector showed generic "Só o mandante" / "Só o visitante"
+buttons (and confirmations) — the only betting step that didn't use the real team names (winner,
+first-team, and the score prompts already did). Replaced the static `BTTS_LABELS` dict with
+`text_pt.btts_labels(home_team, away_team)`, so the two "only" options render as e.g. "Só o Brasil" /
+"Só o Argentina". `btts_keyboard` now takes the team names (passed from the game in
+`_step_payload`), and `describe_bet` builds the BTTS label from the (HTML-escaped) names. Also
+reworded the static `/ajuda` category lines that still said "Mandante/Visitante" to neutral
+phrasing. Spec §8.2 + `/ajuda` updated per the §11 maintenance rule. Gates green.
+
 ### 2026-06-15 — Feature: pre-game betting reminder (§9.3)
 
 User request. New `JobQueue.run_repeating` reminder sweep (`bot/reminder_job.py`) posts one group

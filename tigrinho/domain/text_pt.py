@@ -38,12 +38,16 @@ CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.OVER_UNDER: "Mais/Menos 2.5 gols",
 }
 
-BTTS_LABELS: dict[BttsSel, str] = {
-    BttsSel.BOTH: "Ambas marcam",
-    BttsSel.ONLY_HOME: "Só o mandante",
-    BttsSel.ONLY_AWAY: "Só o visitante",
-    BttsSel.NEITHER: "Nenhuma marca",
-}
+
+def btts_labels(home_team: str, away_team: str) -> dict[BttsSel, str]:
+    """Both-teams-to-score option labels, naming the two real teams (plain text, for buttons)."""
+    return {
+        BttsSel.BOTH: "Ambas marcam",
+        BttsSel.ONLY_HOME: f"Só o {home_team}",
+        BttsSel.ONLY_AWAY: f"Só o {away_team}",
+        BttsSel.NEITHER: "Nenhuma marca",
+    }
+
 
 OVER_UNDER_LABELS: dict[OverUnderSel, str] = {
     OverUnderSel.OVER: "Mais de 2.5 (3+ gols)",
@@ -197,7 +201,8 @@ def describe_bet(
         }
         return f"Vencedor: {labels[payload.sel]}"
     if isinstance(payload, BttsPayload):
-        return f"Ambas marcam: {BTTS_LABELS[payload.sel]}"
+        label = btts_labels(escape(home_team), escape(away_team))[payload.sel]
+        return f"Ambas marcam: {label}"
     if isinstance(payload, OverUnderPayload):
         return f"Gols: {OVER_UNDER_LABELS[payload.sel]}"
     if isinstance(payload, FirstTeamPayload):
@@ -242,9 +247,9 @@ def help_text() -> str:
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
         "• <b>Placar exato</b> — ex.: 2x1\n"
-        "• <b>Primeira equipe a marcar</b> — Mandante ou Visitante\n"
-        "• <b>Ambas marcam</b> — Ambas / Só mandante / Só visitante / Nenhuma\n"
-        "• <b>Vencedor</b> — Mandante / Empate / Visitante\n"
+        "• <b>Primeira equipe a marcar</b> — uma das duas seleções do jogo\n"
+        "• <b>Ambas marcam</b> — Ambas / Só a 1ª seleção / Só a 2ª seleção / Nenhuma\n"
+        "• <b>Vencedor</b> — uma das seleções ou Empate\n"
         "• <b>Mais/Menos 2.5 gols</b> — Mais (3+) ou Menos (até 2)\n\n"
         "<b>Pontuação</b>\n"
         f"{points_table_text()}\n\n"

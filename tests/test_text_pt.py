@@ -48,6 +48,10 @@ def test_describe_bet_all_categories() -> None:
     )
     assert describe_bet(WinnerPayload(sel=WinnerSel.DRAW)) == "Vencedor: Empate"
     assert describe_bet(BttsPayload(sel=BttsSel.NEITHER)) == "Ambas marcam: Nenhuma marca"
+    assert (
+        describe_bet(BttsPayload(sel=BttsSel.ONLY_HOME), home_team="Brasil", away_team="Argentina")
+        == "Ambas marcam: Só o Brasil"
+    )
     assert "Mais de 2.5" in describe_bet(OverUnderPayload(sel=OverUnderSel.OVER))
     assert (
         describe_bet(

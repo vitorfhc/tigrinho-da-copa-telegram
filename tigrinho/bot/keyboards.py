@@ -28,10 +28,10 @@ from tigrinho.bot.callbacks import (
 )
 from tigrinho.domain.bets import BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 from tigrinho.domain.text_pt import (
-    BTTS_LABELS,
     CATEGORY_LABELS,
     CATEGORY_ORDER,
     OVER_UNDER_LABELS,
+    btts_labels,
 )
 from tigrinho.enums import Stage
 
@@ -110,10 +110,11 @@ def winner_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
-def btts_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
-    """Both-teams-to-score selector."""
+def btts_keyboard(fixture_id: int, home_team: str, away_team: str) -> InlineKeyboardMarkup:
+    """Both-teams-to-score selector — the two "só o ..." options name the real teams."""
+    labels = btts_labels(home_team, away_team)
     rows = [
-        [_button(BTTS_LABELS[sel], BttsInput(fixture_id, sel))]
+        [_button(labels[sel], BttsInput(fixture_id, sel))]
         for sel in (BttsSel.BOTH, BttsSel.ONLY_HOME, BttsSel.ONLY_AWAY, BttsSel.NEITHER)
     ]
     return InlineKeyboardMarkup(rows)
