@@ -82,6 +82,23 @@ text** AND **`COMPLETION.md`** in the **same change**.
 - Strong typing (`mypy --strict`, **no `Any` in domain**), fail-fast config validation, pure domain
   logic, small focused modules.
 
+## Running the bot vs. the admin CLI — different entrypoints, DO NOT MIX
+
+- **`python -m tigrinho` runs the BOT** (long polling, blocks) and **ignores trailing args** — so
+  `python -m tigrinho set-result …` does NOT run a command, it silently launches a **second poller**.
+- **Admin CLI is `python -m tigrinho.cli <cmd>`** (Typer app in `tigrinho/cli.py`): `set-result`,
+  `games`, `board`, `db`, `sync`, `budget`. CLI runs sync against the same SQLite the live bot uses, so
+  it is safe to run while the bot is up.
+- **In prod, run CLI inside the container:** `docker compose exec -T bot python -m tigrinho.cli <cmd>`
+  (host `bbdo`, see `CLAUDE.local.md`). **Never** `docker compose exec … python -m tigrinho …`.
+- **Why it matters:** a stray second poller makes Telegram return `Conflict: terminated by other
+  getUpdates`, which the bot DMs to the admin. Recover with `docker compose restart bot` — one clean
+  poller; SQLite is on a Docker volume, so no data loss.
+- **Manual score override:** `python -m tigrinho.cli set-result <fixture_id> <home> <away>
+  [--first-team home|away] [--advancing <team_id>]` re-grades all bets idempotently. Pass
+  `--first-team` to preserve FIRST_TEAM grading and `--advancing` to keep the advancing flag — **both
+  reset to none if omitted** (only the final score, WINNER, BTTS, OVER_UNDER derive from the score).
+
 ## Telegram specifics to remember (§3, §8)
 
 - **HTML parse mode everywhere** (`ParseMode.HTML`) — avoids MarkdownV2 escaping.
