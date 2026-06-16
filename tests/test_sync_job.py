@@ -124,6 +124,26 @@ def test_sync_unvoids_on_reschedule(session: Session) -> None:
     assert game.status is GameStatus.SCHEDULED
 
 
+def test_sync_unvoid_resets_bets_to_pending(session: Session) -> None:
+    # Postpone-then-reschedule must reset the voided bets back to pending; otherwise they keep
+    # settled_at + points_awarded=0 while the game is SCHEDULED again, leaking phantom 0-point
+    # rows onto the scoreboard (it filters only on VOID status / points_awarded is None). (§9.1)
+    sync_fixtures(session, [_fx(1)], tz=_TZ)
+    PlayerRepository(session).get_or_create(42, "A")
+    BetRepository(session).upsert(
+        fixture_id=1, player_telegram_id=42, category="WINNER", payload_json="{}"
+    )
+    sync_fixtures(session, [_fx(1, status=GameStatus.POSTPONED)], tz=_TZ)  # void
+    voided = BetRepository(session).list_for_game(1)[0]
+    assert voided.settled_at is not None and voided.points_awarded == 0  # precondition
+
+    sync_fixtures(session, [_fx(1, kickoff=_K2)], tz=_TZ)  # un-void / reschedule
+    bet = BetRepository(session).list_for_game(1)[0]
+    assert bet.is_correct is None
+    assert bet.points_awarded is None
+    assert bet.settled_at is None
+
+
 def test_sync_ignores_postponed_unknown_fixture(session: Session) -> None:
     outcome = sync_fixtures(session, [_fx(99, status=GameStatus.POSTPONED)], tz=_TZ)
     assert outcome.voided_games == []

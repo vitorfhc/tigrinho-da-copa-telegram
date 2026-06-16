@@ -67,6 +67,18 @@ def _void_bets(bets_repo: BetRepository, fixture_id: int) -> None:
         bet.settled_at = now
 
 
+def _unvoid_bets(bets_repo: BetRepository, fixture_id: int) -> None:
+    """Reset a previously-voided game's bets back to pending (mirrors ``BetRepository.upsert``).
+
+    Without this, a postpone-then-reschedule leaves bets with ``settled_at`` + ``points_awarded=0``
+    while the game is ``SCHEDULED`` again, leaking phantom 0-point rows onto the scoreboard (§9.1).
+    """
+    for bet in bets_repo.list_for_game(fixture_id):
+        bet.is_correct = None
+        bet.points_awarded = None
+        bet.settled_at = None
+
+
 def sync_fixtures(session: Session, fixtures: Sequence[Fixture], *, tz: ZoneInfo) -> SyncOutcome:
     """Apply fixtures to the DB: insert new, reschedule changed, void postponed/cancelled."""
     games = GameRepository(session)
@@ -106,11 +118,15 @@ def sync_fixtures(session: Session, fixtures: Sequence[Fixture], *, tz: ZoneInfo
             # Rescheduled (kickoff changed) or un-voided after a postponement: bets stay valid for
             # the new time. LIVE/FINISHED games are never touched here (a re-sync must not reset a
             # game that has already kicked off).
+            was_void = existing.status is GameStatus.VOID
             existing.kickoff_utc = kickoff_utc
             existing.kickoff_local = kickoff_local
             existing.match_hash = match_hash(fixture)
             existing.status = GameStatus.SCHEDULED
             existing.reminded_at = None
+            if was_void:
+                # Un-void: the game is pending again, so its bets must return to pending too.
+                _unvoid_bets(bets, existing.fixture_id)
             outcome.rescheduled_games.append(existing)
 
     session.flush()
