@@ -6,6 +6,7 @@ both the bot's ``/placar`` and the CLI's board rebuild share it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -64,4 +65,16 @@ def load_game_records(session: Session, fixture_id: int) -> list[BetRecord]:
         if player is None:
             continue
         records.append(_record(player, bet))
+    return records
+
+
+def load_games_records(session: Session, fixture_ids: Sequence[int]) -> list[BetRecord]:
+    """Project several finished games' settled bets into one record list (combined board, §10).
+
+    Delegates to :func:`load_game_records` per fixture (so ``VOID`` and unsettled bets are skipped),
+    then concatenates; :func:`tigrinho.scoreboard.rank` sums each player across the set.
+    """
+    records: list[BetRecord] = []
+    for fixture_id in fixture_ids:
+        records.extend(load_game_records(session, fixture_id))
     return records
