@@ -549,3 +549,20 @@ category, cached in the DB and posted by `/palpite`.
 - **Tests (+44):** config, ai schemas/prompt, repo+migration+models, service (cache/missing-only/
   unknown-fixture), text rendering, handler (4 branches), job (no-key/cache-warm/failure/schedule),
   generator (SDK mocked — grounding+thinking config asserted). 341 tests; all four gates green.
+
+### 2026-06-16 — Feature: combined scoreboard for a set of ended games (`/placar_jogos`, §10)
+
+User request. New `/placar_jogos` (group + DM): inline **multi-select** picker over the last 10
+ended games; tapping toggles `☐`/`✅` (editing the same message), then `✅ Calcular placar` edits
+to one ranking summing each player's points across the selected games (reuses `scoreboard.rank()`,
+same tie-breaks). Pure DB read; voided games excluded.
+- Selection is **stateless**: a bitmask over the picker position packed into `callback_data`
+  (`pjt:<mask>:<index>` toggle, `pjc:<mask>` compute; ≤64 bytes). Positions resolve against the
+  current last-10 list each callback; the result header names exactly the games summed (accepted
+  list-drift caveat — fixture ids cannot fit 64 bytes).
+- `callbacks.GamesBoardToggle`/`GamesBoardCompute`; `keyboards.combined_games_keyboard`;
+  `board_data.load_games_records`; `text_pt.games_board_text`; `board_handlers.placar_jogos_handler`
+  + `games_board_toggle` (`^pjt:`) + `games_board_compute` (`^pjc:`), registered before the wizard
+  catch-all. `/ajuda` + `app.PRIVATE/GROUP_COMMANDS` + COMPLETION.md §10/§21 updated (§11 rule).
+- Built via subagent-driven TDD (6 tasks, two-stage review each). 366 tests; all four gates green.
+  Design + plan under `docs/superpowers/`.
