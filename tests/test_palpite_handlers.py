@@ -168,6 +168,25 @@ async def test_does_not_generate_while_a_generation_is_in_progress(app_context: 
     assert any("já estou analisando" in t.lower() for t in texts)
 
 
+async def test_incomplete_generation_does_not_regenerate_every_call(
+    app_context: AppContext,
+) -> None:
+    # If the model omits a requested fixture, that gap must not re-trigger a full (slow, budgeted)
+    # Gemini batch on every subsequent /palpite — §20.1: a day's predictions are computed once.
+    _seed_game(app_context, 1)
+    _seed_game(app_context, 2)
+    gen = FakeGenerator([1])  # model only ever returns fixture 1, always omits fixture 2
+    actx = _with_generator(app_context, gen)
+
+    update1, _m1 = _update()
+    await palpite_handler(update1, _ctx(actx))
+    assert gen.calls == 1  # first call generates
+
+    update2, _m2 = _update()
+    await palpite_handler(update2, _ctx(actx))
+    assert gen.calls == 1  # second call must NOT regenerate the still-missing fixture
+
+
 async def test_concurrent_cold_cache_generates_only_once(app_context: AppContext) -> None:
     _seed_game(app_context, 1)
 

@@ -68,13 +68,21 @@ async def palpite_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     palpite_date = datetime.now(settings.tzinfo).date()
 
     with app_context.session_factory() as session:
-        upcoming_count = len(GameRepository(session).list_upcoming_within(now, PALPITE_HORIZON))
-    if upcoming_count == 0:
+        upcoming_ids = {
+            g.fixture_id for g in GameRepository(session).list_upcoming_within(now, PALPITE_HORIZON)
+        }
+    if not upcoming_ids:
         await message.reply_text(palpite_no_games_text(), parse_mode=ParseMode.HTML)
         return
 
+    def _missing_unattempted(rendered: list[RenderablePalpite]) -> set[int]:
+        # Fixtures that have no cached palpite AND we have not already tried to generate today.
+        # A fixture the model keeps omitting stays "attempted" so it won't re-trigger forever.
+        attempted = {fid for (d, fid) in app_context.palpite_attempted if d == palpite_date}
+        return upcoming_ids - {r.fixture_id for r in rendered} - attempted
+
     rendered = load_today_palpites(app_context.session_factory, now=now, palpite_date=palpite_date)
-    if len(rendered) < upcoming_count:
+    if _missing_unattempted(rendered):
         # Cold (or partial) cache. Another /palpite may already be generating — if so, don't fire a
         # second Gemini request; tell the caller to retry shortly.
         if app_context.palpite_lock.locked():
@@ -85,7 +93,8 @@ async def palpite_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             rendered = load_today_palpites(
                 app_context.session_factory, now=now, palpite_date=palpite_date
             )
-            if len(rendered) < upcoming_count:
+            to_generate = _missing_unattempted(rendered)
+            if to_generate:
                 # We hold the lock and the cache is still cold: we are the single generator. This is
                 # slow (grounded "think hard" call), so tell the user first.
                 await message.reply_text(palpite_working_text(), parse_mode=ParseMode.HTML)
@@ -104,6 +113,9 @@ async def palpite_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     )
                     await message.reply_text(palpite_error_text(), parse_mode=ParseMode.HTML)
                     return
+                # Mark every fixture we just asked for as attempted today — even ones the model
+                # omitted — so an incomplete batch doesn't re-run generation on the next call.
+                app_context.palpite_attempted.update((palpite_date, fid) for fid in to_generate)
                 rendered = load_today_palpites(
                     app_context.session_factory, now=now, palpite_date=palpite_date
                 )

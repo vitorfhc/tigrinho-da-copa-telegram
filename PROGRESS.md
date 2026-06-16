@@ -572,3 +572,27 @@ name); empty state reads `👥 Ninguém palpitou ainda 👀`. `reminder_text` it
 `TOTAL_CATEGORIES = len(BetCategory)` constant (single source of truth for the "5"). No schema/
 migration/provider change; pure DB read + group post. COMPLETION.md §9.3 updated; `/ajuda` unchanged
 (no command/category/scoring/grading change). 354 tests; all four gates green.
+
+### 2026-06-16 — Bug fixes: 4 medium findings from the exhaustive multi-agent hunt
+
+Fixed the four medium-severity bugs surfaced (and adversarially verified) by the bug-hunt workflow
+`wf_a260e64b-f20`. Each TDD'd (failing test first) with a focused regression test. 358 tests, all
+four gates green. None touch commands/categories/scoring/grading, so `/ajuda` is unchanged.
+- **U3 — un-void leaks phantom scoreboard rows** (`sync_job.py`): postpone→reschedule flipped the
+  game back to `SCHEDULED` but never reset its voided bets, so `settled_at`+`points_awarded=0`
+  survived and leaked 0-point/0-correct rows onto `/placar`. New `_unvoid_bets` resets them to
+  pending in the un-void branch (mirrors `BetRepository.upsert`). Test
+  `test_sync_unvoid_resets_bets_to_pending`.
+- **U2 — `/minhas_apostas` showed in-progress bets as a loss** (`bets_handlers.py`): bets on a
+  kicked-off-but-unsettled game rendered under "Encerrados" as `✗ (0 pts)`. Added a third
+  `Em andamento` bucket (`settled_at is None` and not open) showing `⏳ aguardando resultado` with
+  no verdict/points. Test `test_minhas_apostas_shows_started_ungraded_bet_as_pending`.
+- **U4 — stuck-game admin DM spam** (`poll_job.py` + `runtime.py`): the "needs manual settlement"
+  DM fired every ~10-min poll cycle. Added `AppContext.stuck_alerted` (in-memory, pruned when a
+  game stops being stuck) so it alerts once per stuck game. Test
+  `test_stuck_game_admin_alert_is_deduped_across_cycles`.
+- **U8 — `/palpite` re-ran the full AI batch on every call** (`palpite_handlers.py` + `runtime.py`)
+  when the model omitted any requested fixture (`len(rendered) < upcoming_count` stayed true
+  forever). Trigger is now the set of upcoming−cached−attempted fixtures, with
+  `AppContext.palpite_attempted` marking every requested fixture (even omitted ones) per day. Test
+  `test_incomplete_generation_does_not_regenerate_every_call`.
