@@ -93,9 +93,12 @@ def test_winner_keyboard_hides_draw_for_knockout() -> None:
 
 
 def test_btts_and_over_under() -> None:
-    btts = _decoded(btts_keyboard(1001))
+    keyboard = btts_keyboard(1001, "Brasil", "Argentina")
+    btts = _decoded(keyboard)
     assert len(btts) == 4
     assert all(isinstance(d, BttsInput) for d in btts)
+    labels = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert labels == ["Ambas marcam", "Só o Brasil", "Só o Argentina", "Nenhuma marca"]
     assert len(_decoded(over_under_keyboard(1001))) == 2
 
 

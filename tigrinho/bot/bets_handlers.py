@@ -280,7 +280,11 @@ async def _step_payload(
                 ),
             )
         elif category is BetCategory.BTTS:
-            await _edit(query, "🥅 Ambas as equipes marcam?", keyboard=btts_keyboard(fixture_id))
+            await _edit(
+                query,
+                "🥅 Ambas as equipes marcam?",
+                keyboard=btts_keyboard(fixture_id, game.home_team_name, game.away_team_name),
+            )
         elif category is BetCategory.OVER_UNDER:
             await _edit(query, "🔢 Total de gols (2.5)?", keyboard=over_under_keyboard(fixture_id))
         else:  # FIRST_TEAM

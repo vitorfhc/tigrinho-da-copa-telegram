@@ -463,8 +463,10 @@ the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-rele
      then `away` goals; the message previews the building score.
    - **First team to score:** a two-button keyboard with the home and away team names; each selects
      `HOME`/`AWAY` (no squads required).
-   - **Winner:** `HOME`/`DRAW`/`AWAY` buttons — **DRAW hidden for knockout fixtures**.
-   - **BTTS:** `BOTH`/`ONLY_HOME`/`ONLY_AWAY`/`NEITHER`.
+   - **Winner:** `HOME`/`DRAW`/`AWAY` buttons — the `HOME`/`AWAY` buttons show the **real team
+     names** (not "Mandante"/"Visitante"); **DRAW hidden for knockout fixtures**.
+   - **BTTS:** `BOTH`/`ONLY_HOME`/`ONLY_AWAY`/`NEITHER` — the two "only" options name the **real
+     teams** (e.g. "Só o Brasil" / "Só o Argentina"), consistent with the first-team/winner keyboards.
    - **Over/Under:** `OVER`/`UNDER`.
 4. **Confirm** → upsert the bet (respecting the one-per-category unique constraint). Editing an
    existing bet reuses the same flow and overwrites.
