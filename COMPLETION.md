@@ -270,7 +270,7 @@ tigrinho/
     sync_job.py        # daily fixtures sync + group announcements (deep-link buttons) + reschedule/void
     poll_job.py        # live polling + settlement + results messages
     bets_handlers.py   # /start (deep-link payload), /apostar wizard (ConversationHandler), /minhas_apostas, /jogos
-    board_handlers.py  # /placar (inline geral<->semana toggle) + /placar_jogo (per-game board)
+    board_handlers.py  # /placar (inline geral<->semana toggle) + /placar_jogo (per-game board) + /placar_jogos (combined multi-game board)
     help_handlers.py   # /ajuda, /start (no payload — welcome)
     keyboards.py       # InlineKeyboardMarkup builders (games, categories, score pad, first-team, board toggle)
     callbacks.py       # compact callback_data encode/decode helpers (<=64 bytes)
@@ -454,7 +454,7 @@ is the home team, `AWAY` if the away team. If there is no genuine 90′ goal (0-
 
 **All betting happens in the player's private chat with the bot.** Bot commands are registered with
 the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-relevant; `/jogos`,
-`/placar`, `/placar_jogo`, `/palpite`, `/ajuda` work in group + DM). Commands are in pt-BR.
+`/placar`, `/placar_jogo`, `/placar_jogos`, `/palpite`, `/ajuda` work in group + DM). Commands are in pt-BR.
 
 **Entry points into the wizard:**
 
@@ -607,6 +607,14 @@ each get their own reminder; only same-slot games are combined.
   in **that game only** (same tie-break order), under a header naming the two teams and the 90′
   score. Works in the group and in DM. Derived purely from that game's settled bets (no provider
   call); voided games are excluded.
+- **`/placar_jogos`** — combined scoreboard for a **set** of already-ended games. Posts an inline
+  **multi-select** picker of the last 10 ended games (most-recent first); tapping a game toggles a
+  `☐`/`✅`, then **`✅ Calcular placar`** **edits the same message** to show one ranking summing
+  each player's points across the selected games (same tie-break order), under a header naming the
+  chosen games. Works in group and DM; derived purely from those games' settled bets (no provider
+  call); voided games excluded. Selection is stateless — a **bitmask over the picker position**
+  packed into `callback_data` (≤64 bytes); positions resolve against the current last-10 list on
+  each callback, and the result header names exactly the games summed.
 
 ---
 
@@ -885,3 +893,22 @@ information.
 PURE), `gemini.py` (`GeminiPalpiteGenerator`). `tigrinho/palpite_service.py` (generate+cache+load,
 telegram-free). `bot/palpite_handlers.py` (`/palpite`), `bot/palpite_job.py` (daily job).
 `ai_palpites` table + `PalpiteRepository` + migration `c1a2b3d4e5f6`.
+
+---
+
+### 2026-06-16 — Feature: combined scoreboard for a set of ended games (`/placar_jogos`, §10)
+
+User request. New `/placar_jogos` (group + DM): inline **multi-select** picker over the last 10
+ended games; tapping toggles `☐`/`✅` (editing the same message), then `✅ Calcular placar` edits
+to one ranking summing each player's points across the selected games (reuses `scoreboard.rank()`,
+same tie-breaks). Pure DB read; voided games excluded.
+- Selection is **stateless**: a bitmask over the picker position packed into `callback_data`
+  (`pjt:<mask>:<index>` toggle, `pjc:<mask>` compute; ≤64 bytes). Positions resolve against the
+  current last-10 list each callback; the result header names exactly the games summed (accepted
+  list-drift caveat — encoding fixture ids cannot fit 64 bytes).
+- `callbacks.GamesBoardToggle`/`GamesBoardCompute` (+ round-trip/malformed tests);
+  `keyboards.combined_games_keyboard`; `board_data.load_games_records`; `text_pt.games_board_text`;
+  `board_handlers.placar_jogos_handler` + `games_board_toggle` (`^pjt:`) + `games_board_compute`
+  (`^pjc:`), registered before the wizard catch-all.
+- `/ajuda` + `app.PRIVATE/GROUP_COMMANDS` gained `/placar_jogos`; COMPLETION.md §10 + command-scope
+  list updated (§11 maintenance rule). Design + plan under `docs/superpowers/`.

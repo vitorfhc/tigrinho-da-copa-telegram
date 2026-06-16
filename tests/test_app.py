@@ -91,7 +91,7 @@ def test_build_application_registers_handlers(app_context: AppContext) -> None:
     for handler in application.handlers[0]:
         if isinstance(handler, CommandHandler):
             command_names |= set(handler.commands)
-    assert {"start", "ajuda", "apostar", "minhas_apostas", "jogos"} <= command_names
+    assert {"start", "ajuda", "apostar", "minhas_apostas", "jogos", "placar_jogos"} <= command_names
     assert len(application.error_handlers) == 1
 
 

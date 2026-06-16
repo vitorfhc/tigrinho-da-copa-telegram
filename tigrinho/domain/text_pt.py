@@ -313,6 +313,7 @@ def help_text() -> str:
         "• /jogos — próximos jogos e o que falta palpitar\n"
         "• /placar — ranking (Geral e da Semana)\n"
         "• /placar_jogo — placar de um jogo já encerrado\n"
+        "• /placar_jogos — placar somando vários jogos encerrados\n"
         "• /palpite — palpites da IA (Gemini) para os jogos das próximas 24h\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"

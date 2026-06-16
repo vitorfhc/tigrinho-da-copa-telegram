@@ -98,6 +98,7 @@ def test_help_text_covers_required_content() -> None:
         "/jogos",
         "/placar",
         "/placar_jogo",
+        "/placar_jogos",
         "/ajuda",
         "/start",
     )
