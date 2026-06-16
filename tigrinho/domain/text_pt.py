@@ -300,7 +300,7 @@ def help_text() -> str:
         "• /jogos — próximos jogos e o que falta palpitar\n"
         "• /placar — ranking (Geral e da Semana)\n"
         "• /placar_jogo — placar de um jogo já encerrado\n"
-        "• /palpite — palpites da IA (Gemini) para os jogos das próximas 24h\n"
+        "• /palpite — escolha um jogo das próximas 24h e veja o palpite da IA (Gemini)\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
@@ -349,6 +349,11 @@ def palpite_text(
     return "\n".join(lines)
 
 
+def palpite_pick_text() -> str:
+    """`/palpite` prompt — pick a next-24h game to see its AI palpite (§20)."""
+    return "🤖 Escolha um jogo para ver o palpite da IA:"
+
+
 def palpite_no_key_text() -> str:
     """Shown when /palpite runs but no Gemini key is configured (§20)."""
     return (
@@ -370,7 +375,7 @@ def palpite_working_text() -> str:
 
 def palpite_generating_text() -> str:
     """Shown when a generation is already in progress (avoid duplicate AI requests; §20)."""
-    return "🧠 Já estou analisando os jogos. Aguarde um instante e mande /palpite de novo. 🐯"
+    return "🧠 Já estou analisando os jogos. Aguarde um instante e toque no jogo de novo. 🐯"
 
 
 def palpite_error_text() -> str:

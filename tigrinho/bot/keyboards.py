@@ -24,6 +24,7 @@ from tigrinho.bot.callbacks import (
     GameBoard,
     HomeScore,
     OverUnderInput,
+    PalpiteView,
     WinnerInput,
     encode,
 )
@@ -67,6 +68,15 @@ def announcement_keyboard(
 def games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
     """Open-games picker for the /apostar wizard. Each item: (fixture_id, label)."""
     rows = [[_button(label, ChooseGame(fixture_id))] for fixture_id, label in games]
+    return InlineKeyboardMarkup(rows)
+
+
+def palpite_games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """Next-24h games picker for /palpite — tapping one shows that game's AI palpite (§20).
+
+    Each item: (fixture_id, label).
+    """
+    rows = [[_button(label, PalpiteView(fixture_id))] for fixture_id, label in games]
     return InlineKeyboardMarkup(rows)
 
 

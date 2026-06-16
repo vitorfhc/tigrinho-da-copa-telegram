@@ -17,6 +17,7 @@ Opcodes:
   ``q``                               cancel/close the wizard
   ``bv:<g|s>``                        scoreboard view toggle (Geral / Semana)
   ``gb:<fixture>``                    per-game scoreboard for an ended game (§10)
+  ``pv:<fixture>``                    show the AI palpite for a chosen game (§20)
 """
 
 from __future__ import annotations
@@ -134,6 +135,11 @@ class GameBoard:
     fixture_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class PalpiteView:
+    fixture_id: int
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -147,6 +153,7 @@ CallbackData = (
     | Cancel
     | BoardView
     | GameBoard
+    | PalpiteView
 )
 
 
@@ -177,6 +184,8 @@ def encode(data: CallbackData) -> str:
             result = f"bv:{_BOARD_SCOPE_TO_CODE[scope]}"
         case GameBoard(fixture_id):
             result = f"gb:{fixture_id}"
+        case PalpiteView(fixture_id):
+            result = f"pv:{fixture_id}"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -213,6 +222,8 @@ def decode(data: str) -> CallbackData:
             return BoardView(_CODE_TO_BOARD_SCOPE[parts[1]])
         if op == "gb":
             return GameBoard(int(parts[1]))
+        if op == "pv":
+            return PalpiteView(int(parts[1]))
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"invalid callback_data: {data!r}") from exc
     raise ValueError(f"unknown callback_data opcode: {data!r}")

@@ -596,3 +596,16 @@ four gates green. None touch commands/categories/scoring/grading, so `/ajuda` is
   forever). Trigger is now the set of upcoming−cached−attempted fixtures, with
   `AppContext.palpite_attempted` marking every requested fixture (even omitted ones) per day. Test
   `test_incomplete_generation_does_not_regenerate_every_call`.
+
+### 2026-06-16 — /palpite: pick a game instead of dumping all of them (§20)
+
+User request (worktree): `/palpite` flooded the chat with one message per next-24h game. It now
+posts a **game picker** (one inline button per next-24h game, labelled `home x away · dd/mm HH:MM`);
+**tapping a game** edits the message in place to show just that game's palpite. New `PalpiteView`
+callback (opcode `pv:<fixture>`) + `palpite_games_keyboard` + `palpite_pick_text`. Generation moved
+from the command to the new `palpite_select` callback: a tap on a cold game generates the day's batch
+on demand (single-flight via `palpite_lock`, `palpite_attempted` so an omitted fixture doesn't
+re-trigger forever) and shows the chosen game — preserving §20.1 "computed at most once". The `^pv:`
+`CallbackQueryHandler` is registered before the wizard's catch-all (like `^bv:`/`^gb:`). Maintenance
+rule (§11): `/ajuda`, the `palpite` BotCommand descriptions, and COMPLETION.md §20.1 updated. 365
+tests; all four gates green.

@@ -1,4 +1,4 @@
-"""Tests for the /palpite command handler (COMPLETION.md §20)."""
+"""Tests for the /palpite game picker + per-game palpite callback (COMPLETION.md §20)."""
 
 from __future__ import annotations
 
@@ -8,11 +8,12 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
-from telegram import Update
+from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from tigrinho.ai.schemas import GamePalpite
-from tigrinho.bot.palpite_handlers import palpite_handler
+from tigrinho.bot.callbacks import CallbackData, PalpiteView, decode, encode
+from tigrinho.bot.palpite_handlers import palpite_handler, palpite_select
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.db.models import Game, GameStatus, Stage
 from tigrinho.db.repositories import PalpiteRepository
@@ -65,6 +66,15 @@ def _seed_game(app_context: AppContext, fixture_id: int) -> None:
         session.commit()
 
 
+def _cache_palpite(app_context: AppContext, fixture_id: int) -> None:
+    palpite_date = datetime.now(app_context.settings.tzinfo).date()
+    with app_context.session_factory() as session:
+        PalpiteRepository(session).upsert(
+            fixture_id=fixture_id, palpite_date=palpite_date, payload_json=_palpite_json(fixture_id)
+        )
+        session.commit()
+
+
 def _with_generator(app_context: AppContext, gen: FakeGenerator) -> AppContext:
     return dataclasses.replace(app_context, palpite_generator=gen)
 
@@ -81,6 +91,30 @@ def _update() -> tuple[Update, AsyncMock]:
     update = MagicMock()
     update.effective_message = message
     return cast(Update, update), message
+
+
+def _callback_update(fixture_id: int) -> tuple[Update, AsyncMock]:
+    query = AsyncMock()
+    query.data = encode(PalpiteView(fixture_id))
+    update = MagicMock()
+    update.callback_query = query
+    return cast(Update, update), query
+
+
+def _picker_choices(keyboard: InlineKeyboardMarkup) -> list[CallbackData]:
+    return [
+        decode(button.callback_data)
+        for row in keyboard.inline_keyboard
+        for button in row
+        if isinstance(button.callback_data, str)
+    ]
+
+
+def _edited_texts(query: AsyncMock) -> list[str]:
+    return [c.args[0] for c in query.edit_message_text.await_args_list]
+
+
+# --- /palpite command: shows the game picker -------------------------------------------------
 
 
 async def test_no_key_reports_error(app_context: AppContext) -> None:
@@ -100,7 +134,7 @@ async def test_no_upcoming_games(app_context: AppContext) -> None:
     assert "24h" in sent
 
 
-async def test_cold_cache_generates_and_posts_per_game(app_context: AppContext) -> None:
+async def test_command_shows_game_picker_without_generating(app_context: AppContext) -> None:
     _seed_game(app_context, 1)
     _seed_game(app_context, 2)
     gen = FakeGenerator([1, 2])
@@ -108,33 +142,56 @@ async def test_cold_cache_generates_and_posts_per_game(app_context: AppContext) 
 
     await palpite_handler(update, _ctx(_with_generator(app_context, gen)))
 
-    assert gen.calls == 1  # generated once
-    texts = [c.args[0] for c in message.reply_text.await_args_list]
-    # one "working" message + one message per game
-    assert any("Analisando" in t for t in texts)
-    assert sum("Palpite da IA" in t for t in texts) == 2
+    assert gen.calls == 0  # listing the games must NOT trigger any AI generation
+    message.reply_text.assert_awaited_once()
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    assert _picker_choices(keyboard) == [PalpiteView(1), PalpiteView(2)]
 
 
-async def test_warm_cache_skips_generation(app_context: AppContext) -> None:
+# --- per-game selection callback -------------------------------------------------------------
+
+
+async def test_select_no_key_reports_error(app_context: AppContext) -> None:
     _seed_game(app_context, 1)
-    palpite_date = datetime.now(app_context.settings.tzinfo).date()
-    with app_context.session_factory() as s:
-        PalpiteRepository(s).upsert(
-            fixture_id=1, palpite_date=palpite_date, payload_json=_palpite_json(1)
-        )
-        s.commit()
-    gen = FakeGenerator([1])
-    update, message = _update()
+    update, query = _callback_update(1)
+    await palpite_select(update, _ctx(app_context))  # no generator
+    texts = _edited_texts(query)
+    assert any("Gemini" in t or "GEMINI_API_KEY" in t for t in texts)
 
-    await palpite_handler(update, _ctx(_with_generator(app_context, gen)))
+
+async def test_select_warm_cache_shows_palpite_without_generating(app_context: AppContext) -> None:
+    _seed_game(app_context, 1)
+    _cache_palpite(app_context, 1)
+    gen = FakeGenerator([1])
+    update, query = _callback_update(1)
+
+    await palpite_select(update, _ctx(_with_generator(app_context, gen)))
 
     assert gen.calls == 0  # cache hit -> no Gemini call, no "working" message
-    texts = [c.args[0] for c in message.reply_text.await_args_list]
+    texts = _edited_texts(query)
     assert not any("Analisando" in t for t in texts)
-    assert sum("Palpite da IA" in t for t in texts) == 1
+    assert any("Palpite da IA" in t and "Home1" in t for t in texts)
 
 
-async def test_generation_failure_reports_error(app_context: AppContext) -> None:
+async def test_select_cold_cache_generates_and_shows_only_the_chosen_game(
+    app_context: AppContext,
+) -> None:
+    _seed_game(app_context, 1)
+    _seed_game(app_context, 2)
+    gen = FakeGenerator([1, 2])
+    update, query = _callback_update(2)
+
+    await palpite_select(update, _ctx(_with_generator(app_context, gen)))
+
+    assert gen.calls == 1  # generated once on demand
+    texts = _edited_texts(query)
+    assert any("Analisando" in t for t in texts)  # "working" message first
+    final = texts[-1]
+    assert "Palpite da IA" in final and "Home2" in final  # the chosen game…
+    assert "Home1" not in final  # …and only that game
+
+
+async def test_select_generation_failure_reports_error(app_context: AppContext) -> None:
     _seed_game(app_context, 1)
 
     class BoomGenerator:
@@ -143,51 +200,53 @@ async def test_generation_failure_reports_error(app_context: AppContext) -> None
         async def generate(self, *, system_instruction: str, user_content: str) -> str:
             raise RuntimeError("gemini down")
 
-    update, message = _update()
-    await palpite_handler(
+    update, query = _callback_update(1)
+    await palpite_select(
         update, _ctx(_with_generator(app_context, cast(FakeGenerator, BoomGenerator())))
     )
 
-    texts = [c.args[0] for c in message.reply_text.await_args_list]
+    texts = _edited_texts(query)
     assert any("não consegui" in t.lower() for t in texts)
 
 
-async def test_does_not_generate_while_a_generation_is_in_progress(app_context: AppContext) -> None:
+async def test_select_does_not_generate_while_a_generation_is_in_progress(
+    app_context: AppContext,
+) -> None:
     _seed_game(app_context, 1)
     gen = FakeGenerator([1])
     actx = _with_generator(app_context, gen)
     await actx.palpite_lock.acquire()  # simulate an in-flight generation
     try:
-        update, message = _update()
-        await palpite_handler(update, _ctx(actx))
+        update, query = _callback_update(1)
+        await palpite_select(update, _ctx(actx))
     finally:
         actx.palpite_lock.release()
 
     assert gen.calls == 0  # must NOT start a second Gemini request
-    texts = [c.args[0] for c in message.reply_text.await_args_list]
+    texts = _edited_texts(query)
     assert any("já estou analisando" in t.lower() for t in texts)
 
 
-async def test_incomplete_generation_does_not_regenerate_every_call(
+async def test_select_incomplete_generation_does_not_regenerate_every_call(
     app_context: AppContext,
 ) -> None:
-    # If the model omits a requested fixture, that gap must not re-trigger a full (slow, budgeted)
-    # Gemini batch on every subsequent /palpite — §20.1: a day's predictions are computed once.
+    # If the model omits the chosen fixture, that gap must not re-trigger a full (slow, budgeted)
+    # Gemini batch on every tap — §20.1: a day's predictions are computed once.
     _seed_game(app_context, 1)
     _seed_game(app_context, 2)
     gen = FakeGenerator([1])  # model only ever returns fixture 1, always omits fixture 2
     actx = _with_generator(app_context, gen)
 
-    update1, _m1 = _update()
-    await palpite_handler(update1, _ctx(actx))
-    assert gen.calls == 1  # first call generates
+    u1, _q1 = _callback_update(2)
+    await palpite_select(u1, _ctx(actx))
+    assert gen.calls == 1  # first tap generates
 
-    update2, _m2 = _update()
-    await palpite_handler(update2, _ctx(actx))
-    assert gen.calls == 1  # second call must NOT regenerate the still-missing fixture
+    u2, _q2 = _callback_update(2)
+    await palpite_select(u2, _ctx(actx))
+    assert gen.calls == 1  # second tap must NOT regenerate the still-missing fixture
 
 
-async def test_concurrent_cold_cache_generates_only_once(app_context: AppContext) -> None:
+async def test_select_concurrent_cold_cache_generates_only_once(app_context: AppContext) -> None:
     _seed_game(app_context, 1)
 
     class SlowGenerator:
@@ -196,14 +255,14 @@ async def test_concurrent_cold_cache_generates_only_once(app_context: AppContext
 
         async def generate(self, *, system_instruction: str, user_content: str) -> str:
             self.calls += 1
-            await asyncio.sleep(0.05)  # hold the lock long enough for the 2nd call to arrive
+            await asyncio.sleep(0.05)  # hold the lock long enough for the 2nd tap to arrive
             return '{"palpites": [' + _palpite_json(1) + "]}"
 
     gen = SlowGenerator()
-    actx = _with_generator(app_context, cast(FakeGenerator, gen))  # shared lock across both calls
-    u1, _m1 = _update()
-    u2, _m2 = _update()
+    actx = _with_generator(app_context, cast(FakeGenerator, gen))  # shared lock across both taps
+    u1, _q1 = _callback_update(1)
+    u2, _q2 = _callback_update(1)
 
-    await asyncio.gather(palpite_handler(u1, _ctx(actx)), palpite_handler(u2, _ctx(actx)))
+    await asyncio.gather(palpite_select(u1, _ctx(actx)), palpite_select(u2, _ctx(actx)))
 
-    assert gen.calls == 1  # exactly one AI request despite two concurrent /palpite
+    assert gen.calls == 1  # exactly one AI request despite two concurrent taps
