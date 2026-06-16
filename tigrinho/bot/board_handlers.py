@@ -185,7 +185,7 @@ def _render_combined_board(app_context: AppContext, mask: int) -> str | None:
         header_games = [
             (g.home_team_name, g.away_team_name, g.home_goals_90, g.away_goals_90) for g in selected
         ]
-    return games_board_text(games=header_games, rows=rows)
+        return games_board_text(games=header_games, rows=rows)
 
 
 async def placar_jogos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
