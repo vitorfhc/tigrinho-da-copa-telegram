@@ -379,6 +379,7 @@ async def minhas_apostas_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     app_context = get_app_context(context.application)
     open_lines: list[str] = []
+    pending_lines: list[str] = []
     settled_lines: list[str] = []
     open_buttons: list[tuple[int, str]] = []
     with app_context.session_factory() as session:
@@ -391,6 +392,11 @@ async def minhas_apostas_handler(update: Update, context: ContextTypes.DEFAULT_T
             if _is_open(game):
                 open_lines.append(f"• {escape(_game_label(game))}: {description}")
                 open_buttons.append((bet.id, f"{_game_label(game)} — {description}"))
+            elif bet.settled_at is None:
+                # Kicked off but not yet graded — show no verdict/points (avoid a false ✗ 0 pts).
+                pending_lines.append(
+                    f"• {escape(_game_label(game))}: {description} — ⏳ aguardando resultado"
+                )
             else:
                 mark = "✓" if bet.is_correct else "✗"
                 points = bet.points_awarded if bet.points_awarded is not None else 0
@@ -398,12 +404,14 @@ async def minhas_apostas_handler(update: Update, context: ContextTypes.DEFAULT_T
                     f"• {escape(_game_label(game))}: {description} — {mark} ({points} pts)"
                 )
 
-    if not open_lines and not settled_lines:
+    if not open_lines and not pending_lines and not settled_lines:
         await message.reply_text("Você ainda não fez nenhum palpite. Use /apostar! 🐯")
         return
     parts: list[str] = []
     if open_lines:
         parts.append("<b>Em aberto</b>\n" + "\n".join(open_lines))
+    if pending_lines:
+        parts.append("<b>Em andamento</b>\n" + "\n".join(pending_lines))
     if settled_lines:
         parts.append("<b>Encerrados</b>\n" + "\n".join(settled_lines))
     keyboard = my_bets_keyboard(open_buttons) if open_buttons else None

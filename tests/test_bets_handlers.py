@@ -314,6 +314,26 @@ async def test_minhas_apostas_renders_settled_bet(app_context: AppContext) -> No
     assert "2 pts" in text and "✓" in text
 
 
+async def test_minhas_apostas_shows_started_ungraded_bet_as_pending(
+    app_context: AppContext,
+) -> None:
+    # A game that kicked off but is not yet settled must NOT render as a definitive loss
+    # (✗, 0 pts); it belongs in a neutral "in progress / awaiting result" bucket (§8.2).
+    _seed_game(app_context, started=True)  # not open, but the bet is left ungraded
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        BetRepository(session).upsert(
+            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json='{"sel":"HOME"}'
+        )
+        session.commit()  # is_correct / points_awarded / settled_at all remain None
+    update, message = _cmd_update()
+    await minhas_apostas_handler(update, _context(app_context))
+    text = message.reply_text.await_args.args[0]
+    assert "Encerrados" not in text
+    assert "✗" not in text and "0 pts" not in text
+    assert "andamento" in text.lower() or "aguardando" in text.lower()
+
+
 # --- /jogos ---------------------------------------------------------------------------------
 
 
