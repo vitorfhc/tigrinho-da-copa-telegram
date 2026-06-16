@@ -11,6 +11,8 @@ from tigrinho.bot.callbacks import (
     ChooseGame,
     ExactScore,
     FirstTeamInput,
+    GamesBoardCompute,
+    GamesBoardToggle,
     HomeScore,
     WinnerInput,
     decode,
@@ -20,6 +22,7 @@ from tigrinho.bot.keyboards import (
     away_score_keyboard,
     btts_keyboard,
     category_keyboard,
+    combined_games_keyboard,
     deep_link_url,
     first_team_keyboard,
     games_keyboard,
@@ -116,3 +119,19 @@ def test_first_team_keyboard() -> None:
     keyboard = first_team_keyboard(1001, "Brasil", "Argentina")
     labels = [b.text for row in keyboard.inline_keyboard for b in row]
     assert labels == ["Brasil", "Argentina"]
+
+
+def test_combined_games_keyboard_toggles_and_compute() -> None:
+    keyboard = combined_games_keyboard(["A x B", "C x D"], mask=0b10)
+    row0 = keyboard.inline_keyboard[0][0]
+    assert row0.text == "☐ A x B"
+    assert isinstance(row0.callback_data, str)
+    assert decode(row0.callback_data) == GamesBoardToggle(0b10, 0)
+    row1 = keyboard.inline_keyboard[1][0]
+    assert row1.text == "✅ C x D"
+    assert isinstance(row1.callback_data, str)
+    assert decode(row1.callback_data) == GamesBoardToggle(0b10, 1)
+    compute = keyboard.inline_keyboard[2][0]
+    assert compute.text == "✅ Calcular placar (1)"
+    assert isinstance(compute.callback_data, str)
+    assert decode(compute.callback_data) == GamesBoardCompute(0b10)

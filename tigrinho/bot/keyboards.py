@@ -22,6 +22,8 @@ from tigrinho.bot.callbacks import (
     ExactScore,
     FirstTeamInput,
     GameBoard,
+    GamesBoardCompute,
+    GamesBoardToggle,
     HomeScore,
     OverUnderInput,
     WinnerInput,
@@ -149,6 +151,19 @@ def my_bets_keyboard(open_bets: Sequence[tuple[int, str]]) -> InlineKeyboardMark
 def ended_games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
     """Picker of recently-ended games for /placar_jogo. Each item: (fixture_id, label)."""
     rows = [[_button(label, GameBoard(fixture_id))] for fixture_id, label in games]
+    return InlineKeyboardMarkup(rows)
+
+
+def combined_games_keyboard(labels: Sequence[str], mask: int) -> InlineKeyboardMarkup:
+    """Multi-select picker for /placar_jogos.
+
+    ``labels`` in position order; ``mask`` = selected bits.
+    """
+    rows = [
+        [_button(f"{'✅' if mask & (1 << i) else '☐'} {label}", GamesBoardToggle(mask, i))]
+        for i, label in enumerate(labels)
+    ]
+    rows.append([_button(f"✅ Calcular placar ({mask.bit_count()})", GamesBoardCompute(mask))])
     return InlineKeyboardMarkup(rows)
 
 
