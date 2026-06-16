@@ -103,6 +103,23 @@ def test_game_list_upcoming(session: Session) -> None:
     assert [g.fixture_id for g in repo.list_upcoming(now)] == [1]
 
 
+def test_game_list_recently_ended(session: Session) -> None:
+    repo = GameRepository(session)
+    base = datetime(2026, 6, 16, 12, 0)
+    finished_early = _game_at(1, datetime(2026, 6, 14, 19, 0), GameStatus.FINISHED)
+    finished_early.settled_at = base
+    finished_late = _game_at(2, datetime(2026, 6, 15, 19, 0), GameStatus.FINISHED)
+    finished_late.settled_at = base + timedelta(hours=1)
+    scheduled = _game_at(3, datetime(2026, 6, 17, 19, 0))  # not finished
+    voided = _game_at(4, datetime(2026, 6, 13, 19, 0), GameStatus.VOID)
+    voided.settled_at = base  # void games are excluded even with settled_at set
+    session.add_all([finished_early, finished_late, scheduled, voided])
+    session.flush()
+    # Most recently settled first; only FINISHED games.
+    assert [g.fixture_id for g in repo.list_recently_ended(15)] == [2, 1]
+    assert [g.fixture_id for g in repo.list_recently_ended(1)] == [2]
+
+
 def test_game_list_active(session: Session) -> None:
     repo = GameRepository(session)
     now = datetime(2026, 6, 16, 20, 0)

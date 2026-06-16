@@ -21,6 +21,7 @@ from tigrinho.bot.callbacks import (
     DeleteBet,
     ExactScore,
     FirstTeamInput,
+    GameBoard,
     HomeScore,
     OverUnderInput,
     WinnerInput,
@@ -142,6 +143,12 @@ def first_team_keyboard(fixture_id: int, home_team: str, away_team: str) -> Inli
 def my_bets_keyboard(open_bets: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
     """A 🗑 Apagar button per still-open bet. Each item: (bet_id, label)."""
     rows = [[_button(f"🗑 Apagar: {label}", DeleteBet(bet_id))] for bet_id, label in open_bets]
+    return InlineKeyboardMarkup(rows)
+
+
+def ended_games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """Picker of recently-ended games for /placar_jogo. Each item: (fixture_id, label)."""
+    rows = [[_button(label, GameBoard(fixture_id))] for fixture_id, label in games]
     return InlineKeyboardMarkup(rows)
 
 

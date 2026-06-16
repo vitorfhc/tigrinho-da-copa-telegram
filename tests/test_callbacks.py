@@ -15,6 +15,7 @@ from tigrinho.bot.callbacks import (
     DeleteBet,
     ExactScore,
     FirstTeamInput,
+    GameBoard,
     HomeScore,
     OverUnderInput,
     WinnerInput,
@@ -47,6 +48,7 @@ _CASES: list[CallbackData] = [
     Cancel(),
     BoardView("geral"),
     BoardView("semana"),
+    GameBoard(123456),
 ]
 
 
@@ -73,7 +75,7 @@ def test_encode_rejects_oversized() -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["", "z:1", "g:notanint", "c:1:Z", "s:1:x", "w:1:Q", "f:1", "f:1:Z", "g"],
+    ["", "z:1", "g:notanint", "c:1:Z", "s:1:x", "w:1:Q", "f:1", "f:1:Z", "g", "gb", "gb:x"],
 )
 def test_decode_rejects_malformed(bad: str) -> None:
     with pytest.raises(ValueError):

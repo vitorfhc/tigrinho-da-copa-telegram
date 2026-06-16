@@ -179,6 +179,30 @@ def board_text(
     return "\n".join(lines)
 
 
+def game_board_text(
+    *,
+    home: str,
+    away: str,
+    home_goals: int | None,
+    away_goals: int | None,
+    rows: Sequence[tuple[int, str, int]],
+) -> str:
+    """Per-game scoreboard (§10). ``rows``: (rank, name, points) for that one finished game."""
+    score = (
+        f" {home_goals} x {away_goals} "
+        if home_goals is not None and away_goals is not None
+        else " x "
+    )
+    title = f"🏆 <b>Placar do jogo</b>\n{escape(home)}{score}{escape(away)}"
+    if not rows:
+        return f"{title}\n\nNinguém apostou neste jogo. 🙈"
+    lines = [title, ""]
+    for position, name, points in rows:
+        marker = _MEDALS.get(position, f"{position}.")
+        lines.append(f"{marker} {escape(name)} — <b>{points}</b> pts")
+    return "\n".join(lines)
+
+
 def mention(telegram_id: int, name: str) -> str:
     """An HTML inline mention that works even without an @username."""
     return f'<a href="tg://user?id={telegram_id}">{escape(name)}</a>'
@@ -243,6 +267,7 @@ def help_text() -> str:
         "• /minhas_apostas — ver e apagar seus palpites (no privado)\n"
         "• /jogos — próximos jogos e o que falta palpitar\n"
         "• /placar — ranking (Geral e da Semana)\n"
+        "• /placar_jogo — placar de um jogo já encerrado\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"

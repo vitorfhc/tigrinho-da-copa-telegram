@@ -9,8 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 from telegram import CallbackQuery, InlineKeyboardMarkup, Update, User
 from telegram.ext import ContextTypes
 
-from tigrinho.bot.board_handlers import board_toggle, placar_handler
-from tigrinho.bot.callbacks import BoardView, decode, encode
+from tigrinho.bot.board_handlers import (
+    board_toggle,
+    game_board_select,
+    placar_handler,
+    placar_jogo_handler,
+)
+from tigrinho.bot.callbacks import BoardView, GameBoard, decode, encode
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.db.models import Game, GameStatus, Stage, utcnow
 from tigrinho.db.repositories import BetRepository, PlayerRepository
@@ -195,3 +200,92 @@ async def test_board_toggle_edits_message(app_context: AppContext) -> None:
     await board_toggle(cast(Update, update), _context(app_context))
     query.answer.assert_awaited()
     assert "Placar da Semana" in query.edit_message_text.await_args.args[0]
+
+
+# --- /placar_jogo (per-game scoreboard) -----------------------------------------------------
+
+
+def _seed_finished_game_with_bets(
+    app_context: AppContext,
+    *,
+    fixture_id: int = 2002,
+    home_goals: int = 2,
+    away_goals: int = 1,
+) -> None:
+    """A FINISHED game with two graded bets (Alice 8 pts, Bob 3 pts)."""
+    kickoff = datetime.now(app_context.settings.tzinfo).replace(tzinfo=None)
+    with app_context.session_factory() as session:
+        session.add(
+            Game(
+                fixture_id=fixture_id,
+                match_hash=f"h{fixture_id}",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="Brasil",
+                away_team_id=20,
+                away_team_name="Argentina",
+                kickoff_utc=kickoff,
+                kickoff_local=kickoff,
+                status=GameStatus.FINISHED,
+                home_goals_90=home_goals,
+                away_goals_90=away_goals,
+                settled_at=utcnow(),
+            )
+        )
+        for telegram_id, name, points in ((42, "Alice", 8), (43, "Bob", 3)):
+            PlayerRepository(session).get_or_create(telegram_id, name)
+            bet = BetRepository(session).upsert(
+                fixture_id=fixture_id,
+                player_telegram_id=telegram_id,
+                category="WINNER",
+                payload_json="{}",
+            )
+            bet.is_correct = points > 0
+            bet.points_awarded = points
+            bet.settled_at = utcnow()
+        session.commit()
+
+
+def _callback_update(data: str) -> tuple[Update, AsyncMock]:
+    query = AsyncMock(spec=CallbackQuery)
+    query.data = data
+    update = MagicMock()
+    update.callback_query = query
+    update.effective_user = _USER
+    return cast(Update, update), query
+
+
+async def test_placar_jogo_lists_ended_games(app_context: AppContext) -> None:
+    _seed_finished_game_with_bets(app_context)
+    update, message = _cmd_update()
+    await placar_jogo_handler(update, _context(app_context))
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(keyboard, InlineKeyboardMarkup)
+    button = keyboard.inline_keyboard[0][0]
+    assert "Brasil 2 x 1 Argentina" in button.text
+    assert isinstance(button.callback_data, str)
+    assert decode(button.callback_data) == GameBoard(2002)
+
+
+async def test_placar_jogo_empty(app_context: AppContext) -> None:
+    update, message = _cmd_update()
+    await placar_jogo_handler(update, _context(app_context))
+    assert "Nenhum jogo encerrado" in message.reply_text.await_args.args[0]
+
+
+async def test_game_board_select_renders_ranking(app_context: AppContext) -> None:
+    _seed_finished_game_with_bets(app_context)
+    update, query = _callback_update(encode(GameBoard(2002)))
+    await game_board_select(update, _context(app_context))
+    query.answer.assert_awaited()
+    text = query.edit_message_text.await_args.args[0]
+    assert "Placar do jogo" in text
+    assert "Brasil 2 x 1 Argentina" in text
+    assert "🥇 Alice — <b>8</b> pts" in text
+    assert "🥈 Bob — <b>3</b> pts" in text
+
+
+async def test_game_board_select_unknown_game(app_context: AppContext) -> None:
+    update, query = _callback_update(encode(GameBoard(999999)))
+    await game_board_select(update, _context(app_context))
+    assert "não encerrado" in query.edit_message_text.await_args.args[0]

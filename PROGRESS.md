@@ -470,6 +470,22 @@ morning's `sync_job` posts one consolidated announcement of the games kicking of
   assert the 24h window (within-24h announced, +30h synced-but-not-announced; empty-window no-post).
 - `/ajuda` unchanged (no command/category/scoring/grading change). Gates green.
 
+### 2026-06-16 — Feature: per-game scoreboard for ended games (`/placar_jogo`, §10)
+
+User request. New `/placar_jogo` command (group + DM): posts an inline picker of the most recently
+**finished** games (most-recent-settled first, ~15); tapping one **edits the same message** to show
+that single game's ranking — every player who bet on it, ranked by the points earned in **that game
+only** (reusing `scoreboard.rank()`, same tie-breaks), under a header with the two teams and the
+90′ score. Pure DB read (no provider call); voided games excluded.
+- `callbacks.GameBoard` (`gb:<fixture>`) added to the codec + union + round-trip/malformed tests.
+- `GameRepository.list_recently_ended(limit)` (FINISHED + `settled_at`, ordered `settled_at` desc).
+- `board_data.load_game_records(fixture_id)` (+ extracted shared `_record` projector).
+- `text_pt.game_board_text(...)` (escaped header `home h x a away` + medals).
+- `keyboards.ended_games_keyboard`; `board_handlers.placar_jogo_handler` + `game_board_select`
+  (registered with `^gb:` **before** the wizard catch-all, like the `^bv:` toggle).
+- `/ajuda` + `app.PRIVATE/GROUP_COMMANDS` gained `/placar_jogo`; COMPLETION.md §10 + command-scope
+  list updated (§11 maintenance rule). 296 tests, all gates green.
+
 ### 2026-06-15 — Feature: pre-game betting reminder (§9.3)
 
 User request. New `JobQueue.run_repeating` reminder sweep (`bot/reminder_job.py`) posts one group

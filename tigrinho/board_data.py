@@ -10,10 +10,24 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import GameStatus
+from tigrinho.db.models import Bet, GameStatus, Player
 from tigrinho.db.repositories import BetRepository, GameRepository, PlayerRepository
 from tigrinho.domain.bets import BetCategory
 from tigrinho.scoreboard import BetRecord, in_current_week
+
+
+def _record(player: Player, bet: Bet) -> BetRecord:
+    """Project a settled bet + its player into a ranking record (shared by both loaders)."""
+    correct = bool(bet.is_correct)
+    assert bet.points_awarded is not None  # callers filter unsettled bets out
+    return BetRecord(
+        telegram_id=player.telegram_id,
+        display_name=player.display_name,
+        created_at=player.created_at,
+        points=bet.points_awarded,
+        is_correct=correct,
+        is_exact_score_hit=correct and bet.category == BetCategory.EXACT_SCORE.value,
+    )
 
 
 def load_board_records(session: Session, *, weekly: bool, now_local: datetime) -> list[BetRecord]:
@@ -32,15 +46,22 @@ def load_board_records(session: Session, *, weekly: bool, now_local: datetime) -
         player = players.get(bet.player_telegram_id)
         if player is None:
             continue
-        correct = bool(bet.is_correct)
-        records.append(
-            BetRecord(
-                telegram_id=player.telegram_id,
-                display_name=player.display_name,
-                created_at=player.created_at,
-                points=bet.points_awarded,
-                is_correct=correct,
-                is_exact_score_hit=correct and bet.category == BetCategory.EXACT_SCORE.value,
-            )
-        )
+        records.append(_record(player, bet))
+    return records
+
+
+def load_game_records(session: Session, fixture_id: int) -> list[BetRecord]:
+    """Project one finished game's settled bets into ranking records (per-game board, §10)."""
+    game = GameRepository(session).get(fixture_id)
+    if game is None or game.status is GameStatus.VOID:
+        return []
+    players = PlayerRepository(session)
+    records: list[BetRecord] = []
+    for bet in BetRepository(session).list_for_game(fixture_id):
+        if bet.settled_at is None or bet.points_awarded is None:
+            continue
+        player = players.get(bet.player_telegram_id)
+        if player is None:
+            continue
+        records.append(_record(player, bet))
     return records

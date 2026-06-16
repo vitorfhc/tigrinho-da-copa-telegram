@@ -20,6 +20,7 @@ from tigrinho.domain.text_pt import (
     board_text,
     describe_bet,
     format_kickoff_local,
+    game_board_text,
     help_text,
     mention,
     points_table_text,
@@ -76,7 +77,16 @@ def test_points_table_reflects_scoring() -> None:
 
 def test_help_text_covers_required_content() -> None:
     text = help_text()
-    for command in ("/apostar", "/minhas_apostas", "/jogos", "/placar", "/ajuda", "/start"):
+    commands = (
+        "/apostar",
+        "/minhas_apostas",
+        "/jogos",
+        "/placar",
+        "/placar_jogo",
+        "/ajuda",
+        "/start",
+    )
+    for command in commands:
         assert command in text
     assert "90 minutos" in text  # 90' rule
     assert "mata-mata" in text.lower()  # knockout rule
@@ -159,6 +169,33 @@ def test_board_text_weekly_and_caller_outside_top() -> None:
 
 def test_board_text_empty() -> None:
     assert "Ainda não há pontos" in board_text(weekly=False, rows=[])
+
+
+def test_game_board_text_with_score_and_medals() -> None:
+    text = game_board_text(
+        home="Brasil",
+        away="Argentina",
+        home_goals=2,
+        away_goals=1,
+        rows=[(1, "Alice", 8), (2, "Bob", 3)],
+    )
+    assert "Placar do jogo" in text
+    assert "Brasil 2 x 1 Argentina" in text
+    assert "🥇 Alice — <b>8</b> pts" in text
+    assert "🥈 Bob" in text
+
+
+def test_game_board_text_escapes_team_names() -> None:
+    text = game_board_text(
+        home="A & B", away="C <i>D</i>", home_goals=0, away_goals=0, rows=[(1, "Z", 0)]
+    )
+    assert "A &amp; B" in text
+    assert "C &lt;i&gt;D&lt;/i&gt;" in text
+
+
+def test_game_board_text_no_bettors() -> None:
+    text = game_board_text(home="A", away="B", home_goals=1, away_goals=0, rows=[])
+    assert "Ninguém apostou" in text
 
 
 def test_reminder_text_lists_games_with_weekday() -> None:

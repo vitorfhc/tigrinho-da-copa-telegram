@@ -158,6 +158,16 @@ class GameRepository:
                 game.reminded_at = when
         self._session.flush()
 
+    def list_recently_ended(self, limit: int) -> list[Game]:
+        """Finished games, most recently settled first — for the /placar_jogo picker (§10)."""
+        stmt = (
+            select(Game)
+            .where(Game.status == GameStatus.FINISHED, Game.settled_at.is_not(None))
+            .order_by(Game.settled_at.desc())
+            .limit(limit)
+        )
+        return list(self._session.execute(stmt).scalars())
+
     def list_stuck(self, now: datetime, window_hours: int) -> list[Game]:
         """Unsettled games past ``kickoff + window`` (need manual settlement; §9.2 safeguard)."""
         threshold = now - timedelta(hours=window_hours)

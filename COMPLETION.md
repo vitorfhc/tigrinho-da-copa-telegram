@@ -265,7 +265,7 @@ tigrinho/
     sync_job.py        # daily fixtures sync + group announcements (deep-link buttons) + reschedule/void
     poll_job.py        # live polling + settlement + results messages
     bets_handlers.py   # /start (deep-link payload), /apostar wizard (ConversationHandler), /minhas_apostas, /jogos
-    board_handlers.py  # /placar (inline geral<->semana toggle)
+    board_handlers.py  # /placar (inline geral<->semana toggle) + /placar_jogo (per-game board)
     help_handlers.py   # /ajuda, /start (no payload — welcome)
     keyboards.py       # InlineKeyboardMarkup builders (games, categories, score pad, first-team, board toggle)
     callbacks.py       # compact callback_data encode/decode helpers (<=64 bytes)
@@ -440,7 +440,7 @@ is the home team, `AWAY` if the away team. If there is no genuine 90′ goal (0-
 
 **All betting happens in the player's private chat with the bot.** Bot commands are registered with
 the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-relevant; `/jogos`,
-`/placar`, `/ajuda` work in group + DM). Commands are in pt-BR.
+`/placar`, `/placar_jogo`, `/ajuda` work in group + DM). Commands are in pt-BR.
 
 **Entry points into the wizard:**
 
@@ -586,6 +586,12 @@ each get their own reminder; only same-slot games are combined.
 - **Tie-break order:** (1) total points desc, (2) exact-score hits desc, (3) total correct bets desc,
   (4) earliest `players.created_at`.
 - The board MUST be derivable purely from settled bets (so the CLI can rebuild it).
+- **`/placar_jogo`** — per-game scoreboard for an **already-ended** game. Posts an inline picker of
+  the most recently finished games (most-recent first, ~15); tapping one **edits the same message**
+  to show that single game's ranking — every player who bet on it, ranked by the points they earned
+  in **that game only** (same tie-break order), under a header naming the two teams and the 90′
+  score. Works in the group and in DM. Derived purely from that game's settled bets (no provider
+  call); voided games are excluded.
 
 ---
 
