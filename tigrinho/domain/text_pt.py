@@ -78,6 +78,11 @@ def format_kickoff_local(kickoff_local: datetime) -> str:
     return f"{weekday} {kickoff_local:%d/%m %H:%M}"
 
 
+def format_kickoff_short(kickoff_local: datetime) -> str:
+    """Concise kickoff for compact inline buttons, e.g. ``16/06 16:00`` (no weekday)."""
+    return f"{kickoff_local:%d/%m %H:%M}"
+
+
 def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
     """Morning 'next 24h' announcement (§9.1). Each item: ``(home, away, kickoff_local)``."""
     lines = [

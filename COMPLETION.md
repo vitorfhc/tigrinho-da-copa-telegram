@@ -450,7 +450,8 @@ the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-rele
    handler parses the payload, auto-creates the player if needed, and jumps straight into the wizard
    for that fixture.
 2. **`/apostar` in DM (no payload).** Shows an inline-keyboard list of **open** games (kickoff in the
-   future, not started); tapping a game enters the wizard for it.
+   future, not started); each button reads `<home> x <away> · <dd/mm HH:MM>` (concise local kickoff,
+   via `format_kickoff_short`); tapping a game enters the wizard for it.
 3. **`/apostar` in the group.** Telegram has no ephemeral replies, so the bot replies with a short
    message + a deep-link button `👉 Apostar no privado` and does the actual flow in DM.
 

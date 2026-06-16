@@ -32,8 +32,9 @@ from tigrinho.bot.callbacks import (
 )
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.db.models import Bet, Game, GameStatus, Stage
-from tigrinho.db.repositories import BetRepository, PlayerRepository
+from tigrinho.db.repositories import BetRepository, GameRepository, PlayerRepository
 from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
+from tigrinho.domain.text_pt import format_kickoff_short
 
 _USER = User(id=42, is_bot=False, first_name="Tigrão")
 
@@ -128,7 +129,14 @@ async def test_apostar_dm_lists_open_games(app_context: AppContext) -> None:
     _seed_game(app_context)
     update, message = _cmd_update(chat_type=ChatType.PRIVATE)
     await apostar_handler(update, _context(app_context))
-    assert isinstance(message.reply_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup)
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    with app_context.session_factory() as session:
+        game = GameRepository(session).get(1001)
+    assert game is not None
+    kickoff_local = game.kickoff_local
+    label = markup.inline_keyboard[0][0].text
+    assert label == f"Brasil x Argentina · {format_kickoff_short(kickoff_local)}"
 
 
 async def test_apostar_group_redirects_to_private(app_context: AppContext) -> None:

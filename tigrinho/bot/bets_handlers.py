@@ -66,7 +66,13 @@ from tigrinho.domain.bets import (
     parse_payload,
     serialize_payload,
 )
-from tigrinho.domain.text_pt import describe_bet, escape, format_kickoff_local, welcome_text
+from tigrinho.domain.text_pt import (
+    describe_bet,
+    escape,
+    format_kickoff_local,
+    format_kickoff_short,
+    welcome_text,
+)
 
 _CLOSED_MESSAGE = "⏰ Esse jogo já começou — as apostas estão fechadas."
 _NOT_FOUND_MESSAGE = "Jogo não encontrado."
@@ -159,7 +165,10 @@ async def _show_open_games(update: Update, app_context: AppContext) -> None:
         return
     with app_context.session_factory() as session:
         games = GameRepository(session).list_upcoming(utcnow())
-        items = [(g.fixture_id, _game_label(g)) for g in games]
+        items = [
+            (g.fixture_id, f"{_game_label(g)} · {format_kickoff_short(g.kickoff_local)}")
+            for g in games
+        ]
     if not items:
         await message.reply_text("Não há jogos abertos para apostas no momento.")
         return

@@ -496,3 +496,12 @@ query (`GameRepository.list_due_for_reminder`), guarded `mark_reminded`, new nul
 `reminder_interval_minutes` (10). Pure DB + group post (no provider calls). `/ajuda` unchanged
 (no command/category/scoring/grading change). Design spec + multi-agent bug review (10 confirmed
 findings folded in) under `docs/superpowers/`.
+
+### 2026-06-16 — UX: /apostar game picker shows kickoff date+time
+
+User request. Each open-game button in the `/apostar` DM picker now reads
+`<home> x <away> · <dd/mm HH:MM>` (concise local kickoff), via new pure helper
+`format_kickoff_short` in `domain/text_pt.py` (sibling to `format_kickoff_local`, no weekday).
+Wired into `_show_open_games` (`bot/bets_handlers.py`). §8.2 updated. `/ajuda` unchanged
+(no command/category/scoring/grading change). Tests: `test_format_kickoff_short`,
+`test_apostar_dm_lists_open_games` asserts the button label.

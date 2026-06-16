@@ -20,6 +20,7 @@ from tigrinho.domain.text_pt import (
     board_text,
     describe_bet,
     format_kickoff_local,
+    format_kickoff_short,
     game_board_text,
     help_text,
     mention,
@@ -104,6 +105,10 @@ def test_format_kickoff_local() -> None:
     kickoff = datetime(2026, 6, 16, 16, 0)
     expected_weekday = _WEEKDAYS_PT[kickoff.weekday()]
     assert format_kickoff_local(kickoff) == f"{expected_weekday} 16/06 16:00"
+
+
+def test_format_kickoff_short() -> None:
+    assert format_kickoff_short(datetime(2026, 6, 16, 16, 0)) == "16/06 16:00"
 
 
 def test_announcement_text() -> None:
