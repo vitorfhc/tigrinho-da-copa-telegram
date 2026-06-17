@@ -20,6 +20,9 @@ Opcodes:
   ``pjt:<mask>:<index>``              combined board picker: toggle game ``index`` in selection
   ``pjc:<mask>``                      combined board picker: compute the board for ``mask`` (§10)
   ``pv:<fixture>``                    show the AI palpite for a chosen game (§20)
+  ``mh:<page>``                       /minhas_apostas: open/navigate history page
+  ``mg:<fixture>:<page>``             /minhas_apostas: my bets for one game (page=return)
+  ``mm``                              /minhas_apostas: back to default listing view
 """
 
 from __future__ import annotations
@@ -153,6 +156,22 @@ class PalpiteView:
     fixture_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class MyHistory:
+    page: int
+
+
+@dataclass(frozen=True, slots=True)
+class MyGameDetail:
+    fixture_id: int
+    page: int
+
+
+@dataclass(frozen=True, slots=True)
+class MyBetsHome:
+    pass
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -169,6 +188,9 @@ CallbackData = (
     | GamesBoardToggle
     | GamesBoardCompute
     | PalpiteView
+    | MyHistory
+    | MyGameDetail
+    | MyBetsHome
 )
 
 
@@ -205,6 +227,12 @@ def encode(data: CallbackData) -> str:
             result = f"pjc:{mask}"
         case PalpiteView(fixture_id):
             result = f"pv:{fixture_id}"
+        case MyHistory(page):
+            result = f"mh:{page}"
+        case MyGameDetail(fixture_id, page):
+            result = f"mg:{fixture_id}:{page}"
+        case MyBetsHome():
+            result = "mm"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -247,6 +275,12 @@ def decode(data: str) -> CallbackData:
             return GamesBoardCompute(int(parts[1]))
         if op == "pv":
             return PalpiteView(int(parts[1]))
+        if op == "mh":
+            return MyHistory(int(parts[1]))
+        if op == "mg":
+            return MyGameDetail(int(parts[1]), int(parts[2]))
+        if op == "mm":
+            return MyBetsHome()
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"invalid callback_data: {data!r}") from exc
     raise ValueError(f"unknown callback_data opcode: {data!r}")
