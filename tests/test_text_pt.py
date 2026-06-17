@@ -35,6 +35,9 @@ from tigrinho.domain.text_pt import (
     help_text,
     kickoff_text,
     mention,
+    my_game_detail_text,
+    my_history_game_label,
+    my_history_header,
     palpite_generating_text,
     palpite_no_games_text,
     palpite_no_key_text,
@@ -43,6 +46,7 @@ from tigrinho.domain.text_pt import (
     reannounce_text,
     reminder_text,
     results_text,
+    settled_summary_line,
     void_text,
     welcome_text,
 )
@@ -617,3 +621,48 @@ def test_goal_cancelled_text_escapes_html() -> None:
     )
     assert "&amp;" in text
     assert "&lt;" in text
+
+
+def test_settled_summary_line() -> None:
+    line = settled_summary_line(42, 30, 87)
+    assert "Encerrados" in line
+    assert "42 palpites" in line
+    assert "30✓" in line and "12✗" in line
+    assert "+87 pts" in line
+
+
+def test_settled_summary_line_singular() -> None:
+    assert "1 palpite ·" in settled_summary_line(1, 1, 2)
+
+
+def test_my_history_header_is_one_based() -> None:
+    assert my_history_header(0, 6) == "📜 <b>Seus encerrados</b> — página 1/6"
+    assert my_history_header(5, 6).endswith("6/6")
+
+
+def test_my_history_game_label_plain_text() -> None:
+    label = my_history_game_label(
+        home="Brasil",
+        away="Croácia",
+        home_goals=2,
+        away_goals=1,
+        correct=3,
+        wrong=1,
+        points=12,
+    )
+    assert label == "Brasil 2x1 Croácia · 3✓1✗ +12 pts"
+    assert "<" not in label  # button labels are not HTML-parsed
+
+
+def test_my_game_detail_text() -> None:
+    text = my_game_detail_text(
+        home="Brasil",
+        away="Croácia",
+        home_goals=2,
+        away_goals=1,
+        lines=[("Placar exato: 2x1", True, 5), ("Ambas marcam: Não", False, 0)],
+    )
+    assert "Brasil 2 x 1 Croácia" in text
+    assert "• Placar exato: 2x1 — ✓ 5 pts" in text
+    assert "• Ambas marcam: Não — ✗ 0 pts" in text
+    assert "Total: +5 pts" in text

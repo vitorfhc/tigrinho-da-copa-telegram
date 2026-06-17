@@ -483,6 +483,64 @@ def closed_bets_text(
     return "\n".join(lines)
 
 
+def settled_summary_line(count: int, correct: int, points: int) -> str:
+    """One-line summary of a player's graded bets for /minhas_apostas (§8.2)."""
+    wrong = count - correct
+    noun = "palpite" if count == 1 else "palpites"
+    return f"📜 <b>Encerrados</b>: {count} {noun} · {correct}✓ {wrong}✗ · {points:+d} pts"
+
+
+def my_history_header(page: int, total_pages: int) -> str:
+    """Header for a page of a player's settled-bet history. ``page`` is 0-based."""
+    return f"📜 <b>Seus encerrados</b> — página {page + 1}/{total_pages}"
+
+
+def my_history_game_label(
+    *,
+    home: str,
+    away: str,
+    home_goals: int | None,
+    away_goals: int | None,
+    correct: int,
+    wrong: int,
+    points: int,
+) -> str:
+    """Compact one-game button label (plain text; inline-button labels don't parse HTML)."""
+    score = (
+        f"{home_goals}x{away_goals}" if home_goals is not None and away_goals is not None else "x"
+    )
+    return f"{home} {score} {away} · {correct}✓{wrong}✗ {points:+d} pts"
+
+
+def my_game_detail_text(
+    *,
+    home: str,
+    away: str,
+    home_goals: int | None,
+    away_goals: int | None,
+    lines: Sequence[tuple[str, bool | None, int]],
+) -> str:
+    """A player's own per-category breakdown for one finished game (§8.2).
+
+    ``lines``: ``(description, is_correct, points)`` where ``description`` is the already-built
+    :func:`describe_bet` string (kept unescaped, consistent with the listing/confirmation flow).
+    """
+    score = (
+        f" {home_goals} x {away_goals} "
+        if home_goals is not None and away_goals is not None
+        else " x "
+    )
+    out = [f"🏆 <b>{escape(home)}{score}{escape(away)}</b>", ""]
+    total = 0
+    for description, is_correct, points in lines:
+        mark = "✓" if is_correct else "✗"
+        out.append(f"• {description} — {mark} {points} pts")
+        total += points
+    out.append("")
+    out.append(f"Total: {total:+d} pts")
+    return "\n".join(out)
+
+
 def points_table_text() -> str:
     """The points table, derived from the single source of truth (scoring.POINTS)."""
     lines = [
