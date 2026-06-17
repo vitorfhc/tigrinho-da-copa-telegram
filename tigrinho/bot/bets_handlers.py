@@ -31,6 +31,9 @@ from tigrinho.bot.callbacks import (
     ExactScore,
     FirstTeamInput,
     HomeScore,
+    MyBetsHome,
+    MyGameDetail,
+    MyHistory,
     OverUnderInput,
     WinnerInput,
     decode,
@@ -44,6 +47,8 @@ from tigrinho.bot.keyboards import (
     games_keyboard,
     home_score_keyboard,
     my_bets_keyboard,
+    my_game_detail_keyboard,
+    my_history_keyboard,
     over_under_keyboard,
     winner_keyboard,
 )
@@ -71,11 +76,16 @@ from tigrinho.domain.text_pt import (
     escape,
     format_kickoff_local,
     format_kickoff_short,
+    my_game_detail_text,
+    my_history_game_label,
+    my_history_header,
+    settled_summary_line,
     welcome_text,
 )
 
 _CLOSED_MESSAGE = "⏰ Esse jogo já começou — as apostas estão fechadas."
 _NOT_FOUND_MESSAGE = "Jogo não encontrado."
+_HISTORY_PAGE_SIZE = 8
 
 
 def _display_name(update: Update) -> str:
@@ -242,6 +252,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _finalize(query, app_context, update, fixture_id, FirstTeamPayload(sel=sel))
         case DeleteBet(bet_id):
             await _delete_bet(query, app_context, user.id, bet_id)
+        case MyHistory(page):
+            await _show_history_page(query, app_context, user.id, page)
+        case MyGameDetail(fixture_id, page):
+            await _show_game_detail(query, app_context, user.id, fixture_id, page)
+        case MyBetsHome():
+            with app_context.session_factory() as session:
+                text, keyboard = _render_my_bets_default(session, user.id)
+            await _edit(query, text, keyboard=keyboard)
 
 
 async def _guard_open(query: CallbackQuery, session: Session, fixture_id: int) -> Game | None:
@@ -368,54 +386,121 @@ async def _delete_bet(
     await _edit(query, "🗑 Palpite apagado.")
 
 
+async def _show_history_page(
+    query: CallbackQuery, app_context: AppContext, telegram_id: int, page: int
+) -> None:
+    with app_context.session_factory() as session:
+        bets_repo = BetRepository(session)
+        summary = bets_repo.settled_summary_for_player(telegram_id)
+        if summary.game_count == 0:
+            text, keyboard = _render_my_bets_default(session, telegram_id)
+            await _edit(query, text, keyboard=keyboard)
+            return
+        total_pages = (summary.game_count + _HISTORY_PAGE_SIZE - 1) // _HISTORY_PAGE_SIZE
+        page = max(0, min(page, total_pages - 1))
+        button_rows = [
+            (
+                row.fixture_id,
+                my_history_game_label(
+                    home=row.home_team_name,
+                    away=row.away_team_name,
+                    home_goals=row.home_goals_90,
+                    away_goals=row.away_goals_90,
+                    correct=row.correct_count,
+                    wrong=row.bet_count - row.correct_count,
+                    points=row.points,
+                ),
+            )
+            for row in bets_repo.settled_games_for_player(
+                telegram_id, limit=_HISTORY_PAGE_SIZE, offset=page * _HISTORY_PAGE_SIZE
+            )
+        ]
+    await _edit(
+        query,
+        my_history_header(page, total_pages),
+        keyboard=my_history_keyboard(button_rows, page, total_pages),
+    )
+
+
+async def _show_game_detail(
+    query: CallbackQuery, app_context: AppContext, telegram_id: int, fixture_id: int, page: int
+) -> None:
+    with app_context.session_factory() as session:
+        game = GameRepository(session).get(fixture_id)
+        bets = BetRepository(session).list_for_player_and_game(telegram_id, fixture_id)
+        if game is None or not bets:
+            await _edit(query, "Palpite não encontrado.", keyboard=my_game_detail_keyboard(page))
+            return
+        lines = [
+            (
+                _describe_stored(bet, game),
+                bet.is_correct,
+                bet.points_awarded if bet.points_awarded is not None else 0,
+            )
+            for bet in bets
+        ]
+        text = my_game_detail_text(
+            home=game.home_team_name,
+            away=game.away_team_name,
+            home_goals=game.home_goals_90,
+            away_goals=game.away_goals_90,
+            lines=lines,
+        )
+    await _edit(query, text, keyboard=my_game_detail_keyboard(page))
+
+
 # --- listing commands -----------------------------------------------------------------------
 
 
-async def minhas_apostas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/minhas_apostas (DM) — open vs settled, with 🗑 delete on open bets (§8.2)."""
-    message = update.effective_message
-    user = update.effective_user
-    if message is None or user is None:
-        return
-    app_context = get_app_context(context.application)
+def _render_my_bets_default(
+    session: Session, telegram_id: int
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Build the default /minhas_apostas view: open + in-progress in full, settled summarized."""
+    games_repo = GameRepository(session)
+    bets_repo = BetRepository(session)
     open_lines: list[str] = []
     pending_lines: list[str] = []
-    settled_lines: list[str] = []
     open_buttons: list[tuple[int, str]] = []
-    with app_context.session_factory() as session:
-        games_repo = GameRepository(session)
-        for bet in BetRepository(session).list_for_player(user.id):
-            game = games_repo.get(bet.fixture_id)
-            if game is None:
-                continue
-            description = _describe_stored(bet, game)
-            if _is_open(game):
-                open_lines.append(f"• {escape(_game_label(game))}: {description}")
-                open_buttons.append((bet.id, f"{_game_label(game)} — {description}"))
-            elif bet.settled_at is None:
-                # Kicked off but not yet graded — show no verdict/points (avoid a false ✗ 0 pts).
-                pending_lines.append(
-                    f"• {escape(_game_label(game))}: {description} — ⏳ aguardando resultado"
-                )
-            else:
-                mark = "✓" if bet.is_correct else "✗"
-                points = bet.points_awarded if bet.points_awarded is not None else 0
-                settled_lines.append(
-                    f"• {escape(_game_label(game))}: {description} — {mark} ({points} pts)"
-                )
-
-    if not open_lines and not pending_lines and not settled_lines:
-        await message.reply_text("Você ainda não fez nenhum palpite. Use /apostar! 🐯")
-        return
+    for bet in bets_repo.list_for_player(telegram_id):
+        game = games_repo.get(bet.fixture_id)
+        if game is None:
+            continue
+        description = _describe_stored(bet, game)
+        if _is_open(game):
+            open_lines.append(f"• {escape(_game_label(game))}: {description}")
+            open_buttons.append((bet.id, f"{_game_label(game)} — {description}"))
+        elif bet.settled_at is None:
+            pending_lines.append(
+                f"• {escape(_game_label(game))}: {description} — ⏳ aguardando resultado"
+            )
+    summary = bets_repo.settled_summary_for_player(telegram_id)
+    if not open_lines and not pending_lines and summary.count == 0:
+        return "Você ainda não fez nenhum palpite. Use /apostar! 🐯", None
     parts: list[str] = []
     if open_lines:
         parts.append("<b>Em aberto</b>\n" + "\n".join(open_lines))
     if pending_lines:
         parts.append("<b>Em andamento</b>\n" + "\n".join(pending_lines))
-    if settled_lines:
-        parts.append("<b>Encerrados</b>\n" + "\n".join(settled_lines))
-    keyboard = my_bets_keyboard(open_buttons) if open_buttons else None
-    await message.reply_text("\n\n".join(parts), parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    if summary.count > 0:
+        parts.append(settled_summary_line(summary.count, summary.correct, summary.points))
+    keyboard = (
+        my_bets_keyboard(open_buttons, settled_count=summary.count)
+        if (open_buttons or summary.count > 0)
+        else None
+    )
+    return "\n\n".join(parts), keyboard
+
+
+async def minhas_apostas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/minhas_apostas (DM) — open/live in full, settled summarized + drill-down (§8.2)."""
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    app_context = get_app_context(context.application)
+    with app_context.session_factory() as session:
+        text, keyboard = _render_my_bets_default(session, user.id)
+    await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 async def jogos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

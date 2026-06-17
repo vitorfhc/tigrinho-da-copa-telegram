@@ -25,6 +25,9 @@ from tigrinho.bot.callbacks import (
     ExactScore,
     FirstTeamInput,
     HomeScore,
+    MyBetsHome,
+    MyGameDetail,
+    MyHistory,
     OverUnderInput,
     WinnerInput,
     decode,
@@ -296,22 +299,118 @@ async def test_delete_on_started_game_is_rejected(app_context: AppContext) -> No
     assert len(_bets(app_context)) == 1  # not deleted
 
 
-async def test_minhas_apostas_renders_settled_bet(app_context: AppContext) -> None:
-    _seed_game(app_context, started=True)  # not open -> settled section
+async def _seed_settled(
+    app_context: AppContext, fixture_id: int, *, hg: int, ag: int, settled_iso: datetime
+) -> None:
+    with app_context.session_factory() as session:
+        game = GameRepository(session).get(fixture_id)
+        assert game is not None
+        game.home_goals_90, game.away_goals_90, game.settled_at = hg, ag, settled_iso
+        bet = BetRepository(session).upsert(
+            fixture_id=fixture_id,
+            player_telegram_id=42,
+            category="WINNER",
+            payload_json='{"sel":"HOME"}',
+        )
+        bet.is_correct = True
+        bet.points_awarded = 2
+        bet.settled_at = settled_iso
+        session.commit()
+
+
+async def test_minhas_apostas_summarizes_settled(app_context: AppContext) -> None:
+    _seed_game(app_context, started=True)  # not open -> settled
     with app_context.session_factory() as session:
         PlayerRepository(session).get_or_create(42, "Tigrão")
+        session.commit()
+    settled_iso = datetime.now(tz=UTC).replace(tzinfo=None)
+    await _seed_settled(app_context, 1001, hg=2, ag=1, settled_iso=settled_iso)
+
+    update, message = _cmd_update()
+    await minhas_apostas_handler(update, _context(app_context))
+    text = message.reply_text.await_args.args[0]
+    assert "Encerrados" in text and "1 palpite" in text and "+2 pts" in text
+    # the per-bet "Vencedor: Brasil" line is gone from the default view
+    assert "Vencedor: Brasil" not in text
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    decoded = [
+        decode(b.callback_data)
+        for row in markup.inline_keyboard
+        for b in row
+        if isinstance(b.callback_data, str)
+    ]
+    assert MyHistory(0) in decoded
+
+
+async def test_minhas_apostas_history_page_and_detail(app_context: AppContext) -> None:
+    _seed_game(app_context, started=True)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        session.commit()
+    settled_iso = datetime.now(tz=UTC).replace(tzinfo=None)
+    await _seed_settled(app_context, 1001, hg=2, ag=1, settled_iso=settled_iso)
+
+    # open the history page
+    update, query = _cb_update(encode(MyHistory(0)))
+    await on_callback(update, _context(app_context))
+    assert "Seus encerrados" in query.edit_message_text.await_args.args[0]
+    markup = query.edit_message_text.await_args.kwargs["reply_markup"]
+    decoded = [
+        decode(b.callback_data)
+        for row in markup.inline_keyboard
+        for b in row
+        if isinstance(b.callback_data, str)
+    ]
+    assert MyGameDetail(1001, 0) in decoded
+
+    # drill into the game detail
+    update, query = _cb_update(encode(MyGameDetail(1001, 0)))
+    await on_callback(update, _context(app_context))
+    detail = query.edit_message_text.await_args.args[0]
+    assert "Brasil 2 x 1 Argentina" in detail
+    assert "Total: +2 pts" in detail
+
+
+async def test_minhas_apostas_history_clamps_stale_page(app_context: AppContext) -> None:
+    _seed_game(app_context, started=True)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        session.commit()
+    settled_iso = datetime.now(tz=UTC).replace(tzinfo=None)
+    await _seed_settled(app_context, 1001, hg=2, ag=1, settled_iso=settled_iso)
+    # request a page far beyond the one that exists -> must not error, clamps to page 1/1
+    update, query = _cb_update(encode(MyHistory(99)))
+    await on_callback(update, _context(app_context))
+    assert "página 1/1" in query.edit_message_text.await_args.args[0]
+
+
+async def test_minhas_apostas_back_to_default(app_context: AppContext) -> None:
+    _seed_game(app_context, started=True)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        session.commit()
+    settled_iso = datetime.now(tz=UTC).replace(tzinfo=None)
+    await _seed_settled(app_context, 1001, hg=2, ag=1, settled_iso=settled_iso)
+    update, query = _cb_update(encode(MyBetsHome()))
+    await on_callback(update, _context(app_context))
+    assert "Encerrados" in query.edit_message_text.await_args.args[0]
+
+
+async def test_my_game_detail_scoped_to_caller(app_context: AppContext) -> None:
+    # _USER is id 42; a detail request for a fixture they never bet in returns "não encontrado"
+    _seed_game(app_context, started=True)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(99, "Outro")
         bet = BetRepository(session).upsert(
-            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json='{"sel":"HOME"}'
+            fixture_id=1001, player_telegram_id=99, category="WINNER", payload_json="{}"
         )
         bet.is_correct = True
         bet.points_awarded = 2
         bet.settled_at = datetime.now(tz=UTC).replace(tzinfo=None)
         session.commit()
-    update, message = _cmd_update()
-    await minhas_apostas_handler(update, _context(app_context))
-    text = message.reply_text.await_args.args[0]
-    assert "Encerrados" in text
-    assert "2 pts" in text and "✓" in text
+    update, query = _cb_update(encode(MyGameDetail(1001, 0)))
+    await on_callback(update, _context(app_context))
+    assert "não encontrado" in query.edit_message_text.await_args.args[0]
 
 
 async def test_minhas_apostas_shows_started_ungraded_bet_as_pending(
