@@ -25,6 +25,9 @@ from tigrinho.bot.callbacks import (
     GamesBoardCompute,
     GamesBoardToggle,
     HomeScore,
+    MyBetsHome,
+    MyGameDetail,
+    MyHistory,
     OverUnderInput,
     PalpiteView,
     WinnerInput,
@@ -152,10 +155,34 @@ def first_team_keyboard(fixture_id: int, home_team: str, away_team: str) -> Inli
     )
 
 
-def my_bets_keyboard(open_bets: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
-    """A 🗑 Apagar button per still-open bet. Each item: (bet_id, label)."""
+def my_bets_keyboard(
+    open_bets: Sequence[tuple[int, str]], *, settled_count: int = 0
+) -> InlineKeyboardMarkup:
+    """🗑 Apagar per still-open bet, plus a 📜 Ver encerrados button when history exists."""
     rows = [[_button(f"🗑 Apagar: {label}", DeleteBet(bet_id))] for bet_id, label in open_bets]
+    if settled_count > 0:
+        rows.append([_button(f"📜 Ver encerrados ({settled_count})", MyHistory(0))])
     return InlineKeyboardMarkup(rows)
+
+
+def my_history_keyboard(
+    rows: Sequence[tuple[int, str]], page: int, total_pages: int
+) -> InlineKeyboardMarkup:
+    """Paginated settled-history list: one button per game + a nav row. ``page`` is 0-based."""
+    buttons = [[_button(label, MyGameDetail(fixture_id, page))] for fixture_id, label in rows]
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_button("◀ Anterior", MyHistory(page - 1)))
+    nav.append(_button("Voltar", MyBetsHome()))
+    if page < total_pages - 1:
+        nav.append(_button("Próxima ▶", MyHistory(page + 1)))
+    buttons.append(nav)
+    return InlineKeyboardMarkup(buttons)
+
+
+def my_game_detail_keyboard(page: int) -> InlineKeyboardMarkup:
+    """Single ◀ Voltar button returning to the originating history page."""
+    return InlineKeyboardMarkup([[_button("◀ Voltar", MyHistory(page))]])
 
 
 def ended_games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:

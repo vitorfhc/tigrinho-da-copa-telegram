@@ -14,6 +14,9 @@ from tigrinho.bot.callbacks import (
     GamesBoardCompute,
     GamesBoardToggle,
     HomeScore,
+    MyBetsHome,
+    MyGameDetail,
+    MyHistory,
     PalpiteView,
     WinnerInput,
     decode,
@@ -28,6 +31,9 @@ from tigrinho.bot.keyboards import (
     first_team_keyboard,
     games_keyboard,
     home_score_keyboard,
+    my_bets_keyboard,
+    my_game_detail_keyboard,
+    my_history_keyboard,
     over_under_keyboard,
     palpite_games_keyboard,
     winner_keyboard,
@@ -36,12 +42,12 @@ from tigrinho.domain.bets import FirstTeamSel, WinnerSel
 from tigrinho.enums import Stage
 
 
-def _decoded(keyboard: InlineKeyboardMarkup) -> list[CallbackData]:
+def _decoded(markup: InlineKeyboardMarkup) -> list[CallbackData]:
     return [
-        decode(button.callback_data)
-        for row in keyboard.inline_keyboard
-        for button in row
-        if isinstance(button.callback_data, str)
+        decode(b.callback_data)
+        for row in markup.inline_keyboard
+        for b in row
+        if isinstance(b.callback_data, str)
     ]
 
 
@@ -146,3 +152,32 @@ def test_combined_games_keyboard_toggles_and_compute() -> None:
     assert compute.text == "✅ Calcular placar (1)"
     assert isinstance(compute.callback_data, str)
     assert decode(compute.callback_data) == GamesBoardCompute(0b10)
+
+
+def test_my_bets_keyboard_appends_history_button_when_settled() -> None:
+    markup = my_bets_keyboard([(7, "Brasil x Croácia — Vencedor: Brasil")], settled_count=42)
+    decoded = _decoded(markup)
+    assert MyHistory(0) in decoded
+
+
+def test_my_bets_keyboard_omits_history_button_when_none_settled() -> None:
+    assert MyHistory(0) not in _decoded(my_bets_keyboard([(7, "x")], settled_count=0))
+
+
+def test_my_history_keyboard_nav_at_first_page() -> None:
+    markup = my_history_keyboard([(1001, "Jogo A"), (1002, "Jogo B")], page=0, total_pages=3)
+    decoded = _decoded(markup)
+    assert MyGameDetail(1001, 0) in decoded and MyGameDetail(1002, 0) in decoded
+    assert MyHistory(1) in decoded  # Próxima
+    assert MyBetsHome() in decoded  # Voltar
+    assert MyHistory(-1) not in decoded  # no Anterior on first page
+
+
+def test_my_history_keyboard_nav_at_last_page() -> None:
+    decoded = _decoded(my_history_keyboard([(1001, "Jogo A")], page=2, total_pages=3))
+    assert MyHistory(1) in decoded  # Anterior
+    assert MyHistory(3) not in decoded  # no Próxima on last page
+
+
+def test_my_game_detail_keyboard_back_carries_page() -> None:
+    assert MyHistory(2) in _decoded(my_game_detail_keyboard(2))
