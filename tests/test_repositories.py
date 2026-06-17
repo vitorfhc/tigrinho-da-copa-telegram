@@ -12,6 +12,8 @@ from tigrinho.db.repositories import (
     BetRepository,
     GameRepository,
     PlayerRepository,
+    SettledGameRow,
+    SettledSummary,
 )
 
 
@@ -31,6 +33,28 @@ def _seed_game(session: Session, fixture_id: int = 1001) -> Game:
     session.add(game)
     session.flush()
     return game
+
+
+def _settled_bet(
+    session: Session,
+    *,
+    fixture_id: int,
+    player: int,
+    category: str,
+    is_correct: bool,
+    points: int,
+    settled_at: datetime,
+) -> None:
+    bet = BetRepository(session).upsert(
+        fixture_id=fixture_id,
+        player_telegram_id=player,
+        category=category,
+        payload_json="{}",
+    )
+    bet.is_correct = is_correct
+    bet.points_awarded = points
+    bet.settled_at = settled_at
+    session.flush()
 
 
 # --- PlayerRepository -----------------------------------------------------------------------
@@ -293,3 +317,120 @@ def test_mark_reminded_only_flags_scheduled_unreminded(session: Session) -> None
     game = repo.get(1)
     assert game is not None
     assert game.reminded_at is None  # re-validation skipped a non-SCHEDULED game
+
+
+# --- BetRepository: aggregate queries -------------------------------------------------------
+
+
+def test_settled_summary_for_player(session: Session) -> None:
+    PlayerRepository(session).get_or_create(42, "Tigrão")
+    PlayerRepository(session).get_or_create(99, "Other")
+    g1 = _seed_game(session, 1001)
+    g1.home_goals_90, g1.away_goals_90, g1.settled_at = 2, 1, datetime(2026, 6, 16, 21, 0)
+    g2 = _seed_game(session, 1002)
+    g2.settled_at = datetime(2026, 6, 17, 21, 0)
+    _settled_bet(
+        session,
+        fixture_id=1001,
+        player=42,
+        category="WINNER",
+        is_correct=True,
+        points=3,
+        settled_at=datetime(2026, 6, 16, 21, 0),
+    )
+    _settled_bet(
+        session,
+        fixture_id=1001,
+        player=42,
+        category="BTTS",
+        is_correct=False,
+        points=0,
+        settled_at=datetime(2026, 6, 16, 21, 0),
+    )
+    _settled_bet(
+        session,
+        fixture_id=1002,
+        player=42,
+        category="WINNER",
+        is_correct=True,
+        points=5,
+        settled_at=datetime(2026, 6, 17, 21, 0),
+    )
+    # an ungraded bet for another game and another player's bet must be excluded
+    BetRepository(session).upsert(
+        fixture_id=1002, player_telegram_id=42, category="OVER_UNDER", payload_json="{}"
+    )
+    _settled_bet(
+        session,
+        fixture_id=1001,
+        player=99,
+        category="WINNER",
+        is_correct=True,
+        points=3,
+        settled_at=datetime(2026, 6, 16, 21, 0),
+    )
+    session.flush()
+
+    summary = BetRepository(session).settled_summary_for_player(42)
+    assert summary == SettledSummary(count=3, correct=2, points=8, game_count=2)
+
+
+def test_settled_summary_empty(session: Session) -> None:
+    assert BetRepository(session).settled_summary_for_player(42) == SettledSummary(
+        count=0, correct=0, points=0, game_count=0
+    )
+
+
+def test_settled_games_for_player_ordered_and_paginated(session: Session) -> None:
+    PlayerRepository(session).get_or_create(42, "Tigrão")
+    g1 = _seed_game(session, 1001)
+    g1.home_goals_90, g1.away_goals_90, g1.settled_at = 2, 1, datetime(2026, 6, 16, 21, 0)
+    g2 = _seed_game(session, 1002)
+    g2.home_goals_90, g2.away_goals_90, g2.settled_at = 0, 0, datetime(2026, 6, 17, 21, 0)
+    _settled_bet(
+        session,
+        fixture_id=1001,
+        player=42,
+        category="WINNER",
+        is_correct=True,
+        points=3,
+        settled_at=datetime(2026, 6, 16, 21, 0),
+    )
+    _settled_bet(
+        session,
+        fixture_id=1001,
+        player=42,
+        category="BTTS",
+        is_correct=False,
+        points=0,
+        settled_at=datetime(2026, 6, 16, 21, 0),
+    )
+    _settled_bet(
+        session,
+        fixture_id=1002,
+        player=42,
+        category="WINNER",
+        is_correct=True,
+        points=3,
+        settled_at=datetime(2026, 6, 17, 21, 0),
+    )
+    session.flush()
+
+    repo = BetRepository(session)
+    page0 = repo.settled_games_for_player(42, limit=1, offset=0)
+    assert len(page0) == 1
+    assert page0[0].fixture_id == 1002  # most recently settled first
+    assert page0[0].bet_count == 1 and page0[0].correct_count == 1 and page0[0].points == 3
+
+    page1 = repo.settled_games_for_player(42, limit=1, offset=1)
+    assert len(page1) == 1
+    assert page1[0] == SettledGameRow(
+        fixture_id=1001,
+        home_team_name="Brasil",
+        away_team_name="Argentina",
+        home_goals_90=2,
+        away_goals_90=1,
+        bet_count=2,
+        correct_count=1,
+        points=3,
+    )

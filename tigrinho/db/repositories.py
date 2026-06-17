@@ -9,9 +9,10 @@ Telegram bot and the Typer admin CLI.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from tigrinho.db.models import AiPalpite, ApiUsage, Bet, Game, GameStatus, Player
@@ -227,6 +228,30 @@ class GameRepository:
         return True
 
 
+@dataclass(frozen=True, slots=True)
+class SettledSummary:
+    """Aggregate of a player's graded bets (for the /minhas_apostas summary line)."""
+
+    count: int
+    correct: int
+    points: int
+    game_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SettledGameRow:
+    """One finished game in a player's history, with that game's bet aggregates."""
+
+    fixture_id: int
+    home_team_name: str
+    away_team_name: str
+    home_goals_90: int | None
+    away_goals_90: int | None
+    bet_count: int
+    correct_count: int
+    points: int
+
+
 class BetRepository:
     """Bets, enforcing one per (fixture, player, category) via upsert."""
 
@@ -292,6 +317,59 @@ class BetRepository:
             Bet.fixture_id == fixture_id,
         )
         return list(self._session.execute(stmt).scalars())
+
+    def settled_summary_for_player(self, player_telegram_id: int) -> SettledSummary:
+        """One aggregate over the player's graded bets (count / correct / points / games)."""
+        stmt = select(
+            func.count(Bet.id),
+            func.coalesce(func.sum(case((Bet.is_correct.is_(True), 1), else_=0)), 0),
+            func.coalesce(func.sum(Bet.points_awarded), 0),
+            func.count(func.distinct(Bet.fixture_id)),
+        ).where(
+            Bet.player_telegram_id == player_telegram_id,
+            Bet.settled_at.is_not(None),
+        )
+        row = self._session.execute(stmt).one()
+        return SettledSummary(count=row[0], correct=row[1], points=row[2], game_count=row[3])
+
+    def settled_games_for_player(
+        self, player_telegram_id: int, *, limit: int, offset: int
+    ) -> list[SettledGameRow]:
+        """The player's finished games, most-recently-settled first, with per-game aggregates."""
+        stmt = (
+            select(
+                Game.fixture_id,
+                Game.home_team_name,
+                Game.away_team_name,
+                Game.home_goals_90,
+                Game.away_goals_90,
+                func.count(Bet.id),
+                func.coalesce(func.sum(case((Bet.is_correct.is_(True), 1), else_=0)), 0),
+                func.coalesce(func.sum(Bet.points_awarded), 0),
+            )
+            .join(Game, Game.fixture_id == Bet.fixture_id)
+            .where(
+                Bet.player_telegram_id == player_telegram_id,
+                Bet.settled_at.is_not(None),
+            )
+            .group_by(Game.fixture_id)
+            .order_by(func.max(Game.settled_at).desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [
+            SettledGameRow(
+                fixture_id=r[0],
+                home_team_name=r[1],
+                away_team_name=r[2],
+                home_goals_90=r[3],
+                away_goals_90=r[4],
+                bet_count=r[5],
+                correct_count=r[6],
+                points=r[7],
+            )
+            for r in self._session.execute(stmt).all()
+        ]
 
     def delete(self, bet_id: int) -> bool:
         bet = self._session.get(Bet, bet_id)
