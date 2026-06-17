@@ -263,6 +263,59 @@ def goal_text(
     )
 
 
+def cancellation_reason_pt(detail: str) -> str | None:
+    """Short pt-BR reason for a VAR goal cancellation, or ``None`` when not recognized (§9.4).
+
+    ``detail`` is the raw provider string (e.g. ``"Goal Disallowed - offside"``). Reasons are
+    matched loosely (substring) to tolerate the provider's free-text variants; an unknown reason
+    yields ``None`` so the message stays clean rather than echoing English back to the group.
+    """
+    lowered = detail.lower()
+    if "offside" in lowered:
+        return "impedimento"
+    if "hand" in lowered:
+        return "mão na bola"
+    if "foul" in lowered:
+        return "falta"
+    return None
+
+
+def goal_cancelled_text(
+    *,
+    scoring_team: str | None,
+    home_team: str,
+    away_team: str,
+    home_score: int,
+    away_score: int,
+    minute: int | None,
+    extra: int | None,
+    scorer: str | None,
+    reason: str | None,
+) -> str:
+    """Group post when a previously-counted goal is disallowed/cancelled by VAR (§9.4).
+
+    ``scoring_team`` is ``None`` when the provider hasn't yet exposed the VAR event detail (the live
+    score already dropped): we still tell the group the goal was annulled, just without specifics.
+    ``home_score`` / ``away_score`` are the **current** running score after the cancellation.
+    """
+    lines = ["🚫 <b>Gol anulado pelo VAR!</b>"]
+    if scoring_team is not None:
+        bits: list[str] = []
+        if scorer:
+            bits.append(escape(scorer))
+        if minute is not None:
+            bits.append(goal_minute_label(minute, extra))
+        suffix = f" ({', '.join(bits)})" if bits else ""
+        sentence = f"Gol do {escape(scoring_team)}{suffix}"
+        if reason:
+            sentence += f" — {escape(reason)}"
+        lines.append(f"{sentence}.")
+    lines.append(
+        f"Placar segue: {escape(home_team)} {home_score} x {away_score} {escape(away_team)} 🐯"
+    )
+    return "\n".join(lines)
+
+
 _MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 

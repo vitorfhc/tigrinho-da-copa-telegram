@@ -19,6 +19,7 @@ from tigrinho.providers.api_football import (
     normalize_status,
     parse_goal_timeline,
     parse_goals,
+    parse_var_cancellations,
 )
 
 # --- pure mapping ---------------------------------------------------------------------------
@@ -367,6 +368,95 @@ def test_parse_goal_timeline_keeps_extra_time_and_flags() -> None:
     assert goals[1].minute == 105
     assert goals[1].extra == 2
     assert goals[1].is_penalty is True
+
+
+def test_parse_var_cancellations_matches_and_filters() -> None:
+    events: list[dict[str, Any]] = [
+        {  # documented detail -> matched
+            "time": {"elapsed": 12, "extra": None},
+            "team": {"id": 20},
+            "player": {"id": 200, "name": "Cancelled Scorer"},
+            "type": "Var",
+            "detail": "Goal cancelled",
+        },
+        {  # undocumented live detail (drift) -> matched, carries reason text
+            "time": {"elapsed": 8, "extra": None},
+            "team": {"id": 1532},
+            "player": {"id": 276670, "name": "F. Chaibi"},
+            "type": "Var",
+            "detail": "Goal Disallowed - offside",
+        },
+        {  # stoppage-time disallow keeps extra -> matched
+            "time": {"elapsed": 90, "extra": 3},
+            "team": {"id": 10},
+            "player": {"id": 101, "name": "Late"},
+            "type": "Var",
+            "detail": "Goal Disallowed - Handball",
+        },
+        {  # confirmation -> excluded (goal stands)
+            "time": {"elapsed": 50},
+            "team": {"id": 10},
+            "player": {"id": 100, "name": "Keeper"},
+            "type": "Var",
+            "detail": "Goal confirmed",
+        },
+        {  # penalty award reversed (no goal) -> excluded
+            "time": {"elapsed": 55},
+            "team": {"id": 10},
+            "player": {"id": 100, "name": "Taker"},
+            "type": "Var",
+            "detail": "Penalty cancelled",
+        },
+        {  # not a VAR event -> excluded
+            "time": {"elapsed": 60},
+            "team": {"id": 10},
+            "player": {"id": 100, "name": "Scorer"},
+            "type": "Goal",
+            "detail": "Normal Goal",
+        },
+        {  # shootout / malformed (null elapsed) -> excluded
+            "time": {"elapsed": None},
+            "team": {"id": 10},
+            "player": {"id": 100, "name": "Shooter"},
+            "type": "Var",
+            "detail": "Goal cancelled",
+        },
+    ]
+    cancellations = parse_var_cancellations(events)
+    assert [(c.minute, c.team_id, c.player_name, c.detail) for c in cancellations] == [
+        (12, 20, "Cancelled Scorer", "Goal cancelled"),
+        (8, 1532, "F. Chaibi", "Goal Disallowed - offside"),
+        (90, 10, "Late", "Goal Disallowed - Handball"),
+    ]
+    assert cancellations[2].extra == 3
+
+
+async def test_get_goal_cancellations_calls_events_endpoint() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "errors": [],
+                "response": [
+                    {
+                        "time": {"elapsed": 8, "extra": None},
+                        "team": {"id": 1532},
+                        "player": {"id": 276670, "name": "F. Chaibi"},
+                        "type": "Var",
+                        "detail": "Goal Disallowed - offside",
+                    }
+                ],
+            },
+        )
+
+    provider = _provider(handler)
+    cancellations = await provider.get_goal_cancellations(1001)
+    assert [c.player_name for c in cancellations] == ["F. Chaibi"]
+    assert paths == ["/fixtures/events"]
+    await provider.aclose()
 
 
 async def test_get_goal_events_calls_events_endpoint() -> None:

@@ -14,7 +14,7 @@ from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, GameStatus, Stage
 from tigrinho.db.repositories import BetRepository, GameRepository, PlayerRepository
-from tigrinho.providers.base import GoalEvent, MatchResult
+from tigrinho.providers.base import GoalEvent, MatchResult, VarCancellation
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.fake import FakeProvider
 
@@ -125,6 +125,12 @@ def _goal(minute: int, team_id: int, *, name: str | None = None, own: bool = Fal
         is_own_goal=own,
         is_penalty=False,
     )
+
+
+def _cancel(
+    minute: int, team_id: int, *, name: str | None = None, detail: str = "Goal cancelled"
+) -> VarCancellation:
+    return VarCancellation(minute=minute, team_id=team_id, player_name=name, detail=detail)
 
 
 def _sent_texts(bot: AsyncMock) -> list[str]:
@@ -379,21 +385,72 @@ async def test_no_event_fetch_when_score_unchanged(
     assert not any("GOL" in t for t in _sent_texts(bot))
 
 
-async def test_var_disallowed_goal_resyncs_without_posting(
+async def test_var_disallowed_goal_announced_with_reason_and_resyncs(
     settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:
-    _seed_live_game(session_factory, started=True, goals_announced=2)
-    provider = FakeProvider(results=[_live_result(home=1, away=0)])  # total 1 < goals_announced 2
+    _seed_live_game(session_factory, started=True, goals_announced=1)
+    provider = FakeProvider(
+        results=[_live_result(home=0, away=0)],  # total 0 < goals_announced 1 → a goal vanished
+        goal_cancellations={
+            1001: (_cancel(8, 20, name="Messi", detail="Goal Disallowed - offside"),)
+        },
+    )
     app_context = _app_context(settings, session_factory, provider)
     context, bot = _context(app_context)
 
     await poll_job(context)
 
-    assert not any(c.startswith("get_goal_events") for c in provider.call_log)
-    assert not any("GOL" in t for t in _sent_texts(bot))
+    texts = _sent_texts(bot)
+    cancel_texts = [t for t in texts if "anulado pelo VAR" in t]
+    assert len(cancel_texts) == 1
+    assert "Gol do Argentina" in cancel_texts[0]  # team_id 20 == away "Argentina"
+    assert "Messi" in cancel_texts[0]
+    assert "impedimento" in cancel_texts[0]
+    assert "Brasil 0 x 0 Argentina" in cancel_texts[0]
+    assert "get_goal_cancellations:1001" in provider.call_log
     with session_factory() as session:
         game = GameRepository(session).get(1001)
-        assert game is not None and game.goals_announced == 1
+        assert game is not None and game.goals_announced == 0
+
+
+async def test_var_disallowed_goal_announced_generically_when_event_absent(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # Live score already dropped, but the Var event hasn't surfaced in the feed yet (observed lag).
+    _seed_live_game(session_factory, started=True, goals_announced=1)
+    provider = FakeProvider(
+        results=[_live_result(home=0, away=0)]
+    )  # no goal_cancellations scripted
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    cancel_texts = [t for t in _sent_texts(bot) if "anulado pelo VAR" in t]
+    assert len(cancel_texts) == 1
+    assert "Gol do" not in cancel_texts[0]  # generic — no team/scorer detail available
+    assert "Brasil 0 x 0 Argentina" in cancel_texts[0]
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.goals_announced == 0
+
+
+async def test_cancellation_not_reannounced_once_synced(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # Cursor already resynced down to the live total — no further retraction, no event fetch.
+    _seed_live_game(session_factory, started=True, goals_announced=0)
+    provider = FakeProvider(
+        results=[_live_result(home=0, away=0)],
+        goal_cancellations={1001: (_cancel(8, 20, name="Messi"),)},
+    )
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    assert not any("anulado pelo VAR" in t for t in _sent_texts(bot))
+    assert not any(c.startswith("get_goal_cancellations") for c in provider.call_log)
 
 
 async def test_multiple_new_goals_posted_in_order(

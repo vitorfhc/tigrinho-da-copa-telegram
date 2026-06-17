@@ -628,6 +628,30 @@ game actually scores. New provider surface (`MatchResult.live_home_goals/live_aw
   category/scoring/grading change). Spec + plan under `docs/superpowers/`. 385 tests (after rebase
   onto main); all four gates green.
 
+### 2026-06-16 — Feature: announce VAR-disallowed goals (§9.4)
+
+User request (prompted by a real prod incident: an Algeria goal vs. Argentina was counted then
+annulled for offside; the old code resynced the cursor down **silently**, leaving a stale "GOL" in
+the group with no retraction). The live-poll job now posts a **"🚫 Gol anulado pelo VAR"** message
+per vanished goal when the running total drops below `goals_announced`.
+- **Grounding (mandatory):** API-Football's docs enumerate `type:"Var"` detail `"Goal cancelled"`,
+  but the live feed for the actual fixture returned `"Goal Disallowed - offside"` (not in the docs).
+  Per the grounding rule, live docs win — the matcher accepts any `Var` detail starting with `goal`
+  and containing `cancel`/`disallow`, excluding `Goal confirmed`, `Penalty confirmed/cancelled`,
+  `Red card cancelled`. Doc: <https://www.api-football.com/news/post/var-events>.
+- New provider surface: `VarCancellation` value object, `parse_var_cancellations`,
+  `get_goal_cancellations` (one budgeted `/fixtures/events` call, only on a score drop). Pure pt-BR
+  `text_pt.goal_cancelled_text` + `cancellation_reason_pt` (offside→impedimento, hand→mão na bola,
+  foul→falta; unknown→omit). `poll_job._announce_cancellations` resyncs the cursor down **after** the
+  retraction posts (failed send retries; synced game never re-announced).
+- Detection is driven by the authoritative live score; the `Var` event only enriches the message,
+  with a generic fallback when the score drops before the event surfaces (observed feed lag). **No
+  schema change / migration** — the existing `goals_announced` cursor carries it.
+- Grading/settlement untouched (the disallowed goal is `type:"Var"`, already excluded from
+  `parse_goals`). `/ajuda` unaffected (notification, not a command/category/scoring/grading change).
+  New tests for the parser, the pt-BR builders, and three poll-job paths (enriched / generic /
+  already-synced). All four gates green; domain coverage 100%.
+
 ### 2026-06-16 — Feature: combined scoreboard for a set of ended games (`/placar_jogos`, §10)
 
 User request. New `/placar_jogos` (group + DM): inline **multi-select** picker over the last 10

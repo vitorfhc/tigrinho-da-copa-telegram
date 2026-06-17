@@ -6,7 +6,14 @@ many provider calls a job made (e.g. the active-window polling decision in §9.2
 
 from __future__ import annotations
 
-from tigrinho.providers.base import Fixture, FixtureSeq, GoalEvent, MatchResult, ResultSeq
+from tigrinho.providers.base import (
+    Fixture,
+    FixtureSeq,
+    GoalEvent,
+    MatchResult,
+    ResultSeq,
+    VarCancellation,
+)
 
 
 class FakeProvider:
@@ -18,10 +25,14 @@ class FakeProvider:
         fixtures: FixtureSeq | None = None,
         results: ResultSeq | None = None,
         goal_events: dict[int, tuple[GoalEvent, ...]] | None = None,
+        goal_cancellations: dict[int, tuple[VarCancellation, ...]] | None = None,
     ) -> None:
         self._fixtures: list[Fixture] = list(fixtures or [])
         self._results: dict[int, MatchResult] = {r.fixture_id: r for r in (results or [])}
         self._goal_events: dict[int, tuple[GoalEvent, ...]] = dict(goal_events or {})
+        self._goal_cancellations: dict[int, tuple[VarCancellation, ...]] = dict(
+            goal_cancellations or {}
+        )
         self.call_log: list[str] = []
 
     async def get_fixtures(self, window_hours: int) -> list[Fixture]:
@@ -39,3 +50,7 @@ class FakeProvider:
     async def get_goal_events(self, fixture_id: int) -> tuple[GoalEvent, ...]:
         self.call_log.append(f"get_goal_events:{fixture_id}")
         return self._goal_events.get(fixture_id, ())
+
+    async def get_goal_cancellations(self, fixture_id: int) -> tuple[VarCancellation, ...]:
+        self.call_log.append(f"get_goal_cancellations:{fixture_id}")
+        return self._goal_cancellations.get(fixture_id, ())

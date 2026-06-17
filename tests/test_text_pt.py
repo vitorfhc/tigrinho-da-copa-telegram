@@ -20,6 +20,7 @@ from tigrinho.domain.bets import (
 from tigrinho.domain.text_pt import (
     announcement_text,
     board_text,
+    cancellation_reason_pt,
     category_button_label,
     correction_text,
     describe_bet,
@@ -27,6 +28,7 @@ from tigrinho.domain.text_pt import (
     format_kickoff_short,
     game_board_text,
     games_board_text,
+    goal_cancelled_text,
     goal_text,
     help_text,
     kickoff_text,
@@ -456,6 +458,83 @@ def test_goal_text_escapes_html() -> None:
         scorer="x<y",
         is_penalty=False,
         is_own_goal=False,
+    )
+    assert "&amp;" in text
+    assert "&lt;" in text
+
+
+def test_cancellation_reason_pt_maps_known_reasons() -> None:
+    assert cancellation_reason_pt("Goal Disallowed - offside") == "impedimento"
+    assert cancellation_reason_pt("Goal Disallowed - Handball") == "mão na bola"
+    assert cancellation_reason_pt("Goal Disallowed - Foul") == "falta"
+    assert cancellation_reason_pt("Goal cancelled") is None  # no specific reason given
+
+
+def test_goal_cancelled_text_with_full_detail() -> None:
+    text = goal_cancelled_text(
+        scoring_team="Algeria",
+        home_team="Argentina",
+        away_team="Algeria",
+        home_score=0,
+        away_score=0,
+        minute=8,
+        extra=None,
+        scorer="F. Chaibi",
+        reason="impedimento",
+    )
+    assert "Gol anulado pelo VAR" in text
+    assert "Gol do Algeria" in text
+    assert "F. Chaibi" in text
+    assert "(F. Chaibi, 8')" in text
+    assert "impedimento" in text
+    assert "Placar segue: Argentina 0 x 0 Algeria" in text
+
+
+def test_goal_cancelled_text_stoppage_minute_and_no_reason() -> None:
+    text = goal_cancelled_text(
+        scoring_team="Brasil",
+        home_team="Brasil",
+        away_team="Argentina",
+        home_score=1,
+        away_score=0,
+        minute=90,
+        extra=2,
+        scorer=None,
+        reason=None,
+    )
+    assert "Gol do Brasil (90+2')." in text
+    assert "—" not in text  # no reason dash when reason is unknown
+    assert "Brasil 1 x 0 Argentina" in text
+
+
+def test_goal_cancelled_text_generic_without_var_detail() -> None:
+    text = goal_cancelled_text(
+        scoring_team=None,
+        home_team="Argentina",
+        away_team="Algeria",
+        home_score=0,
+        away_score=0,
+        minute=None,
+        extra=None,
+        scorer=None,
+        reason=None,
+    )
+    assert "Gol anulado pelo VAR" in text
+    assert "Gol do" not in text  # no team/scorer line when the provider hasn't exposed the event
+    assert "Placar segue: Argentina 0 x 0 Algeria" in text
+
+
+def test_goal_cancelled_text_escapes_html() -> None:
+    text = goal_cancelled_text(
+        scoring_team="A&B",
+        home_team="A&B",
+        away_team="C<D",
+        home_score=0,
+        away_score=0,
+        minute=10,
+        extra=None,
+        scorer="x<y",
+        reason="impedimento",
     )
     assert "&amp;" in text
     assert "&lt;" in text

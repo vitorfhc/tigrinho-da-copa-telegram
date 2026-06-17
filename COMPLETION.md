@@ -620,9 +620,21 @@ fetches):
   `games.goals_announced`, one budgeted `get_goal_events(fixture_id)` call fetches the **uncapped**
   goal timeline (incl. extra time; penalty shootout excluded). Each new goal is posted with the
   running score, scorer, and minute (`(pênalti)` / `(gol contra)` tags; own goals credited to the
-  opposing side). The cursor `goals_announced` then advances to the timeline length. A VAR-disallowed
-  goal (running total drops) resyncs the cursor down and posts nothing. The events endpoint is hit
-  only when a game actually scores (~1 call per goal); cycles with no goal cost nothing extra.
+  opposing side). The cursor `goals_announced` then advances to the timeline length. The events
+  endpoint is hit only when a game actually scores (~1 call per goal); cycles with no goal cost
+  nothing extra.
+- **VAR-disallowed goals.** When the running total *drops* below `goals_announced` (a counted goal
+  was annulled), one budgeted `get_goal_cancellations(fixture_id)` call fetches the `type:"Var"`
+  goal-cancellation events and the bot posts one **"🚫 Gol anulado pelo VAR"** retraction per
+  vanished goal — naming the team/scorer/minute and a short reason (impedimento / mão na bola /
+  falta) when the event is available, or a generic notice when the score dropped before the event
+  surfaced (an observed feed lag). The cursor then resyncs down to the live total *after* the
+  retraction posts, so a failed send retries and a synced game is never re-announced. Detection is
+  driven by the authoritative live score (not by parsing every poll); the cancellation matcher is
+  grounded against API-Football's live feed — it matches any `Var` detail naming a goal as
+  cancelled/disallowed (docs list `"Goal cancelled"`; the live feed also returns
+  `"Goal Disallowed - <reason>"`, which the docs omit — live docs win), excluding confirmations and
+  non-goal reversals. Doc: <https://www.api-football.com/news/post/var-events>.
 
 Best-effort group sends: a failure logs + DMs the admin and never crashes the bot (§14). Grading /
 settlement are **unchanged** — they still use the 90′ regulation score and the ≤90′ timeline; these

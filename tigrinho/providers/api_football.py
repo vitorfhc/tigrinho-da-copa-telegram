@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 
 from tigrinho.enums import GameStatus, Stage
-from tigrinho.providers.base import Fixture, GoalEvent, MatchResult
+from tigrinho.providers.base import Fixture, GoalEvent, MatchResult, VarCancellation
 
 # fixture.status.short → normalized GameStatus (§7.2; INT/SUSP→LIVE and AWD/WO→FINISHED added as
 # the simplest §2-consistent extension for codes the spec did not enumerate).
@@ -181,6 +181,48 @@ def parse_goal_timeline(events: list[dict[str, Any]]) -> tuple[GoalEvent, ...]:
     return tuple(goals)
 
 
+def parse_var_cancellations(events: list[dict[str, Any]]) -> tuple[VarCancellation, ...]:
+    """VAR events that disallowed/cancelled a goal, in API chronological order (§9.4).
+
+    Grounded against API-Football's VAR events: the docs enumerate ``type="Var"`` detail
+    ``"Goal cancelled"``, but the **live feed** also returns ``"Goal Disallowed - offside"`` (and
+    other ``Goal Disallowed - <reason>`` variants) not listed in the docs — per the grounding rule,
+    live docs win. We therefore match any ``Var`` event whose detail names a goal being
+    cancelled/disallowed, while excluding confirmations (``Goal confirmed``) and non-goal reversals
+    (``Penalty confirmed``/``Penalty cancelled``, ``Red card cancelled``).
+    Doc: https://www.api-football.com/news/post/var-events
+    """
+    cancellations: list[VarCancellation] = []
+    for event in events:
+        if event.get("type") != "Var":
+            continue
+        detail = event.get("detail") or ""
+        lowered = detail.lower()
+        if not lowered.startswith("goal"):
+            continue  # "Penalty …" / "Red card cancelled" → not a goal cancellation
+        if "cancel" not in lowered and "disallow" not in lowered:
+            continue  # "Goal confirmed" → goal stands, not a cancellation
+        time_ = event.get("time") or {}
+        elapsed = time_.get("elapsed")
+        if elapsed is None:  # penalty shootout / malformed → not a running-score event
+            continue
+        team = event.get("team") or {}
+        team_id = _opt_int(team.get("id"))
+        if team_id is None:
+            continue
+        player = event.get("player") or {}
+        cancellations.append(
+            VarCancellation(
+                minute=int(elapsed),
+                team_id=team_id,
+                player_name=player.get("name"),
+                detail=detail,
+                extra=_opt_int(time_.get("extra")),
+            )
+        )
+    return tuple(cancellations)
+
+
 def advancing_team_id(teams: dict[str, Any]) -> int | None:
     home = teams.get("home") or {}
     away = teams.get("away") or {}
@@ -292,3 +334,8 @@ class ApiFootballProvider:
         """Full goal timeline (incl. extra time) for live notifications (§9.4)."""
         events = await self._get("/fixtures/events", {"fixture": fixture_id})
         return parse_goal_timeline(events)
+
+    async def get_goal_cancellations(self, fixture_id: int) -> tuple[VarCancellation, ...]:
+        """VAR goal-cancellation events for one fixture (live notifications, §9.4)."""
+        events = await self._get("/fixtures/events", {"fixture": fixture_id})
+        return parse_var_cancellations(events)

@@ -43,6 +43,22 @@ class GoalEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class VarCancellation:
+    """A goal disallowed/cancelled by VAR within a fixture's timeline (§9.4).
+
+    ``detail`` is the raw provider string (e.g. ``"Goal cancelled"`` or
+    ``"Goal Disallowed - offside"``) so the display layer can derive a reason without the provider
+    layer hard-coding pt-BR text.
+    """
+
+    minute: int
+    team_id: int
+    player_name: str | None
+    detail: str
+    extra: int | None = None  # added stoppage minutes (e.g. 90+`extra`); for live display
+
+
+@dataclass(frozen=True, slots=True)
 class MatchResult:
     """A fixture's result + ordered goal timeline (§7.1).
 
@@ -80,6 +96,10 @@ class FootballProvider(Protocol):
 
     async def get_goal_events(self, fixture_id: int) -> tuple[GoalEvent, ...]:
         """Full goal timeline (incl. extra time) for live notifications (§9.4)."""
+        ...
+
+    async def get_goal_cancellations(self, fixture_id: int) -> tuple[VarCancellation, ...]:
+        """VAR goal-cancellation events for one fixture (live notifications, §9.4)."""
         ...
 
 
