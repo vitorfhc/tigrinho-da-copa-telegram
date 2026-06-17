@@ -503,10 +503,15 @@ All wizard state is encoded in compact `callback_data` (≤64 bytes; see §3) vi
 > This satisfies §2 (correctness, simplicity). The deep-link `/start bet_<id>` entry and the five
 > payload collectors (score pad, first-team selector, winner/BTTS/over-under selectors) are unchanged.
 
-- **`/minhas_apostas`** (DM) — lists the caller's bets grouped by game (open vs settled), payloads
-  rendered human-readably and, for settled games, ✓/✗ + points. Each **still-open** bet has an inline
-  **🗑 Apagar** button (the CRUD "delete"); deleting an open bet is allowed, deleting/editing a
-  started game's bet is rejected.
+- **`/minhas_apostas`** (DM) — the caller's bets. **Em aberto** (still-changeable) and
+  **Em andamento** (kicked off, ungraded) are listed in full, each open bet carrying an inline
+  **🗑 Apagar** button. **Encerrados** (graded) are collapsed to a one-line summary
+  (`N palpites · A✓ B✗ · ±P pts`) plus a `📜 Ver encerrados (N)` button that opens a paginated,
+  most-recent-first history — one button per game (`<home> <h>x<a> <away> · A✓B✗ ±P pts`,
+  `_HISTORY_PAGE_SIZE` per page). Tapping a game shows the caller's own per-category breakdown
+  for it (✓/✗ + points each, with a total); navigation edits the one message in place. This keeps
+  the default message bounded across all 104 fixtures. Deleting an open bet is allowed; deleting/
+  editing a started game's bet is rejected.
 - **`/jogos`** (group or DM) — lists upcoming/open games, kickoff (in `timezone`), stage, and whether
   the caller has bet in each category (quick "what's left to predict" view). In the group it includes
   the per-game `🎯 Apostar` deep-link buttons.

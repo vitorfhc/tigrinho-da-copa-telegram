@@ -723,3 +723,26 @@ post, exposing every bet placed on that game.
 - Tests: `test_text_pt` (grouping/ordering/escaping/None-when-empty + `describe_bet` regression),
   `test_poll_job` (kickoff with bets reveals them; no bets posts only the kickoff). `/ajuda` secrecy
   line + COMPLETION.md §9.4 updated (§11). No DB/migration change.
+
+### 2026-06-17 — Feature: summarized settled bet history with paginated drill-down (`/minhas_apostas`, §8.2)
+
+User request, built test-first in an isolated worktree. The `/minhas_apostas` DM command now
+collapses settled bets to a bounded default view: **Em aberto** and **Em andamento** are listed in
+full (with delete buttons for open), while **Encerrados** (graded) shrink to a one-line summary
+(`N palpites · A✓ B✗ · ±P pts`) plus a `📜 Ver encerrados (N)` button that opens a paginated,
+most-recent-first per-game history (one game/button per page); tapping a game shows the caller's own
+per-category breakdown for it (`✓/✗ + points each, with total`); in-place navigation edits the one
+message. Keeps the default bounded across all 104 World Cup fixtures (since settled bets can
+number in the hundreds for a player over a long tournament).
+- **Repo** (`db/repositories.py`): `SettledSummary` + `SettledGameRow` value objects;
+  `BetRepository.settled_summary` (game-aggregated counts + points), `.settled_history` (paginated
+  finished games ordered by `settled_at desc`, per caller). New `GameRepository.get_one_by_id` for
+  detail-view fetches. No schema/migration (uses existing settled bets + game columns).
+- **Callbacks** (`bot/callbacks.py`): `MyHistory` (opcode `mh`), `MyGameDetail` (opcode `mg`),
+  `MyBetsHome` (opcode `mm`) — stateless; page passed in data, clamped on stale buttons.
+- **Text** (`domain/text_pt.py`): `my_bets_default_text`, `my_history_text`, `my_game_detail_text`
+  (all PURE); `describe_bet` unchanged. `_HISTORY_PAGE_SIZE = 5`.
+- **Keyboards** (`bot/keyboards.py`): `my_history_keyboard` (paged game list with back), `my_game_detail_keyboard` (back + home). Summary line shows concise `A✓B✗±P` per game; detail breaks down each category.
+- **Handler** (`bot/bets_handlers.py`): `minhas_apostas_handler` updated; `on_callback` dispatches new opcodes (no new handler registration — they fall through to the unpatterned catch-all like board toggles). Scope checks (caller-scoped reads, no leaks).
+- **Tests** (`test_bets_handlers.py` + `test_text_pt.py`): default view, history paging, detail per-game, stale-page clamp, caller-scoping, empty/edge states. Kept existing settled-rendering test.
+- `/ajuda` (§8.2) + COMPLETION.md (§8.2) updated per §11 maintenance rule. No schema/migration; `help_text_test` still passes.
