@@ -433,6 +433,23 @@ async def test_minhas_apostas_shows_started_ungraded_bet_as_pending(
     assert "andamento" in text.lower() or "aguardando" in text.lower()
 
 
+async def test_my_game_detail_ignores_ungraded_bet(app_context: AppContext) -> None:
+    # A stale/crafted mg callback for a fixture with an ungraded bet must NOT
+    # render a false ✗ 0 pts; detail view is strictly a history (settled-only) view.
+    _seed_game(app_context, started=True)  # kicked off, not settled
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Tigrão")
+        BetRepository(session).upsert(
+            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json='{"sel":"HOME"}'
+        )
+        session.commit()  # is_correct / points_awarded / settled_at all None
+    update, query = _cb_update(encode(MyGameDetail(1001, 0)))
+    await on_callback(update, _context(app_context))
+    text = query.edit_message_text.await_args.args[0]
+    assert "não encontrado" in text
+    assert "✗" not in text and "0 pts" not in text
+
+
 # --- /jogos ---------------------------------------------------------------------------------
 
 

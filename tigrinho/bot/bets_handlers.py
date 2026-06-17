@@ -427,7 +427,11 @@ async def _show_game_detail(
 ) -> None:
     with app_context.session_factory() as session:
         game = GameRepository(session).get(fixture_id)
-        bets = BetRepository(session).list_for_player_and_game(telegram_id, fixture_id)
+        bets = [
+            b
+            for b in BetRepository(session).list_for_player_and_game(telegram_id, fixture_id)
+            if b.settled_at is not None
+        ]
         if game is None or not bets:
             await _edit(query, "Palpite não encontrado.", keyboard=my_game_detail_keyboard(page))
             return

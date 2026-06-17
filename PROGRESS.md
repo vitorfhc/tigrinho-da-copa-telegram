@@ -741,7 +741,7 @@ number in the hundreds for a player over a long tournament).
 - **Callbacks** (`bot/callbacks.py`): `MyHistory` (opcode `mh`), `MyGameDetail` (opcode `mg`),
   `MyBetsHome` (opcode `mm`) — stateless; page passed in data, clamped on stale buttons.
 - **Text** (`domain/text_pt.py`): `my_bets_default_text`, `my_history_text`, `my_game_detail_text`
-  (all PURE); `describe_bet` unchanged. `_HISTORY_PAGE_SIZE = 5`.
+  (all PURE); `describe_bet` unchanged. `_HISTORY_PAGE_SIZE = 8`.
 - **Keyboards** (`bot/keyboards.py`): `my_history_keyboard` (paged game list with back), `my_game_detail_keyboard` (back + home). Summary line shows concise `A✓B✗±P` per game; detail breaks down each category.
 - **Handler** (`bot/bets_handlers.py`): `minhas_apostas_handler` updated; `on_callback` dispatches new opcodes (no new handler registration — they fall through to the unpatterned catch-all like board toggles). Scope checks (caller-scoped reads, no leaks).
 - **Tests** (`test_bets_handlers.py` + `test_text_pt.py`): default view, history paging, detail per-game, stale-page clamp, caller-scoping, empty/edge states. Kept existing settled-rendering test.

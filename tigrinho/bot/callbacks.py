@@ -20,7 +20,7 @@ Opcodes:
   ``pjt:<mask>:<index>``              combined board picker: toggle game ``index`` in selection
   ``pjc:<mask>``                      combined board picker: compute the board for ``mask`` (§10)
   ``pv:<fixture>``                    show the AI palpite for a chosen game (§20)
-  ``mh:<page>``                       /minhas_apostas: open/navigate history page
+  ``mh:<page>``                       /minhas_apostas: open/navigate the settled-history page
   ``mg:<fixture>:<page>``             /minhas_apostas: my bets for one game (page=return)
   ``mm``                              /minhas_apostas: back to default listing view
 """
