@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     # AI palpite settings (the feature is gated on ``gemini_api_key`` being present).
     palpite_time: str = "06:00"
     gemini_model: str = "gemini-3.1-pro-preview"
-    poll_interval_minutes: int = Field(default=10, gt=0)
+    poll_interval_seconds: int = Field(default=600, gt=0)
     reminder_lead_minutes: int = Field(default=60, gt=0)
     reminder_interval_minutes: int = Field(default=10, gt=0)
     match_window_hours: int = Field(default=3, gt=0)

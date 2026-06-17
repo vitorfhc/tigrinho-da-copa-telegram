@@ -350,10 +350,10 @@ async def _settle_and_announce(
 
 
 def schedule_poll_job(job_queue: JobQueue[ContextTypes.DEFAULT_TYPE], settings: Settings) -> None:
-    """Schedule live polling every ``poll_interval_minutes`` (§9.2)."""
+    """Schedule live polling every ``poll_interval_seconds`` (§9.2)."""
     job_queue.run_repeating(
         poll_job,
-        interval=settings.poll_interval_minutes * 60,
+        interval=settings.poll_interval_seconds,
         first=10,
         name=POLL_JOB_NAME,
     )

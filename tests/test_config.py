@@ -25,7 +25,7 @@ _FIELD_ENV_NAMES = [
     "WC_SEASON",
     "TIMEZONE",
     "SYNC_TIME",
-    "POLL_INTERVAL_MINUTES",
+    "POLL_INTERVAL_SECONDS",
     "REMINDER_LEAD_MINUTES",
     "REMINDER_INTERVAL_MINUTES",
     "MATCH_WINDOW_HOURS",
@@ -106,7 +106,7 @@ def test_defaults_applied_for_omitted_optionals(
     assert settings.api_daily_cap == 100
     assert settings.wc_season == 2026
     assert settings.wc_league_id == 1
-    assert settings.poll_interval_minutes == 10
+    assert settings.poll_interval_seconds == 600
     assert settings.match_window_hours == 3
     assert settings.api_budget_reset_tz == "UTC"
     assert settings.log_level == "INFO"

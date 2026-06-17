@@ -88,7 +88,7 @@ cp config.example.yaml config.yaml   # fill group_chat_id, admin_user_id, bot_us
   | `sync_time` | no | `06:00` | Daily fixtures sync (local time). |
   | `palpite_time` | no | `06:00` | Daily AI palpite generation (needs `GEMINI_API_KEY`). |
   | `gemini_model` | no | `gemini-3.1-pro-preview` | Gemini model for `/palpite`. |
-  | `poll_interval_minutes` | no | `10` | Live-poll cadence during matches. |
+  | `poll_interval_seconds` | no | `600` | Live-poll cadence during matches (seconds). |
   | `match_window_hours` | no | `3` | How long after kickoff a game stays "active". |
   | `api_daily_cap` | no | `100` | Hard ceiling on provider requests/day. |
   | `api_budget_reset_tz` | no | `UTC` | Timezone whose midnight resets the counter. |

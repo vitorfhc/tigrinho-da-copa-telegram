@@ -207,7 +207,7 @@ startup; the bot MUST refuse to start if any required value is missing or malfor
 | `sync_time` | no | `06:00` | Daily fixtures sync (local time). |
 | `palpite_time` | no | `06:00` | Daily AI palpite generation time, local (§20). |
 | `gemini_model` | no | `gemini-3.1-pro-preview` | Gemini model for `/palpite` (§20). |
-| `poll_interval_minutes` | no | `10` | Live-poll cadence during match windows. |
+| `poll_interval_seconds` | no | `600` | Live-poll cadence during match windows (seconds). |
 | `match_window_hours` | no | `3` | How long after kickoff a game stays "active" for polling before forcing a settle/alert. |
 | `api_daily_cap` | no | `100` | Hard ceiling on provider requests per budget day. |
 | `api_budget_reset_tz` | no | `UTC` | Timezone whose midnight resets the request counter (API-Football resets at 00:00 UTC). |
@@ -228,7 +228,7 @@ timezone: America/Sao_Paulo
 sync_time: "06:00"
 palpite_time: "06:00"
 gemini_model: gemini-3.1-pro-preview
-poll_interval_minutes: 10
+poll_interval_seconds: 600
 match_window_hours: 3
 api_daily_cap: 100
 api_budget_reset_tz: UTC
@@ -575,7 +575,7 @@ Toque em "🎯 Apostar" abaixo para palpitar no privado (fecha no apito inicial)
 
 ### 9.2 Live polling & auto-settlement
 
-A PTB **`JobQueue.run_repeating(interval=poll_interval_minutes*60)`** job:
+A PTB **`JobQueue.run_repeating(interval=poll_interval_seconds)`** job:
 1. Determine **active** games: `kickoff_utc <= now <= kickoff_utc + match_window_hours` and not yet
    settled. If none, **return without any API call**.
 2. Otherwise make **one** `get_live_results()` call; update `status`/live scores.
@@ -609,7 +609,7 @@ each get their own reminder; only same-slot games are combined.
 ### 9.4 Live group notifications — kickoff + goals
 
 The live-poll job (§9.2) also posts two in-match group messages, riding the same
-`poll_interval_minutes` cadence (no separate job, no extra polling beyond the live feed it already
+`poll_interval_seconds` cadence (no separate job, no extra polling beyond the live feed it already
 fetches):
 
 - **Kickoff.** When `get_live_results()` first reports a tracked game `LIVE`, post a "Bola rolando"

@@ -18,7 +18,7 @@ timezone: America/Sao_Paulo            # drives sync time, displayed kickoffs, w
 sync_time: "06:00"                     # daily fixtures sync (local time)
 palpite_time: "06:00"                  # daily AI palpite generation (local; needs GEMINI_API_KEY)
 gemini_model: gemini-3.1-pro-preview   # Gemini model for /palpite
-poll_interval_minutes: 10              # live-poll cadence during match windows
+poll_interval_seconds: 600             # live-poll cadence during match windows (seconds)
 reminder_lead_minutes: 60              # post a betting reminder this long before kickoff
 reminder_interval_minutes: 10          # how often the reminder sweep runs
 match_window_hours: 3                  # how long after kickoff a game stays "active"

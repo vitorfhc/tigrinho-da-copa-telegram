@@ -692,3 +692,16 @@ for a bounded window and re-grades on a changed outcome:
   game (then silent + one admin DM).
 - TDD throughout; design + multi-POV review under `docs/superpowers/specs/2026-06-16-score-reconciliation-design.md`.
   `/ajuda` unchanged (no command/category/scoring/grading change). All four gates green (424 tests).
+
+### 2026-06-17 — Change: live-poll cadence configured in seconds (`poll_interval_seconds`)
+
+User request. The live-poll job's interval is now configured in **seconds** instead of minutes:
+`poll_interval_minutes` → `poll_interval_seconds` (default `600`, i.e. the old `10` min, so behavior
+is unchanged until tuned down per-deploy). `schedule_poll_job` passes
+`interval=settings.poll_interval_seconds` directly (dropped the `* 60`). Updated: `config.py` field,
+`config.example.yaml`, COMPLETION.md (§4.2 table + example `config.yaml` + §9.2/§9.4 job descriptions),
+`README.md`, and `tests/test_config.py` (env-name list + default assertion → 600).
+- ⚠️ **Breaking config-key rename:** existing `config.yaml` files keep `poll_interval_minutes`, which is
+  now silently ignored (`extra="ignore"`) so the 600s default applies. The prod (`bbdo`) `config.yaml`
+  must rename the key (value × 60) on the next deploy, then `scp` it before `docker compose up`.
+- No DB/migration change; `/ajuda` unaffected (not a command/category/scoring/grading change).
