@@ -26,11 +26,14 @@ from tigrinho.bot.alerts import alert_cap_reached, notify_admin
 from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import GameStatus, utcnow
-from tigrinho.db.repositories import GameRepository
+from tigrinho.db.repositories import BetRepository, GameRepository
+from tigrinho.domain.bets import BetCategory, parse_payload
 from tigrinho.domain.live import Side, goal_progression
 from tigrinho.domain.text_pt import (
     CATEGORY_LABELS,
     cancellation_reason_pt,
+    closed_bets_text,
+    describe_bet_value,
     escape,
     goal_cancelled_text,
     goal_text,
@@ -112,11 +115,13 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
     live = await app_context.budget.guarded(app_context.provider.get_live_results)
     live_by_id = {result.fixture_id: result for result in live}
     finished: list[int] = []
-    kickoffs: list[tuple[str, str]] = []
+    # (home, away, reveal_text) — reveal_text is the bet-reveal post (§9.4), or None if nobody bet.
+    kickoffs: list[tuple[str, str, str | None]] = []
     goal_fixtures: list[int] = []
     cancel_fixtures: list[tuple[int, int, int]] = []  # (fixture_id, live_home, live_away)
     with app_context.session_factory() as session:
         games = GameRepository(session)
+        bet_repo = BetRepository(session)
         for fixture_id in in_progress:
             game = games.get(fixture_id)
             result = live_by_id.get(fixture_id)
@@ -131,7 +136,24 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
                 game.status = GameStatus.LIVE
             if game.started_at is None:
                 game.started_at = now  # kickoff detected this cycle
-                kickoffs.append((game.home_team_name, game.away_team_name))
+                # Bets close at kickoff (§8.1), so the reveal lists every bet now placed (§9.4).
+                reveal = closed_bets_text(
+                    home=game.home_team_name,
+                    away=game.away_team_name,
+                    items=[
+                        (
+                            BetCategory(bet.category),
+                            bet.player.display_name,
+                            describe_bet_value(
+                                parse_payload(BetCategory(bet.category), bet.payload_json),
+                                home_team=game.home_team_name,
+                                away_team=game.away_team_name,
+                            ),
+                        )
+                        for bet in bet_repo.list_for_game(fixture_id)
+                    ],
+                )
+                kickoffs.append((game.home_team_name, game.away_team_name, reveal))
             # Goals only after kickoff; same-cycle catch-up is fine (started_at just set above).
             live_home = result.live_home_goals or 0
             live_away = result.live_away_goals or 0
@@ -144,9 +166,11 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
                 cancel_fixtures.append((fixture_id, live_home, live_away))
         session.commit()
 
-    for home, away in kickoffs:
+    for home, away, reveal in kickoffs:
         text = kickoff_text(home, away)
         await _post_to_group(app_context, context, text, what="o início do jogo")
+        if reveal is not None:
+            await _post_to_group(app_context, context, reveal, what="as apostas do jogo")
 
     for fixture_id in goal_fixtures:
         await _announce_goals(app_context, context, fixture_id)

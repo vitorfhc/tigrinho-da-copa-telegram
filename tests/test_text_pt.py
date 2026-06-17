@@ -22,8 +22,10 @@ from tigrinho.domain.text_pt import (
     board_text,
     cancellation_reason_pt,
     category_button_label,
+    closed_bets_text,
     correction_text,
     describe_bet,
+    describe_bet_value,
     format_kickoff_local,
     format_kickoff_short,
     game_board_text,
@@ -80,6 +82,83 @@ def test_describe_bet_all_categories() -> None:
         )
         == "Primeira equipe a marcar: Argentina"
     )
+
+
+def test_describe_bet_value_is_just_the_selection() -> None:
+    # The value-only renderer drops the category prefix that describe_bet adds.
+    assert describe_bet_value(ExactScorePayload(home=2, away=1)) == "2x1"
+    assert (
+        describe_bet_value(
+            WinnerPayload(sel=WinnerSel.HOME), home_team="Brasil", away_team="Argentina"
+        )
+        == "Brasil"
+    )
+    assert describe_bet_value(WinnerPayload(sel=WinnerSel.DRAW)) == "Empate"
+    assert describe_bet_value(BttsPayload(sel=BttsSel.BOTH)) == "Ambas marcam"
+    assert (
+        describe_bet_value(
+            BttsPayload(sel=BttsSel.ONLY_AWAY), home_team="Brasil", away_team="Argentina"
+        )
+        == "Só o Argentina"
+    )
+    assert (
+        describe_bet_value(OverUnderPayload(sel=OverUnderSel.UNDER)) == "Menos de 2.5 (até 2 gols)"
+    )
+    assert (
+        describe_bet_value(
+            FirstTeamPayload(sel=FirstTeamSel.AWAY), home_team="Brasil", away_team="Argentina"
+        )
+        == "Argentina"
+    )
+
+
+def test_describe_bet_value_escapes_team_names() -> None:
+    assert (
+        describe_bet_value(WinnerPayload(sel=WinnerSel.HOME), home_team="A & B", away_team="C")
+        == "A &amp; B"
+    )
+
+
+def test_closed_bets_text_groups_by_category_in_order() -> None:
+    items = [
+        (BetCategory.WINNER, "João", "Brasil"),
+        (BetCategory.EXACT_SCORE, "Felipe", "2x1"),
+        (BetCategory.WINNER, "Felipe", "Brasil"),
+        (BetCategory.EXACT_SCORE, "João", "1x0"),
+    ]
+    text = closed_bets_text(home="Brasil", away="Argentina", items=items)
+    assert text is not None
+    assert "Apostas fechadas" in text
+    assert "Brasil x Argentina" in text
+    # Categories follow CATEGORY_ORDER: Placar exato before Vencedor.
+    assert text.index("Placar exato") < text.index("Vencedor")
+    # Players sorted by name within a category: Felipe before João.
+    exact_block = text[text.index("Placar exato") : text.index("Vencedor")]
+    assert exact_block.index("Felipe") < exact_block.index("João")
+    assert "• Felipe: 2x1" in text
+    assert "• João: 1x0" in text
+
+
+def test_closed_bets_text_omits_empty_categories() -> None:
+    items = [(BetCategory.BTTS, "Ana", "Ambas marcam")]
+    text = closed_bets_text(home="Brasil", away="Argentina", items=items)
+    assert text is not None
+    assert "Placar exato" not in text
+    assert "Vencedor" not in text
+    assert "• Ana: Ambas marcam" in text
+
+
+def test_closed_bets_text_returns_none_when_no_bets() -> None:
+    assert closed_bets_text(home="Brasil", away="Argentina", items=[]) is None
+
+
+def test_closed_bets_text_escapes_player_and_team_names() -> None:
+    items = [(BetCategory.WINNER, "Tig<rão> & cia", "Brasil")]
+    text = closed_bets_text(home="A & B", away="C", items=items)
+    assert text is not None
+    assert "&lt;rão&gt;" in text
+    assert "Tig&lt;rão&gt; &amp; cia" in text
+    assert "A &amp; B x C" in text
 
 
 def test_points_table_reflects_scoring() -> None:

@@ -398,6 +398,35 @@ def mention(telegram_id: int, name: str) -> str:
     return f'<a href="tg://user?id={telegram_id}">{escape(name)}</a>'
 
 
+def describe_bet_value(
+    payload: Payload,
+    *,
+    home_team: str = "Mandante",
+    away_team: str = "Visitante",
+) -> str:
+    """Just the selection of a bet, with no category prefix (HTML-safe; team names escaped).
+
+    e.g. ``2x1`` / ``Brasil`` / ``Ambas marcam``. Used by the kickoff bet reveal (§9.4, grouped
+    by category, so the category is already the header) and reused by :func:`describe_bet`.
+    """
+    if isinstance(payload, ExactScorePayload):
+        return f"{payload.home}x{payload.away}"
+    if isinstance(payload, WinnerPayload):
+        labels = {
+            WinnerSel.HOME: escape(home_team),
+            WinnerSel.DRAW: "Empate",
+            WinnerSel.AWAY: escape(away_team),
+        }
+        return labels[payload.sel]
+    if isinstance(payload, BttsPayload):
+        return btts_labels(escape(home_team), escape(away_team))[payload.sel]
+    if isinstance(payload, OverUnderPayload):
+        return OVER_UNDER_LABELS[payload.sel]
+    if isinstance(payload, FirstTeamPayload):
+        return escape(home_team) if payload.sel is FirstTeamSel.HOME else escape(away_team)
+    assert_never(payload)  # pragma: no cover
+
+
 def describe_bet(
     payload: Payload,
     *,
@@ -405,24 +434,53 @@ def describe_bet(
     away_team: str = "Visitante",
 ) -> str:
     """Human-readable pt-BR description of a bet (for /minhas_apostas and confirmations)."""
+    value = describe_bet_value(payload, home_team=home_team, away_team=away_team)
     if isinstance(payload, ExactScorePayload):
-        return f"Placar exato: {payload.home}x{payload.away}"
-    if isinstance(payload, WinnerPayload):
-        labels = {
-            WinnerSel.HOME: escape(home_team),
-            WinnerSel.DRAW: "Empate",
-            WinnerSel.AWAY: escape(away_team),
-        }
-        return f"Vencedor: {labels[payload.sel]}"
-    if isinstance(payload, BttsPayload):
-        label = btts_labels(escape(home_team), escape(away_team))[payload.sel]
-        return f"Ambas marcam: {label}"
-    if isinstance(payload, OverUnderPayload):
-        return f"Gols: {OVER_UNDER_LABELS[payload.sel]}"
-    if isinstance(payload, FirstTeamPayload):
-        team = escape(home_team) if payload.sel is FirstTeamSel.HOME else escape(away_team)
-        return f"Primeira equipe a marcar: {team}"
-    assert_never(payload)  # pragma: no cover
+        prefix = "Placar exato"
+    elif isinstance(payload, WinnerPayload):
+        prefix = "Vencedor"
+    elif isinstance(payload, BttsPayload):
+        prefix = "Ambas marcam"
+    elif isinstance(payload, OverUnderPayload):
+        prefix = "Gols"
+    else:  # FirstTeamPayload
+        prefix = "Primeira equipe a marcar"
+    return f"{prefix}: {value}"
+
+
+def closed_bets_text(
+    *,
+    home: str,
+    away: str,
+    items: Sequence[tuple[BetCategory, str, str]],
+) -> str | None:
+    """Kickoff bet reveal, grouped by category (§9.4) — bets are secret only until kickoff.
+
+    ``items``: ``(category, player_name, value)`` where ``value`` is the already-HTML-safe
+    selection string from :func:`describe_bet_value`; player names are escaped here. Categories
+    appear in :data:`CATEGORY_ORDER`, only those with at least one bet; players are sorted by name
+    within each. Names are plain text, **not** @-mentions — a player repeats across up to five
+    categories, so mentions would spam pings. Returns ``None`` when nobody bet (the reveal is then
+    skipped — there is nothing to expose).
+    """
+    if not items:
+        return None
+    by_category: dict[BetCategory, list[tuple[str, str]]] = {}
+    for category, name, value in items:
+        by_category.setdefault(category, []).append((name, value))
+    lines = [
+        "🔒 <b>Apostas fechadas!</b> Confira os palpites:",
+        f"⚽ {escape(home)} x {escape(away)}",
+    ]
+    for category in CATEGORY_ORDER:
+        bettors = by_category.get(category)
+        if not bettors:
+            continue
+        lines.append("")
+        lines.append(f"<b>{CATEGORY_LABELS[category]}</b>")
+        for name, value in sorted(bettors, key=lambda nv: nv[0].casefold()):
+            lines.append(f"  • {escape(name)}: {value}")
+    return "\n".join(lines)
 
 
 def points_table_text() -> str:
@@ -461,7 +519,7 @@ def help_text() -> str:
         "Bolão de palpites da <b>Copa do Mundo 2026</b>, sem dinheiro, entre amigos do grupo. "
         "O bot anuncia os jogos no <b>grupo</b>; você <b>aposta no privado</b> com o bot "
         "(toque em <b>🎯 Apostar</b> no anúncio, ou mande /apostar aqui). Os palpites ficam "
-        "secretos até o apito inicial.\n\n"
+        "secretos até o apito inicial — quando a bola rola, o grupo vê os palpites de todos.\n\n"
         "<b>Comandos</b>\n"
         "• /apostar — abrir o assistente de palpites (no privado)\n"
         "• /minhas_apostas — ver e apagar seus palpites (no privado)\n"

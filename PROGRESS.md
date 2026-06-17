@@ -705,3 +705,21 @@ is unchanged until tuned down per-deploy). `schedule_poll_job` passes
   now silently ignored (`extra="ignore"`) so the 600s default applies. The prod (`bbdo`) `config.yaml`
   must rename the key (value × 60) on the next deploy, then `scp` it before `docker compose up`.
 - No DB/migration change; `/ajuda` unaffected (not a command/category/scoring/grading change).
+
+### 2026-06-17 — Feature: reveal everyone's bets at kickoff (§9.4)
+
+User request, built test-first in an isolated worktree. Bets are secret until kickoff (§2) and close
+at the first whistle (§8.1), so the moment the live feed first reports a game `LIVE`, the poll job now
+posts a second group message — **"🔒 Apostas fechadas!"** — right after the "Bola rolando" kickoff
+post, exposing every bet placed on that game.
+- Layout **grouped by category** (`CATEGORY_ORDER`, only categories with ≥1 bet), one `• <jogador>:
+  <palpite>` line per bettor, players sorted by name. Names are plain text, not @-mentions (a player
+  repeats across up to 5 categories → mentions would spam pings). Nobody bet → reveal skipped.
+- New pure builders in `domain/text_pt.py`: `describe_bet_value` (selection only, no category prefix;
+  `describe_bet` refactored to reuse it — output byte-identical) and `closed_bets_text` (returns
+  `None` when empty). `poll_job` assembles `(category, player_name, value)` from
+  `BetRepository.list_for_game()` inside the kickoff-detection session and posts via the existing
+  best-effort `_post_to_group`. Dedup'd by `started_at` (posted only the cycle kickoff is detected).
+- Tests: `test_text_pt` (grouping/ordering/escaping/None-when-empty + `describe_bet` regression),
+  `test_poll_job` (kickoff with bets reveals them; no bets posts only the kickoff). `/ajuda` secrecy
+  line + COMPLETION.md §9.4 updated (§11). No DB/migration change.

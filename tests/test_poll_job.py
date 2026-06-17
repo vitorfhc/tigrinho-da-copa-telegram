@@ -350,6 +350,67 @@ async def test_kickoff_not_announced_when_first_seen_finished(
         assert game is not None and game.started_at is None
 
 
+async def test_kickoff_reveals_everyones_bets(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=False, goals_announced=0)  # SCHEDULED, not started
+    with session_factory() as session:
+        players = PlayerRepository(session)
+        bets = BetRepository(session)
+        players.get_or_create(42, "Felipe")
+        players.get_or_create(7, "Ana")
+        bets.upsert(
+            fixture_id=1001,
+            player_telegram_id=42,
+            category="EXACT_SCORE",
+            payload_json='{"home":2,"away":1}',
+        )
+        bets.upsert(
+            fixture_id=1001, player_telegram_id=42, category="WINNER", payload_json='{"sel":"HOME"}'
+        )
+        bets.upsert(
+            fixture_id=1001, player_telegram_id=7, category="WINNER", payload_json='{"sel":"AWAY"}'
+        )
+        session.commit()
+
+    provider = FakeProvider(results=[_live_result(home=0, away=0)])
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    texts = _sent_texts(bot)
+    kickoff = next(t for t in texts if "Bola rolando" in t)
+    reveal = next(t for t in texts if "Apostas fechadas" in t)
+    # The reveal rides right after the kickoff post, to the group.
+    assert texts.index(kickoff) < texts.index(reveal)
+    assert all(
+        call.kwargs["chat_id"] == settings.group_chat_id
+        for call in bot.send_message.await_args_list
+    )
+    # Grouped by category, with each bettor's selection.
+    assert "Placar exato" in reveal
+    assert "Vencedor" in reveal
+    assert "Felipe: 2x1" in reveal
+    assert "Felipe: Brasil" in reveal  # WINNER HOME -> home team name
+    assert "Ana: Argentina" in reveal  # WINNER AWAY -> away team name
+
+
+async def test_kickoff_with_no_bets_posts_only_kickoff(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_live_game(session_factory, started=False, goals_announced=0)  # SCHEDULED, no bets
+    provider = FakeProvider(results=[_live_result(home=0, away=0)])
+    app_context = _app_context(settings, session_factory, provider)
+    context, bot = _context(app_context)
+
+    await poll_job(context)
+
+    texts = _sent_texts(bot)
+    assert any("Bola rolando" in t for t in texts)
+    assert not any("Apostas fechadas" in t for t in texts)
+
+
 async def test_goal_announced_on_score_increase(
     settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:

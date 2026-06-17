@@ -615,6 +615,15 @@ fetches):
 - **Kickoff.** When `get_live_results()` first reports a tracked game `LIVE`, post a "Bola rolando"
   message and set `games.started_at` (dedups across polls + restarts). Skipped for a game first seen
   already `FINISHED` (e.g. downtime through the match); the settlement results post (§9.2) covers it.
+- **Bet reveal.** Bets close at kickoff (§8.1) and are secret until then (§2), so immediately after
+  the "Bola rolando" post the bot posts a second **"🔒 Apostas fechadas!"** message exposing every
+  bet placed on that game, **grouped by category** (`CATEGORY_ORDER`; only categories with at least
+  one bet), each line `• <jogador>: <palpite>` with players sorted by name. Player names are plain
+  text (not @-mentions) — a player repeats across up to five categories, so mentions would spam
+  pings. If nobody bet, the reveal is skipped (only the kickoff post is sent). Built from
+  `BetRepository.list_for_game()` + `describe_bet_value()` (`text_pt.closed_bets_text`); best-effort
+  send like the other live posts. This is dedup'd by `games.started_at` (posted only the cycle the
+  kickoff is first detected, never re-posted).
 - **Goals.** The live feed carries the running score (`MatchResult.live_home_goals` /
   `live_away_goals` from `goals.{home,away}`). When a *started* game's running total exceeds
   `games.goals_announced`, one budgeted `get_goal_events(fixture_id)` call fetches the **uncapped**
