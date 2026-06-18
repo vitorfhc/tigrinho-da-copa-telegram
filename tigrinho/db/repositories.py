@@ -15,7 +15,18 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import AiPalpite, ApiUsage, Bet, Game, GameStatus, Player
+from tigrinho.db.models import (
+    AiPalpite,
+    ApiUsage,
+    Bet,
+    Game,
+    GameStatus,
+    Player,
+    Tournament,
+    TournamentEntry,
+    TournamentGame,
+    TournamentStatus,
+)
 
 
 class PlayerRepository:
@@ -438,3 +449,215 @@ class PalpiteRepository:
     def existing_fixture_ids(self, fixture_ids: Sequence[int], palpite_date: date) -> set[int]:
         """Which of ``fixture_ids`` already have a palpite cached for ``palpite_date``."""
         return {p.fixture_id for p in self.list_for_date(fixture_ids, palpite_date)}
+
+
+class TournamentRepository:
+    """Bolãozinhos: tournaments, their member games (M:N), and player entries (Feature 7 / §22)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    # --- tournaments -----------------------------------------------------------------------
+    def create(self, *, name: str, entry_price_cents: int, created_by: int) -> Tournament:
+        tournament = Tournament(
+            name=name,
+            entry_price_cents=entry_price_cents,
+            status=TournamentStatus.DRAFT,
+            created_by=created_by,
+        )
+        self._session.add(tournament)
+        self._session.flush()
+        return tournament
+
+    def get(self, tournament_id: int) -> Tournament | None:
+        return self._session.get(Tournament, tournament_id)
+
+    def list_all(self) -> list[Tournament]:
+        stmt = select(Tournament).order_by(Tournament.id.desc())
+        return list(self._session.execute(stmt).scalars())
+
+    def list_by_status(self, *statuses: TournamentStatus) -> list[Tournament]:
+        stmt = (
+            select(Tournament).where(Tournament.status.in_(statuses)).order_by(Tournament.id.desc())
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def delete(self, tournament_id: int) -> bool:
+        tournament = self._session.get(Tournament, tournament_id)
+        if tournament is None:
+            return False
+        self._session.delete(tournament)
+        self._session.flush()
+        return True
+
+    # --- member games ----------------------------------------------------------------------
+    def add_game(self, tournament_id: int, fixture_id: int) -> None:
+        """Idempotently add a fixture to a tournament's slate."""
+        existing = self._session.get(TournamentGame, (tournament_id, fixture_id))
+        if existing is None:
+            self._session.add(TournamentGame(tournament_id=tournament_id, fixture_id=fixture_id))
+            self._session.flush()
+
+    def remove_game(self, tournament_id: int, fixture_id: int) -> bool:
+        row = self._session.get(TournamentGame, (tournament_id, fixture_id))
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.flush()
+        return True
+
+    def list_game_ids(self, tournament_id: int) -> list[int]:
+        stmt = select(TournamentGame.fixture_id).where(
+            TournamentGame.tournament_id == tournament_id
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def list_games(self, tournament_id: int) -> list[Game]:
+        """Member games, ordered by kickoff (soonest first)."""
+        stmt = (
+            select(Game)
+            .join(TournamentGame, TournamentGame.fixture_id == Game.fixture_id)
+            .where(TournamentGame.tournament_id == tournament_id)
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def tournaments_for_game(self, fixture_id: int) -> list[Tournament]:
+        stmt = (
+            select(Tournament)
+            .join(TournamentGame, TournamentGame.tournament_id == Tournament.id)
+            .where(TournamentGame.fixture_id == fixture_id)
+            .order_by(Tournament.id)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def earliest_kickoff(self, tournament_id: int) -> datetime | None:
+        stmt = (
+            select(func.min(Game.kickoff_utc))
+            .join(TournamentGame, TournamentGame.fixture_id == Game.fixture_id)
+            .where(TournamentGame.tournament_id == tournament_id)
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
+    def all_games_resolved(self, tournament_id: int) -> bool:
+        """True iff the tournament has ≥1 game and every member game is FINISHED or VOID."""
+        game_ids = self.list_game_ids(tournament_id)
+        if not game_ids:
+            return False
+        stmt = (
+            select(func.count())
+            .select_from(Game)
+            .where(
+                Game.fixture_id.in_(game_ids),
+                Game.status.notin_((GameStatus.FINISHED, GameStatus.VOID)),
+            )
+        )
+        unresolved = self._session.execute(stmt).scalar_one()
+        return unresolved == 0
+
+    def has_only_void_games(self, tournament_id: int) -> bool:
+        """True iff the tournament has ≥1 game and *all* member games are VOID (none scorable)."""
+        game_ids = self.list_game_ids(tournament_id)
+        if not game_ids:
+            return False
+        stmt = (
+            select(func.count())
+            .select_from(Game)
+            .where(Game.fixture_id.in_(game_ids), Game.status != GameStatus.VOID)
+        )
+        non_void = self._session.execute(stmt).scalar_one()
+        return non_void == 0
+
+    def reconcilable_member_games(self) -> list[Game]:
+        """Settled member games of still-active (DRAFT/OPEN) tournaments — the F8 reconcile widen.
+
+        These stay re-checkable for the whole bolãozinho lifetime (not just the per-game window),
+        so a late re-grade to an early game still reaches an unfinished bolãozinho.
+        """
+        stmt = (
+            select(Game)
+            .distinct()
+            .join(TournamentGame, TournamentGame.fixture_id == Game.fixture_id)
+            .join(Tournament, Tournament.id == TournamentGame.tournament_id)
+            .where(
+                Tournament.status.in_((TournamentStatus.DRAFT, TournamentStatus.OPEN)),
+                Game.status == GameStatus.FINISHED,
+                Game.settled_at.is_not(None),
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    # --- entries ---------------------------------------------------------------------------
+    def add_entry(self, tournament_id: int, player_telegram_id: int) -> bool:
+        """Enter a player; returns False if they had already entered."""
+        if self.is_entered(tournament_id, player_telegram_id):
+            return False
+        self._session.add(
+            TournamentEntry(tournament_id=tournament_id, player_telegram_id=player_telegram_id)
+        )
+        self._session.flush()
+        return True
+
+    def remove_entry(self, tournament_id: int, player_telegram_id: int) -> bool:
+        stmt = select(TournamentEntry).where(
+            TournamentEntry.tournament_id == tournament_id,
+            TournamentEntry.player_telegram_id == player_telegram_id,
+        )
+        entry = self._session.execute(stmt).scalar_one_or_none()
+        if entry is None:
+            return False
+        self._session.delete(entry)
+        self._session.flush()
+        return True
+
+    def is_entered(self, tournament_id: int, player_telegram_id: int) -> bool:
+        stmt = select(TournamentEntry.id).where(
+            TournamentEntry.tournament_id == tournament_id,
+            TournamentEntry.player_telegram_id == player_telegram_id,
+        )
+        return self._session.execute(stmt).first() is not None
+
+    def entry_ids(self, tournament_id: int) -> list[int]:
+        stmt = (
+            select(TournamentEntry.player_telegram_id)
+            .where(TournamentEntry.tournament_id == tournament_id)
+            .order_by(TournamentEntry.id)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def count_entries(self, tournament_id: int) -> int:
+        stmt = select(func.count(TournamentEntry.id)).where(
+            TournamentEntry.tournament_id == tournament_id
+        )
+        return self._session.execute(stmt).scalar_one()
+
+    # --- standings -------------------------------------------------------------------------
+    def standings(self, tournament_id: int) -> dict[int, int]:
+        """Entrant → total points over the tournament's graded, non-void member-game bets.
+
+        Only entrants are scored; an entrant with no qualifying bets scores 0; a non-entrant who
+        bet on a member game is excluded (Feature 7 / §22).
+        """
+        entrant_ids = self.entry_ids(tournament_id)
+        if not entrant_ids:
+            return {}
+        result: dict[int, int] = dict.fromkeys(entrant_ids, 0)
+        stmt = (
+            select(
+                Bet.player_telegram_id,
+                func.coalesce(func.sum(Bet.points_awarded), 0),
+            )
+            .join(Game, Game.fixture_id == Bet.fixture_id)
+            .join(TournamentGame, TournamentGame.fixture_id == Bet.fixture_id)
+            .where(
+                TournamentGame.tournament_id == tournament_id,
+                Bet.player_telegram_id.in_(entrant_ids),
+                Bet.settled_at.is_not(None),
+                Game.status != GameStatus.VOID,
+            )
+            .group_by(Bet.player_telegram_id)
+        )
+        for telegram_id, points in self._session.execute(stmt).all():
+            result[telegram_id] = points
+        return result
