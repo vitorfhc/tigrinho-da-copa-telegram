@@ -28,6 +28,7 @@ from tigrinho.domain.text_pt import (
     describe_bet_value,
     format_kickoff_local,
     format_kickoff_short,
+    format_money_cents,
     game_board_text,
     games_board_text,
     goal_cancelled_text,
@@ -666,3 +667,11 @@ def test_my_game_detail_text() -> None:
     assert "• Placar exato: 2x1 — ✓ 5 pts" in text
     assert "• Ambas marcam: Não — ✗ 0 pts" in text
     assert "Total: +5 pts" in text
+
+
+def test_format_money_cents_pt_br() -> None:
+    assert format_money_cents(9000, currency="R$") == "R$ 90,00"
+    assert format_money_cents(99, currency="R$") == "R$ 0,99"
+    assert format_money_cents(1285, currency="US$") == "US$ 12,85"
+    assert format_money_cents(0, currency="R$") == "R$ 0,00"
+    assert format_money_cents(9000, currency="R$", decimals=0) == "R$ 9000"

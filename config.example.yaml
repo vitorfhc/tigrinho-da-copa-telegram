@@ -28,6 +28,11 @@ reconcile_window_hours: 6              # how long after kickoff a settled game s
 reconcile_first_delay_minutes: 5      # first re-check this long after settlement (also job tick)
 reconcile_interval_minutes: 30        # re-check cadence after the first check
 reconcile_budget_reserve: 25          # skip reconcile when fewer than this many requests remain
+# Bolãozinhos (Feature 7 / §22): real-money side-competitions over a set of games.
+tournament_currency: "R$"             # currency symbol for entry prices/pots/prizes (display only)
+tournament_currency_decimals: 2       # decimal places when rendering money (e.g. R$ 10,00)
+reminder_max_mentions: 20             # cap entrant @-mentions per reminder before "… +N"
+bolaozinho_sweep_interval_minutes: 10 # how often the lock/stuck/rescue sweep runs
 api_daily_cap: 100                     # hard ceiling on provider requests per budget day
 api_budget_reset_tz: UTC               # timezone whose midnight resets the request counter
 db_path: /data/tigrinho.db             # SQLite file path (mounted volume)

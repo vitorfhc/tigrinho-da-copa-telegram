@@ -75,6 +75,15 @@ def escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
+def format_money_cents(cents: int, *, currency: str, decimals: int = 2) -> str:
+    """Render integer cents as pt-BR money, e.g. ``R$ 90,00`` (comma decimal; no float math)."""
+    if decimals <= 0:
+        return f"{currency} {cents}"
+    scale = 10**decimals
+    whole, frac = divmod(cents, scale)
+    return f"{currency} {whole},{frac:0{decimals}d}"
+
+
 def format_kickoff_local(kickoff_local: datetime) -> str:
     """Format a local-time kickoff in pt-BR, e.g. ``Sáb 16/06 16:00``."""
     weekday = _WEEKDAYS_PT[kickoff_local.weekday()]

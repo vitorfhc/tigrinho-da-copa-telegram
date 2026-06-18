@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     reconcile_first_delay_minutes: int = Field(default=5, gt=0)
     reconcile_interval_minutes: int = Field(default=30, gt=0)
     reconcile_budget_reserve: int = Field(default=25, gt=0)
+    # Bolãozinhos (Feature 7 / §22): global currency for entry prices/pots/prizes (display only;
+    # money is stored as integer cents), how many entrant @-mentions a reminder may list before
+    # collapsing to "… +N", and how often the lock/stuck/rescue sweep runs.
+    tournament_currency: str = "R$"
+    tournament_currency_decimals: int = Field(default=2, ge=0)
+    reminder_max_mentions: int = Field(default=20, gt=0)
+    bolaozinho_sweep_interval_minutes: int = Field(default=10, gt=0)
     api_daily_cap: int = Field(default=100, gt=0)
     api_budget_reset_tz: str = "UTC"
     db_path: str = "/data/tigrinho.db"

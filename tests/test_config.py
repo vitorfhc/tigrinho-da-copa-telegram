@@ -200,6 +200,21 @@ def test_reconcile_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert settings.reconcile_budget_reserve == 25
 
 
+def test_tournament_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.tournament_currency == "R$"
+    assert settings.tournament_currency_decimals == 2
+    assert settings.reminder_max_mentions == 20
+    assert settings.bolaozinho_sweep_interval_minutes == 10
+
+
+def test_reminder_max_mentions_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, env={"REMINDER_MAX_MENTIONS": "0"})
+
+
 def test_reconcile_window_must_be_positive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         _build(monkeypatch, tmp_path, env={"RECONCILE_WINDOW_HOURS": "0"})
