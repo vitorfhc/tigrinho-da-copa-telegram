@@ -14,9 +14,9 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import GameStatus, Tournament, TournamentStatus
+from tigrinho.db.models import GameStatus, Tournament, TournamentStatus, utcnow
 from tigrinho.db.repositories import GameRepository, PlayerRepository, TournamentRepository
-from tigrinho.domain.tournament import pot_cents, prize_cents
+from tigrinho.domain.tournament import TournamentOutcome, compute_outcome, pot_cents, prize_cents
 
 
 class TournamentError(Exception):
@@ -158,3 +158,119 @@ def join(
         n_entrants=n,
         game_ids=tuple(repo.list_game_ids(tournament.id)),
     )
+
+
+# --- resolution, outcome & announcements (§7) ----------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class WinnerLine:
+    """One winner in a result announcement."""
+
+    telegram_id: int
+    display_name: str
+    score: int
+
+
+@dataclass(frozen=True, slots=True)
+class TournamentWinnerAnnouncement:
+    """A bolãozinho concluded with a winner (or tied winners)."""
+
+    tournament_id: int
+    name: str
+    n_entrants: int
+    pot_cents: int
+    prize_cents: int
+    winners: tuple[WinnerLine, ...]
+    per_winner_cents: int
+    remainder_cents: int
+    is_correction: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TournamentNoResultAnnouncement:
+    """A bolãozinho ended with no scorable result (all games void, or no entrants)."""
+
+    tournament_id: int
+    name: str
+
+
+TournamentAnnouncement = TournamentWinnerAnnouncement | TournamentNoResultAnnouncement
+
+_NO_RESULT_SIGNATURE = "NORESULT"
+
+
+def signature_of(outcome: TournamentOutcome) -> str:
+    """A stable hash of the announced outcome (winners + payout + score), to detect re-grades."""
+    ids = ",".join(str(i) for i in outcome.winner_ids)
+    return f"W:{ids}|{outcome.per_winner_cents}|{outcome.remainder_cents}|{outcome.winning_score}"
+
+
+def on_game_resolved(session: Session, fixture_id: int) -> list[TournamentAnnouncement]:
+    """Re-evaluate every bolãozinho containing ``fixture_id`` after any game state change (§7).
+
+    Fired from settle, void, and un-void/reschedule paths plus the sweep. Announces a winner (or a
+    no-result) the first time all member games are resolved, corrects an already-announced result
+    when a re-grade flips it (F8), and revives an auto-cancelled (all-void) bolãozinho whose games
+    later come back to life (F5). Idempotent — a recomputed signature equal to the stored one is a
+    no-op. Manually cancelled bolãozinhos (no stored signature) are left untouched.
+    """
+    repo = TournamentRepository(session)
+    players = PlayerRepository(session)
+    announcements: list[TournamentAnnouncement] = []
+
+    for tournament in repo.tournaments_for_game(fixture_id):
+        # A creator/admin cancellation has no stored signature — never revive or announce it.
+        if tournament.status is TournamentStatus.CANCELLED and tournament.result_signature is None:
+            continue
+        if not repo.all_games_resolved(tournament.id):
+            continue
+
+        no_result = repo.count_entries(tournament.id) == 0 or repo.has_only_void_games(
+            tournament.id
+        )
+        if no_result:
+            if tournament.result_signature == _NO_RESULT_SIGNATURE:
+                continue  # already announced as no-result
+            tournament.status = TournamentStatus.CANCELLED
+            tournament.result_announced_at = utcnow()
+            tournament.result_signature = _NO_RESULT_SIGNATURE
+            session.flush()
+            announcements.append(TournamentNoResultAnnouncement(tournament.id, tournament.name))
+            continue
+
+        outcome = compute_outcome(repo.standings(tournament.id), tournament.entry_price_cents)
+        signature = signature_of(outcome)
+        already_announced = tournament.result_announced_at is not None
+        if already_announced and tournament.result_signature == signature:
+            continue  # nothing moved — idempotent
+
+        is_correction = already_announced
+        tournament.status = TournamentStatus.FINISHED
+        tournament.result_announced_at = utcnow()
+        tournament.result_signature = signature
+        if is_correction:
+            tournament.correction_count += 1
+        session.flush()
+
+        winners = tuple(
+            WinnerLine(
+                telegram_id=tid,
+                display_name=(p.display_name if (p := players.get(tid)) is not None else str(tid)),
+                score=outcome.winning_score,
+            )
+            for tid in outcome.winner_ids
+        )
+        announcements.append(
+            TournamentWinnerAnnouncement(
+                tournament_id=tournament.id,
+                name=tournament.name,
+                n_entrants=repo.count_entries(tournament.id),
+                pot_cents=outcome.pot_cents,
+                prize_cents=outcome.prize_cents,
+                winners=winners,
+                per_winner_cents=outcome.per_winner_cents,
+                remainder_cents=outcome.remainder_cents,
+                is_correction=is_correction,
+            )
+        )
+
+    return announcements

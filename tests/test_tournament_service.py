@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from tigrinho import tournament_service as svc
 from tigrinho.db.models import Game, GameStatus, Stage, Tournament, TournamentStatus
-from tigrinho.db.repositories import TournamentRepository
+from tigrinho.db.repositories import BetRepository, PlayerRepository, TournamentRepository
 
 _NOW = datetime(2026, 6, 16, 12, 0)
 
@@ -138,3 +138,159 @@ def test_cancel_only_from_active(session: Session) -> None:
     assert t.status is TournamentStatus.CANCELLED
     with pytest.raises(svc.TournamentError):
         svc.cancel_tournament(session, t)  # already terminal
+
+
+# --- resolution / announcements (§7) ---------------------------------------------------------
+
+
+def _finish_game(session: Session, fixture_id: int) -> None:
+    game = session.get(Game, fixture_id)
+    assert game is not None
+    game.status = GameStatus.FINISHED
+    game.settled_at = datetime(2026, 6, 16, 21, 0)
+    session.flush()
+
+
+def _void_game(session: Session, fixture_id: int) -> None:
+    game = session.get(Game, fixture_id)
+    assert game is not None
+    game.status = GameStatus.VOID
+    session.flush()
+
+
+def _graded_bet(session: Session, *, fixture_id: int, player: int, points: int) -> None:
+    bet = BetRepository(session).upsert(
+        fixture_id=fixture_id, player_telegram_id=player, category="WINNER", payload_json="{}"
+    )
+    bet.is_correct = points > 0
+    bet.points_awarded = points
+    bet.settled_at = datetime(2026, 6, 16, 21, 0)
+    session.flush()
+
+
+def _running_tournament(session: Session, *, fixtures: list[int]) -> Tournament:
+    for fid in fixtures:
+        _game(session, fid)
+    t = _draft(session)
+    for fid in fixtures:
+        svc.add_game(session, t, fid, now=_NOW)
+    svc.open_tournament(session, t, now=_NOW)
+    return t
+
+
+def test_on_game_resolved_announces_single_winner_idempotently(session: Session) -> None:
+    PlayerRepository(session).get_or_create(100, "Ana")
+    PlayerRepository(session).get_or_create(200, "Bruno")
+    t = _running_tournament(session, fixtures=[1, 2])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    svc.join(session, t, telegram_id=200, display_name="Bruno", now=_NOW)
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    _graded_bet(session, fixture_id=2, player=100, points=2)
+    _graded_bet(session, fixture_id=1, player=200, points=2)
+    _finish_game(session, 1)
+
+    # Only game 1 done -> not all resolved -> nothing.
+    assert svc.on_game_resolved(session, 1) == []
+    _finish_game(session, 2)
+    anns = svc.on_game_resolved(session, 2)
+    assert len(anns) == 1
+    ann = anns[0]
+    assert isinstance(ann, svc.TournamentWinnerAnnouncement)
+    assert ann.is_correction is False
+    assert ann.n_entrants == 2
+    assert ann.pot_cents == 2000
+    assert ann.prize_cents == 1000
+    assert [w.telegram_id for w in ann.winners] == [100]
+    assert ann.winners[0].score == 7
+    assert ann.per_winner_cents == 1000
+    assert t.status is TournamentStatus.FINISHED
+    # Re-running is a no-op (idempotent).
+    assert svc.on_game_resolved(session, 2) == []
+
+
+def test_on_game_resolved_last_game_void_still_finishes(session: Session) -> None:
+    """F4: the last unresolved game becomes VOID (in sync, not settlement) — must still finish."""
+    PlayerRepository(session).get_or_create(100, "Ana")
+    t = _running_tournament(session, fixtures=[1, 2])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    _finish_game(session, 1)
+    assert svc.on_game_resolved(session, 1) == []  # game 2 still scheduled
+    _void_game(session, 2)
+    anns = svc.on_game_resolved(session, 2)
+    assert len(anns) == 1
+    assert isinstance(anns[0], svc.TournamentWinnerAnnouncement)
+    assert t.status is TournamentStatus.FINISHED
+
+
+def test_on_game_resolved_zero_entrants_cancels(session: Session) -> None:
+    t = _running_tournament(session, fixtures=[1])
+    _finish_game(session, 1)
+    anns = svc.on_game_resolved(session, 1)
+    assert len(anns) == 1
+    assert isinstance(anns[0], svc.TournamentNoResultAnnouncement)
+    assert t.status is TournamentStatus.CANCELLED
+
+
+def test_on_game_resolved_all_void_cancels(session: Session) -> None:
+    PlayerRepository(session).get_or_create(100, "Ana")
+    t = _running_tournament(session, fixtures=[1])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    _void_game(session, 1)
+    anns = svc.on_game_resolved(session, 1)
+    assert len(anns) == 1
+    assert isinstance(anns[0], svc.TournamentNoResultAnnouncement)
+    assert t.status is TournamentStatus.CANCELLED
+
+
+def test_on_game_resolved_regrade_flips_winner_posts_correction(session: Session) -> None:
+    PlayerRepository(session).get_or_create(100, "Ana")
+    PlayerRepository(session).get_or_create(200, "Bruno")
+    t = _running_tournament(session, fixtures=[1])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    svc.join(session, t, telegram_id=200, display_name="Bruno", now=_NOW)
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    _graded_bet(session, fixture_id=1, player=200, points=2)
+    _finish_game(session, 1)
+    first = svc.on_game_resolved(session, 1)
+    assert [w.telegram_id for w in first[0].winners] == [100]  # type: ignore[union-attr]
+    # A late re-grade flips the standings: Bruno now leads.
+    _graded_bet(session, fixture_id=1, player=100, points=1)
+    _graded_bet(session, fixture_id=1, player=200, points=5)
+    anns = svc.on_game_resolved(session, 1)
+    assert len(anns) == 1
+    ann = anns[0]
+    assert isinstance(ann, svc.TournamentWinnerAnnouncement)
+    assert ann.is_correction is True
+    assert [w.telegram_id for w in ann.winners] == [200]
+    assert t.correction_count == 1
+
+
+def test_on_game_resolved_revives_cancelled_after_unvoid(session: Session) -> None:
+    """F5: an all-void CANCELLED bolãozinho whose game later plays must revive and announce."""
+    PlayerRepository(session).get_or_create(100, "Ana")
+    t = _running_tournament(session, fixtures=[1])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    _void_game(session, 1)
+    assert isinstance(svc.on_game_resolved(session, 1)[0], svc.TournamentNoResultAnnouncement)
+    assert TournamentRepository(session).get(t.id).status is TournamentStatus.CANCELLED  # type: ignore[union-attr]
+    # The game is rescheduled, played, settled.
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    _finish_game(session, 1)
+    anns = svc.on_game_resolved(session, 1)
+    assert len(anns) == 1
+    ann = anns[0]
+    assert isinstance(ann, svc.TournamentWinnerAnnouncement)
+    assert ann.is_correction is True
+    assert TournamentRepository(session).get(t.id).status is TournamentStatus.FINISHED  # type: ignore[union-attr]
+
+
+def test_on_game_resolved_skips_manually_cancelled(session: Session) -> None:
+    PlayerRepository(session).get_or_create(100, "Ana")
+    t = _running_tournament(session, fixtures=[1])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    svc.cancel_tournament(session, t)  # manual cancel (no stored signature)
+    _finish_game(session, 1)
+    assert svc.on_game_resolved(session, 1) == []
+    assert t.status is TournamentStatus.CANCELLED
