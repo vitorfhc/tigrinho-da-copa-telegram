@@ -610,6 +610,7 @@ def help_text() -> str:
         "• /bolaozinho_participantes — ver quem entrou num bolãozinho\n"
         "• /entrar — entrar num bolãozinho\n"
         "• /bolaozinho_criar — criar um bolãozinho (<code>Nome | preço</code>)\n"
+        "• /bolaozinho_cancelar — cancelar um bolãozinho (<code>id [motivo]</code>)\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
@@ -632,9 +633,11 @@ def help_text() -> str:
         "<b>entrada</b> (ex.: R$ 10). Qualquer um cria com "
         "<code>/bolaozinho_criar Nome | preço</code> e adiciona jogos que ainda não começaram. "
         "Quem criou (ou o admin) gerencia o bolãozinho.\n"
-        "• Use <b>/entrar</b> para participar — eu te mando os jogos no <b>privado</b> pra "
-        "palpitar. As entradas <b>fecham quando o primeiro jogo começa</b>, e os palpites valem os "
-        "mesmos pontos de sempre.\n"
+        "• Use <b>/entrar</b> (ou o botão <b>🏆 Entrar</b> no anúncio) pra participar — eu mando "
+        "os jogos no <b>privado</b> pra palpitar. As entradas <b>fecham quando o primeiro jogo "
+        "começa</b>, e os palpites valem os mesmos pontos de sempre.\n"
+        "• Quem criou pode cancelar com <b>/bolaozinho_cancelar id [motivo]</b>; aviso todo mundo "
+        "que entrou no privado, com o motivo.\n"
         "• <b>Prêmio = pote − uma entrada</b> (você não ganha a sua própria entrada de volta): com "
         "10 pessoas a R$ 10, o pote é R$ 100 e o prêmio R$ 90. Vence quem fizer mais pontos nos "
         "jogos do bolãozinho; <b>empate divide o prêmio</b> igualmente.\n"
@@ -777,6 +780,14 @@ def tournament_no_result_text(*, name: str) -> str:
         f'🏁 Bolãozinho "{escape(name)}" encerrado — sem resultado '
         "(nenhum jogo valeu ou ninguém entrou)."
     )
+
+
+def tournament_cancelled_dm_text(*, name: str, reason: str | None = None) -> str:
+    """DM sent to each entrant when a bolãozinho is cancelled (with the reason, if any); §22."""
+    base = f"❌ O bolãozinho <b>{escape(name)}</b> foi cancelado."
+    if reason:
+        return f"{base}\nMotivo: {escape(reason)}"
+    return base
 
 
 def tournament_announcement_text(

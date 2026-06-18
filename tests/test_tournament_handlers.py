@@ -16,12 +16,14 @@ from tigrinho.bot.callbacks import TournamentAction, TournamentAddToggle, encode
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.bot.tournament_handlers import (
     cmd_abrir,
+    cmd_cancelar,
     cmd_criar,
     cmd_entrar,
     cmd_participantes,
     on_tournament_callback,
+    show_join_card_dm,
 )
-from tigrinho.db.models import Game, GameStatus, Stage
+from tigrinho.db.models import Game, GameStatus, Stage, TournamentStatus
 from tigrinho.db.repositories import PlayerRepository, TournamentRepository
 
 _CREATOR = User(id=7, is_bot=False, first_name="Dono")
@@ -271,3 +273,61 @@ async def test_open_announcement_mentions_known_players(app_context: AppContext)
     await cmd_abrir(update, ctx)
     text = ctx.bot.send_message.await_args.kwargs["text"]  # type: ignore[attr-defined]
     assert "tg://user?id=555" in text  # the known player is pinged in the announcement
+
+
+async def test_open_announcement_has_entrar_button(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=False)
+    update, message = _cmd_update(_CREATOR)
+    ctx = _context(app_context, args=[str(tid)])
+    await cmd_abrir(update, ctx)
+    markup = ctx.bot.send_message.await_args.kwargs["reply_markup"]  # type: ignore[attr-defined]
+    # Single Entrar deep-link button (no per-game bet buttons).
+    assert markup.inline_keyboard[0][0].url.endswith(f"?start=entrar_{tid}")
+
+
+async def test_entrar_deep_link_shows_join_card(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)
+    update, message = _cmd_update(_OTHER, chat_type=ChatType.PRIVATE)
+    await show_join_card_dm(update, app_context, tid)
+    assert isinstance(message.reply_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup)
+
+
+async def test_cancel_command_notifies_entrants_with_reason(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)  # created_by=7 (_CREATOR)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tid)
+        assert tournament is not None
+        svc.join(session, tournament, telegram_id=100, display_name="Ana", now=now)
+        svc.join(session, tournament, telegram_id=200, display_name="Bruno", now=now)
+        session.commit()
+    update, message = _cmd_update(_CREATOR)
+    ctx = _context(app_context, args=[str(tid), "jogo", "adiado"])
+    await cmd_cancelar(update, ctx)
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tid)
+        assert tournament is not None
+        assert tournament.status is TournamentStatus.CANCELLED
+        assert tournament.cancel_reason == "jogo adiado"
+    # Both entrants were DM'd the cancellation + reason.
+    assert ctx.bot.send_message.await_count == 2  # type: ignore[attr-defined]
+    dm_ids = {c.kwargs["chat_id"] for c in ctx.bot.send_message.await_args_list}  # type: ignore[attr-defined]
+    assert dm_ids == {100, 200}
+    dm_text = ctx.bot.send_message.await_args_list[0].kwargs["text"]  # type: ignore[attr-defined]
+    assert "cancelado" in dm_text
+    assert "jogo adiado" in dm_text
+
+
+async def test_cancel_command_refused_for_non_creator(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)  # created_by=7
+    update, message = _cmd_update(_OTHER)  # id 8
+    await cmd_cancelar(update, _context(app_context, args=[str(tid)]))
+    assert "Só quem criou" in message.reply_text.await_args.args[0]
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tid)
+        assert tournament is not None
+        assert tournament.status is TournamentStatus.OPEN

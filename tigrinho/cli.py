@@ -503,9 +503,11 @@ def bolaozinho_set_price(tournament_id: int, price: str) -> None:
 
 @bolaozinho_app.command("cancel")
 def bolaozinho_cancel(
-    tournament_id: int, yes: Annotated[bool, typer.Option("--yes")] = False
+    tournament_id: int,
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+    reason: Annotated[str | None, typer.Option("--reason", help="Why it was cancelled")] = None,
 ) -> None:
-    """Cancel a bolãozinho."""
+    """Cancel a bolãozinho (CLI does not DM participants — use the bot command for that)."""
     if not yes:
         typer.echo("Refusing to cancel without --yes.")
         raise typer.Exit(code=1)
@@ -516,7 +518,7 @@ def bolaozinho_cancel(
             typer.echo("Not found.")
             raise typer.Exit(code=1)
         try:
-            svc.cancel_tournament(session, tournament)
+            svc.cancel_tournament(session, tournament, reason=reason)
         except svc.TournamentError as exc:
             typer.echo(exc.message)
             raise typer.Exit(code=1) from exc

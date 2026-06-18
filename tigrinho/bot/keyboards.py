@@ -277,3 +277,9 @@ def tournament_participants_keyboard(items: Sequence[tuple[int, str]]) -> Inline
         [_button(label, TournamentAction("bp", tournament_id))] for tournament_id, label in items
     ]
     return InlineKeyboardMarkup(rows)
+
+
+def tournament_entrar_keyboard(tournament_id: int, bot_username: str) -> InlineKeyboardMarkup:
+    """A single "Entrar" deep-link button on the announcement → the DM join flow (§22)."""
+    url = f"https://t.me/{bot_username}?start=entrar_{tournament_id}"
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🏆 Entrar no bolãozinho", url=url)]])

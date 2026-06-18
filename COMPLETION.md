@@ -1079,7 +1079,12 @@ entrants, computes the pot/prize, and announces the winner(s).
   a toggle writes membership immediately, **no position drift**), `📣 Abrir`, `❌ Cancelar`.
 - `/bolaozinho_preco <id> <preço>`, `/bolaozinho_abrir <id>` — publish: posts the group announcement
   and **@-mentions every known player** (anyone with a `Player` row) in the same message so they're
-  all pinged about the new bolãozinho (a bot can't enumerate group members).
+  all pinged about the new bolãozinho (a bot can't enumerate group members). The announcement carries a
+  single **🏆 Entrar** deep-link button (`?start=entrar_<id>`) into the DM join card — no per-game bet
+  buttons (the games-to-bet links arrive in the DM after joining).
+- `/bolaozinho_cancelar <id> [motivo]` (creator/admin) — cancels the bolãozinho and **DMs every entrant**
+  that it was cancelled, with the optional `motivo` reason (stored in `cancel_reason`). The card's
+  `❌ Cancelar` button does the same with a generic notice (no reason).
 - `/entrar` — **always a picker** of the open joinable bolãozinhos (a wizard step) → tap one to open
   its join card (games, price, pot, prize) → `✅ Entrar`. In a **group** it replies with a deep-link
   button to the private chat (`?start=entrar`) — the whole flow happens in DM. On confirm, the
@@ -1112,8 +1117,8 @@ retry-spams).
 
 ### 22.6 Data model (new tables, one append-only migration)
 `tournaments` (id, name, entry_price_cents, status, created_by, created_at, opened_at, locked_at,
-result_announced_at, result_signature, correction_count); `tournament_games` (M:N — a game may be in
-many bolãozinhos); `tournament_entries` (unique per player per tournament).
+result_announced_at, result_signature, correction_count, cancel_reason); `tournament_games` (M:N — a
+game may be in many bolãozinhos); `tournament_entries` (unique per player per tournament).
 
 ### 22.7 CLI
 `python -m tigrinho.cli bolaozinho <create|list|show|add-game|remove-game|set-price|cancel|entries|

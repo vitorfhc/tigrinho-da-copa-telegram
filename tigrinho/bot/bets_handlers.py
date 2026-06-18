@@ -54,7 +54,7 @@ from tigrinho.bot.keyboards import (
 )
 from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
-from tigrinho.bot.tournament_handlers import show_entrar_dm
+from tigrinho.bot.tournament_handlers import show_entrar_dm, show_join_card_dm
 from tigrinho.db.models import Bet, Game, GameStatus, utcnow
 from tigrinho.db.repositories import (
     BetRepository,
@@ -155,6 +155,15 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if payload == "entrar":
         # Deep link from the group "Entrar no privado" button → open the bolãozinho join flow (§22).
         await show_entrar_dm(update, get_app_context(context.application))
+        return
+    if payload.startswith("entrar_"):
+        # Deep link from a specific bolãozinho announcement's "Entrar" button → its join card (§22).
+        try:
+            tournament_id = int(payload.removeprefix("entrar_"))
+        except ValueError:
+            await message.reply_text(welcome_text(), parse_mode=ParseMode.HTML)
+            return
+        await show_join_card_dm(update, get_app_context(context.application), tournament_id)
         return
     await message.reply_text(welcome_text(), parse_mode=ParseMode.HTML)
 

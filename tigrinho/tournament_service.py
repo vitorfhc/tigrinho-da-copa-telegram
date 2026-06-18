@@ -114,10 +114,13 @@ def open_tournament(session: Session, tournament: Tournament, *, now: datetime) 
     session.flush()
 
 
-def cancel_tournament(session: Session, tournament: Tournament) -> None:
+def cancel_tournament(
+    session: Session, tournament: Tournament, *, reason: str | None = None
+) -> None:
     if tournament.status not in (TournamentStatus.DRAFT, TournamentStatus.OPEN):
         raise TournamentError("Esse bolãozinho já foi encerrado.")
     tournament.status = TournamentStatus.CANCELLED
+    tournament.cancel_reason = reason
     session.flush()
 
 

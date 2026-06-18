@@ -8,6 +8,7 @@ position drift (F18). All callbacks are stateless via ``callback_data`` (≤ 64 
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ from tigrinho.bot.keyboards import (
     announcement_keyboard,
     tournament_add_picker_keyboard,
     tournament_card_keyboard,
+    tournament_entrar_keyboard,
     tournament_join_card_keyboard,
     tournament_join_list_keyboard,
     tournament_list_keyboard,
@@ -40,6 +42,7 @@ from tigrinho.domain.text_pt import (
     format_kickoff_short,
     format_money_cents,
     tournament_announcement_text,
+    tournament_cancelled_dm_text,
     tournament_card_text,
     tournament_details_text,
     tournament_list_text,
@@ -216,10 +219,9 @@ async def _post_open_announcement(
         decimals=settings.tournament_currency_decimals,
         mentions=mentions,
     )
-    keyboard = announcement_keyboard(
-        [(g.fixture_id, f"{g.home_team_name} x {g.away_team_name}") for g in games],
-        settings.bot_username,
-    )
+    # A single "Entrar" deep-link button (into the DM join flow) instead of per-game bet buttons:
+    # the games-to-bet links are sent in the DM confirmation after the user joins (§22).
+    keyboard = tournament_entrar_keyboard(tournament.id, settings.bot_username)
     try:
         await context.bot.send_message(
             chat_id=settings.group_chat_id,
@@ -321,6 +323,42 @@ async def cmd_abrir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         session.commit()
     await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
     await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/bolaozinho_cancelar <id> [motivo] — cancel a bolãozinho and DM the reason to entrants."""
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    args = context.args or []
+    try:
+        tournament_id = int(args[0])
+    except (IndexError, ValueError):
+        await message.reply_text(
+            "Uso: <code>/bolaozinho_cancelar &lt;id&gt; [motivo]</code>", parse_mode=ParseMode.HTML
+        )
+        return
+    reason = " ".join(args[1:]).strip() or None
+    app_context = get_app_context(context.application)
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            await message.reply_text(_NOT_FOUND)
+            return
+        try:
+            svc.require_manage(tournament, user.id, app_context.settings.admin_user_id)
+            svc.cancel_tournament(session, tournament, reason=reason)
+        except svc.TournamentError as exc:
+            await message.reply_text(exc.message)
+            return
+        name = tournament.name
+        entrant_ids = TournamentRepository(session).entry_ids(tournament.id)
+        session.commit()
+    await _notify_cancellation(context, name=name, entrant_ids=entrant_ids, reason=reason)
+    await message.reply_text(
+        f"❌ Bolãozinho cancelado. Avisei {len(entrant_ids)} participante(s) no privado."
+    )
 
 
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -445,6 +483,20 @@ async def show_entrar_dm(update: Update, app_context: AppContext) -> None:
     )
 
 
+async def show_join_card_dm(update: Update, app_context: AppContext, tournament_id: int) -> None:
+    """Show one bolãozinho's join card in DM — the ``?start=entrar_<id>`` deep-link target (§22)."""
+    message = update.effective_message
+    if message is None:
+        return
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            await message.reply_text(_NOT_FOUND)
+            return
+        text, keyboard = _render_join_card(session, tournament, app_context.settings)
+    await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
 async def cmd_entrar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/entrar — in DM show the join flow; in the group redirect to the private chat (§22)."""
     message = update.effective_message
@@ -498,7 +550,7 @@ async def on_tournament_callback(update: Update, context: ContextTypes.DEFAULT_T
         case TournamentAction("bo", tournament_id):
             await _do_open(query, context, app_context, tournament_id, user.id)
         case TournamentAction("bx", tournament_id):
-            await _do_cancel(query, app_context, tournament_id, user.id)
+            await _do_cancel(query, context, app_context, tournament_id, user.id)
         case TournamentAction("bj", tournament_id):
             await _show_join_card(query, app_context, tournament_id)
         case TournamentAction("bk", tournament_id):
@@ -598,8 +650,31 @@ async def _do_open(
     await safe_edit_text(query, text, reply_markup=keyboard)
 
 
+async def _dm_text(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str) -> None:
+    """Best-effort plain DM (no keyboard); silently ignore users the bot can't reach."""
+    with contextlib.suppress(TelegramError):
+        await context.bot.send_message(chat_id=user_id, text=text, parse_mode=ParseMode.HTML)
+
+
+async def _notify_cancellation(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    name: str,
+    entrant_ids: list[int],
+    reason: str | None,
+) -> None:
+    """DM every entrant that the bolãozinho was cancelled, with the reason (§22)."""
+    text = tournament_cancelled_dm_text(name=name, reason=reason)
+    for user_id in entrant_ids:
+        await _dm_text(context, user_id, text)
+
+
 async def _do_cancel(
-    query: CallbackQuery, app_context: AppContext, tournament_id: int, actor_id: int
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    app_context: AppContext,
+    tournament_id: int,
+    actor_id: int,
 ) -> None:
     with app_context.session_factory() as session:
         tournament = await _load_manageable(
@@ -612,8 +687,11 @@ async def _do_cancel(
         except svc.TournamentError as exc:
             await query.answer(exc.message, show_alert=True)
             return
+        name = tournament.name
+        entrant_ids = TournamentRepository(session).entry_ids(tournament.id)
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
+    await _notify_cancellation(context, name=name, entrant_ids=entrant_ids, reason=None)
     await query.answer("Bolãozinho cancelado.")
     await safe_edit_text(query, text, reply_markup=keyboard)
 
@@ -734,6 +812,7 @@ def register_tournament_handlers(application: AnyApplication) -> None:
     application.add_handler(CommandHandler("bolaozinho_criar", cmd_criar))
     application.add_handler(CommandHandler("bolaozinho_preco", cmd_preco))
     application.add_handler(CommandHandler("bolaozinho_abrir", cmd_abrir))
+    application.add_handler(CommandHandler("bolaozinho_cancelar", cmd_cancelar))
     application.add_handler(CommandHandler("bolaozinhos", cmd_list))
     application.add_handler(CommandHandler("bolaozinho", cmd_show))
     application.add_handler(CommandHandler("bolaozinho_participantes", cmd_participantes))
