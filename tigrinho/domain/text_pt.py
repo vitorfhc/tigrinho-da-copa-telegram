@@ -607,6 +607,7 @@ def help_text() -> str:
         "• /placar_jogos — placar somando vários jogos encerrados\n"
         "• /palpite — escolha um jogo das próximas 24h e veja o palpite da IA (Gemini)\n"
         "• /bolaozinhos — ver os bolãozinhos (competições com prêmio em dinheiro)\n"
+        "• /bolaozinho_participantes — ver quem entrou num bolãozinho\n"
         "• /entrar — entrar num bolãozinho\n"
         "• /bolaozinho_criar — criar um bolãozinho (<code>Nome | preço</code>)\n"
         "• /ajuda — esta mensagem\n"
@@ -631,8 +632,9 @@ def help_text() -> str:
         "<b>entrada</b> (ex.: R$ 10). Qualquer um cria com "
         "<code>/bolaozinho_criar Nome | preço</code> e adiciona jogos que ainda não começaram. "
         "Quem criou (ou o admin) gerencia o bolãozinho.\n"
-        "• Use <b>/entrar</b> para participar. As entradas <b>fecham quando o primeiro jogo "
-        "começa</b>, e os palpites valem os mesmos pontos de sempre.\n"
+        "• Use <b>/entrar</b> para participar — eu te mando os jogos no <b>privado</b> pra "
+        "palpitar. As entradas <b>fecham quando o primeiro jogo começa</b>, e os palpites valem os "
+        "mesmos pontos de sempre.\n"
         "• <b>Prêmio = pote − uma entrada</b> (você não ganha a sua própria entrada de volta): com "
         "10 pessoas a R$ 10, o pote é R$ 100 e o prêmio R$ 90. Vence quem fizer mais pontos nos "
         "jogos do bolãozinho; <b>empate divide o prêmio</b> igualmente.\n"
@@ -930,3 +932,27 @@ def entry_confirmed_text(
         f"Prêmio: {money(prize_cents)}\n\n"
         "Agora faça seus palpites nos jogos abaixo 👇 (as apostas fecham no apito inicial)."
     )
+
+
+def tournament_participants_text(
+    *,
+    name: str,
+    participants: Sequence[str],
+    pot_cents: int,
+    prize_cents: int,
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """`/bolaozinho_participantes` — who has entered a bolãozinho (§22)."""
+
+    def money(cents: int) -> str:
+        return format_money_cents(cents, currency=currency, decimals=decimals)
+
+    n = len(participants)
+    header = f"👥 Participantes do bolãozinho <b>{escape(name)}</b> ({n})"
+    if not participants:
+        return f"{header}\nNinguém entrou ainda. Use /entrar pra ser o primeiro! 🐯"
+    lines = [header]
+    lines += [f"{rank}. {escape(person)}" for rank, person in enumerate(participants, start=1)]
+    lines.append(f"\nPote: {money(pot_cents)} · Prêmio: {money(prize_cents)}")
+    return "\n".join(lines)

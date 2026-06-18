@@ -1078,8 +1078,12 @@ entrants, computes the pot/prize, and announces the winner(s).
 - Management card buttons (creator/admin): `➕ Adicionar jogos` (identity-based multi-select picker —
   a toggle writes membership immediately, **no position drift**), `📣 Abrir`, `❌ Cancelar`.
 - `/bolaozinho_preco <id> <preço>`, `/bolaozinho_abrir <id>` (publishes + announces to the group).
-- `/entrar` — lists joinable bolãozinhos / shows the join card (games, price, pot, prize) → `✅ Entrar`.
+- `/entrar` — lists joinable bolãozinhos as a picker (disambiguates when several are open) / shows
+  the join card (games, price, pot, prize) → `✅ Entrar`. On confirm, the **games-to-bet confirmation
+  (with `🎯 Apostar` deep-links) is sent to the joiner's DM** (the group card just refreshes its pot/
+  count); if the user hasn't pressed Start, an alert tells them to open the bot's private chat.
 - `/bolaozinhos`, `/bolaozinho <id>` — list / details (with a live mini-standings). Group + DM.
+- `/bolaozinho_participantes <id>` — list who has entered a bolãozinho (group + DM).
 - Inline state is stateless `callback_data` (`bg`/`ba`/`bd`/`bo`/`bx`/`bj`/`bk`/`bi`, ≤64 bytes).
 
 ### 22.4 Resolution, announcements & corrections

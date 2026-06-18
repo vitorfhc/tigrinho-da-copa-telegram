@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from telegram import CallbackQuery, Chat, InlineKeyboardMarkup, Update, User
 from telegram.constants import ChatType
+from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from tigrinho import tournament_service as svc
@@ -17,6 +18,7 @@ from tigrinho.bot.tournament_handlers import (
     cmd_abrir,
     cmd_criar,
     cmd_entrar,
+    cmd_participantes,
     on_tournament_callback,
 )
 from tigrinho.db.models import Game, GameStatus, Stage
@@ -163,3 +165,53 @@ async def test_entrar_none_open(app_context: AppContext) -> None:
     update, message = _cmd_update(_OTHER)
     await cmd_entrar(update, _context(app_context))
     assert "Nenhum bolãozinho" in message.reply_text.await_args.args[0]
+
+
+async def test_join_sends_confirmation_to_dm(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)
+    update, query = _cb_update(encode(TournamentAction("bk", tid)), _OTHER)
+    ctx = _context(app_context)
+    await on_tournament_callback(update, ctx)
+    # The confirmation (with bet deep-links) is DM'd to the joining user, not posted in the group.
+    ctx.bot.send_message.assert_awaited_once()  # type: ignore[attr-defined]
+    assert ctx.bot.send_message.await_args.kwargs["chat_id"] == 8  # type: ignore[attr-defined]
+    with app_context.session_factory() as session:
+        assert TournamentRepository(session).is_entered(tid, 8) is True
+
+
+async def test_join_dm_failure_still_records_entry_and_alerts(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)
+    update, query = _cb_update(encode(TournamentAction("bk", tid)), _OTHER)
+    ctx = _context(app_context)
+    ctx.bot.send_message.side_effect = Forbidden("bot can't initiate")  # type: ignore[attr-defined]
+    await on_tournament_callback(update, ctx)
+    # Entry is committed before the DM, so it survives a DM failure; the user gets an alert.
+    with app_context.session_factory() as session:
+        assert TournamentRepository(session).is_entered(tid, 8) is True
+    assert query.answer.await_args.kwargs.get("show_alert") is True
+
+
+async def test_participantes_lists_entrants(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tid)
+        assert tournament is not None
+        svc.join(session, tournament, telegram_id=100, display_name="Ana", now=now)
+        svc.join(session, tournament, telegram_id=200, display_name="Bruno", now=now)
+        session.commit()
+    update, message = _cmd_update(_OTHER)
+    await cmd_participantes(update, _context(app_context, args=[str(tid)]))
+    text = message.reply_text.await_args.args[0]
+    assert "Participantes" in text
+    assert "Ana" in text
+    assert "Bruno" in text
+
+
+async def test_participantes_usage_without_id(app_context: AppContext) -> None:
+    update, message = _cmd_update(_OTHER)
+    await cmd_participantes(update, _context(app_context, args=[]))
+    assert "Uso" in message.reply_text.await_args.args[0]

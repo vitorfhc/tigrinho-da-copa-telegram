@@ -42,6 +42,7 @@ from tigrinho.domain.text_pt import (
     tournament_card_text,
     tournament_details_text,
     tournament_list_text,
+    tournament_participants_text,
 )
 from tigrinho.domain.tournament import (
     parse_create_args,
@@ -345,6 +346,44 @@ async def cmd_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
+async def cmd_participantes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/bolaozinho_participantes <id> — list who has entered a bolãozinho."""
+    message = update.effective_message
+    if message is None:
+        return
+    args = context.args or []
+    try:
+        tournament_id = int(args[0])
+    except (IndexError, ValueError):
+        await message.reply_text(
+            "Uso: <code>/bolaozinho_participantes &lt;id&gt;</code>", parse_mode=ParseMode.HTML
+        )
+        return
+    app_context = get_app_context(context.application)
+    with app_context.session_factory() as session:
+        repo = TournamentRepository(session)
+        tournament = repo.get(tournament_id)
+        if tournament is None:
+            await message.reply_text(_NOT_FOUND)
+            return
+        players = PlayerRepository(session)
+        names = [
+            (player.display_name if (player := players.get(tid)) is not None else str(tid))
+            for tid in repo.entry_ids(tournament.id)
+        ]
+        n = repo.count_entries(tournament.id)
+        price = tournament.entry_price_cents
+        text = tournament_participants_text(
+            name=tournament.name,
+            participants=names,
+            pot_cents=pot_cents(n, price),
+            prize_cents=prize_cents(n, price),
+            currency=app_context.settings.tournament_currency,
+            decimals=app_context.settings.tournament_currency_decimals,
+        )
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
 async def cmd_entrar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/entrar — list joinable bolãozinhos (or jump straight in when there's exactly one)."""
     message = update.effective_message
@@ -416,7 +455,7 @@ async def on_tournament_callback(update: Update, context: ContextTypes.DEFAULT_T
         case TournamentAction("bj", tournament_id):
             await _show_join_card(query, app_context, tournament_id)
         case TournamentAction("bk", tournament_id):
-            await _do_join(query, app_context, update, tournament_id, user.id)
+            await _do_join(query, context, app_context, update, tournament_id, user.id)
         case TournamentAction("bi", tournament_id):
             await _show_details(query, app_context, tournament_id, user.id)
         case _:  # pragma: no cover - pattern guarantees a tournament op
@@ -542,13 +581,31 @@ async def _show_join_card(
     await safe_edit_text(query, text, reply_markup=keyboard)
 
 
+async def _send_dm(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    text: str,
+    keyboard: InlineKeyboardMarkup,
+) -> bool:
+    """Best-effort DM to a user; False if the bot can't reach them (hasn't pressed Start)."""
+    try:
+        await context.bot.send_message(
+            chat_id=user_id, text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+        )
+    except TelegramError:
+        return False
+    return True
+
+
 async def _do_join(
     query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
     app_context: AppContext,
     update: Update,
     tournament_id: int,
     actor_id: int,
 ) -> None:
+    settings = app_context.settings
     with app_context.session_factory() as session:
         tournament = TournamentRepository(session).get(tournament_id)
         if tournament is None:
@@ -566,23 +623,34 @@ async def _do_join(
             await query.answer(exc.message, show_alert=True)
             return
         games = TournamentRepository(session).list_games(tournament.id)
-        text = entry_confirmed_text(
+        confirm_text = entry_confirmed_text(
             name=tournament.name,
             n_entrants=result.n_entrants,
             pot_cents=result.pot_cents,
             prize_cents=result.prize_cents,
-            currency=app_context.settings.tournament_currency,
-            decimals=app_context.settings.tournament_currency_decimals,
+            currency=settings.tournament_currency,
+            decimals=settings.tournament_currency_decimals,
         )
-        keyboard = announcement_keyboard(
+        bet_links = announcement_keyboard(
             [(g.fixture_id, f"{g.home_team_name} x {g.away_team_name}") for g in games],
-            app_context.settings.bot_username,
+            settings.bot_username,
         )
+        # Refresh the (group/DM) card so the pot/entrant count updates and others can still join.
+        card_text, card_keyboard = _render_join_card(session, tournament, settings)
         session.commit()
-    await query.answer(
-        "Você está no bolãozinho! ✅" if not result.already else "Você já estava dentro. 🐯"
-    )
-    await safe_edit_text(query, text, reply_markup=keyboard)
+
+    # The confirmation + bet deep-links always go to the user's DM (keeps the group clean).
+    dm_ok = await _send_dm(context, actor_id, confirm_text, bet_links)
+    if result.already:
+        toast = "Você já estava nesse bolãozinho. 🐯"
+    elif dm_ok:
+        toast = "✅ Você entrou! Te mandei os jogos no privado. 🐯"
+    else:
+        toast = (
+            "✅ Você entrou! Abra meu chat privado e toque em Iniciar pra eu te mandar os jogos."
+        )
+    await query.answer(toast, show_alert=not dm_ok)
+    await safe_edit_text(query, card_text, reply_markup=card_keyboard)
 
 
 async def _show_details(
@@ -605,6 +673,7 @@ def register_tournament_handlers(application: AnyApplication) -> None:
     application.add_handler(CommandHandler("bolaozinho_abrir", cmd_abrir))
     application.add_handler(CommandHandler("bolaozinhos", cmd_list))
     application.add_handler(CommandHandler("bolaozinho", cmd_show))
+    application.add_handler(CommandHandler("bolaozinho_participantes", cmd_participantes))
     application.add_handler(CommandHandler("entrar", cmd_entrar))
     application.add_handler(
         CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg):")
