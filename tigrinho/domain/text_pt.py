@@ -122,18 +122,26 @@ def _bettors_line(bettors: Sequence[tuple[str, int]]) -> str:
     return f"👥 Já palpitaram: {listing}"
 
 
-def reminder_text(games: Sequence[tuple[str, str, datetime, Sequence[tuple[str, int]]]]) -> str:
+def reminder_text(
+    games: Sequence[tuple[str, str, datetime, Sequence[tuple[str, int]]]],
+    *,
+    tournament_blocks: Sequence[str] | None = None,
+) -> str:
     """~1h pre-kickoff betting reminder for one kickoff slot (§9.3).
 
     Each item: ``(home, away, kickoff_local, bettors)`` where ``bettors`` is an ordered
     ``(display_name, bets_placed)`` list. Combined into a single message when several games share
     the slot; each game line is followed by a ``👥`` line naming who already bet and how many of
-    the 5 categories. Followed by one ``🎯 Apostar`` button per game (built separately).
+    the 5 categories. When ``tournament_blocks`` is given (aligned by index, §22), a non-empty
+    entry adds a ``🏆`` line under the game mentioning entrants who still need to bet. Followed by
+    one ``🎯 Apostar`` button per game (built separately).
     """
     lines: list[str] = []
-    for home, away, kickoff, bettors in games:
+    for index, (home, away, kickoff, bettors) in enumerate(games):
         lines.append(f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}")
         lines.append(f"  {_bettors_line(bettors)}")
+        if tournament_blocks is not None and tournament_blocks[index]:
+            lines.append(f"  {tournament_blocks[index]}")
     body = "\n".join(lines)
     return (
         "⏰ <b>Falta ~1h pro apito! Ainda dá pra palpitar:</b>\n\n"

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes, JobQueue
 
+from tigrinho import tournament_service as svc
 from tigrinho.bot.reminder_job import REMINDER_JOB_NAME, reminder_job, schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.config import Settings
@@ -207,3 +208,69 @@ def test_schedule_reminder_job(settings: Settings) -> None:
     kwargs = job_queue.run_repeating.call_args.kwargs
     assert kwargs["name"] == REMINDER_JOB_NAME
     assert kwargs["interval"] == settings.reminder_interval_minutes * 60
+
+
+def _make_tournament(
+    session_factory: sessionmaker[Session],
+    *,
+    fixture_id: int,
+    entrants: list[tuple[int, str]],
+) -> None:
+    with session_factory() as session:
+        tournament = svc.create_tournament(
+            session, name="Oitavas", entry_price_cents=1000, created_by=7
+        )
+        svc.add_game(session, tournament, fixture_id, now=_now())
+        svc.open_tournament(session, tournament, now=_now())
+        for telegram_id, name in entrants:
+            svc.join(session, tournament, telegram_id=telegram_id, display_name=name, now=_now())
+        session.commit()
+
+
+async def test_reminder_mentions_non_betting_entrant(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    slot = _now() + timedelta(minutes=30)
+    _seed(session_factory, fixture_id=1, kickoff=slot)
+    _make_tournament(session_factory, fixture_id=1, entrants=[(100, "Ana"), (200, "Bruno")])
+    _seed_bet(session_factory, fixture_id=1, telegram_id=100, name="Ana", category="WINNER")
+    app_context = _app_context(settings, session_factory)
+    context, bot = _ctx(app_context)
+
+    await reminder_job(cast(ContextTypes.DEFAULT_TYPE, context))
+
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "Vale pelo bolãozinho" in text
+    assert "tg://user?id=200" in text  # Bruno hasn't bet -> mentioned
+    assert "corre!" in text
+
+
+async def test_reminder_caps_mentions(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    slot = _now() + timedelta(minutes=30)
+    _seed(session_factory, fixture_id=1, kickoff=slot)
+    entrants = [(1000 + i, f"P{i:02d}") for i in range(25)]  # 25 > reminder_max_mentions (20)
+    _make_tournament(session_factory, fixture_id=1, entrants=entrants)
+    app_context = _app_context(settings, session_factory)
+    context, bot = _ctx(app_context)
+
+    await reminder_job(cast(ContextTypes.DEFAULT_TYPE, context))
+
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "+5" in text  # 25 entrants, 20 shown
+
+
+async def test_reminder_includes_unannounced_tournament_game(
+    settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    slot = _now() + timedelta(minutes=30)
+    _seed(session_factory, fixture_id=1, kickoff=slot, announced=False)
+    _make_tournament(session_factory, fixture_id=1, entrants=[(100, "Ana")])
+    app_context = _app_context(settings, session_factory)
+    context, bot = _ctx(app_context)
+
+    await reminder_job(cast(ContextTypes.DEFAULT_TYPE, context))
+
+    assert bot.send_message.await_count == 1  # eligible despite announced_at IS NULL (§22)
+    assert _reminded_at(session_factory, 1) is not None

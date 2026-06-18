@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from telegram import LinkPreviewOptions
+from telegram import InlineKeyboardMarkup, LinkPreviewOptions
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes, JobQueue
 
 from tigrinho.bot.alerts import notify_admin
@@ -21,13 +21,16 @@ from tigrinho.bot.keyboards import announcement_keyboard
 from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, utcnow
-from tigrinho.db.repositories import BetRepository, GameRepository
-from tigrinho.domain.text_pt import escape, reminder_text
+from tigrinho.db.repositories import BetRepository, GameRepository, TournamentRepository
+from tigrinho.domain.text_pt import escape, mention, reminder_text
 from tigrinho.logging import get_logger
 
 _log = get_logger("tigrinho.reminder_job")
 
 REMINDER_JOB_NAME = "pre_game_reminder"
+# Substrings marking a permanent (un-retryable) send failure — typically an oversized message or
+# too many mention entities. We mark the slot reminded anyway so it never retry-spams (§22/F17).
+_PERMANENT_SEND_ERRORS = ("too long", "too many", "entit", "can't parse")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,23 +81,29 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
-async def _run_reminder(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE) -> None:
-    settings = app_context.settings
-    now = utcnow()
-    with app_context.session_factory() as session:
-        games = GameRepository(session).list_due_for_reminder(now, settings.reminder_lead)
-        bets = BetRepository(session)
-        views = [_view(g, _bettors_for_game(bets, g.fixture_id)) for g in games]
-    if not views:
-        return
+def _tournament_block(non_betting: list[tuple[int, str]], max_mentions: int) -> str:
+    """The per-game 🏆 reminder line; mentions are deduped (by query) and capped to ``+N`` (F17)."""
+    base = "🏆 Vale pelo bolãozinho!"
+    if not non_betting:
+        return base
+    shown = non_betting[:max_mentions]
+    extra = len(non_betting) - len(shown)
+    names = ", ".join(mention(telegram_id, name) for telegram_id, name in shown)
+    suffix = f" +{extra}" if extra > 0 else ""
+    return f"{base} Ainda sem palpite: {names}{suffix} — corre!"
 
-    text = reminder_text(
-        [(v.home_team_name, v.away_team_name, v.kickoff_local, v.bettors) for v in views]
-    )
-    keyboard = announcement_keyboard(
-        [(v.fixture_id, f"{v.home_team_name} x {v.away_team_name}") for v in views],
-        settings.bot_username,
-    )
+
+async def _send_reminder(
+    app_context: AppContext,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    text: str,
+    keyboard: InlineKeyboardMarkup,
+    count: int,
+) -> bool:
+    """Send the reminder. Return True to mark the slot reminded (sent OR permanently skipped),
+    False to leave it for a retry next sweep (transient failure)."""
+    settings = app_context.settings
     try:
         await context.bot.send_message(
             chat_id=settings.group_chat_id,
@@ -103,15 +112,73 @@ async def _run_reminder(app_context: AppContext, context: ContextTypes.DEFAULT_T
             reply_markup=keyboard,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
-    except TelegramError as exc:
-        _log.error("reminder_send_failed", error=str(exc), count=len(views))
+        return True
+    except BadRequest as exc:
+        if any(marker in str(exc).lower() for marker in _PERMANENT_SEND_ERRORS):
+            # Oversized / too many entities: marking it reminded avoids retry-spamming the same
+            # un-sendable message every sweep (F17). The admin is told once.
+            _log.error("reminder_skipped_permanent", error=str(exc), count=count)
+            await notify_admin(
+                context.bot,
+                settings.admin_user_id,
+                f"⚠️ Lembrete de {count} jogo(s) pulado (mensagem grande demais): "
+                f"<code>{escape(str(exc))}</code>",
+            )
+            return True
+        _log.error("reminder_send_failed", error=str(exc), count=count)
         await notify_admin(
             context.bot,
             settings.admin_user_id,
-            f"⚠️ Falha ao enviar lembrete de {len(views)} jogo(s) (será reenviado): "
+            f"⚠️ Falha ao enviar lembrete de {count} jogo(s) (será reenviado): "
             f"<code>{escape(str(exc))}</code>",
         )
+        return False
+    except TelegramError as exc:
+        _log.error("reminder_send_failed", error=str(exc), count=count)
+        await notify_admin(
+            context.bot,
+            settings.admin_user_id,
+            f"⚠️ Falha ao enviar lembrete de {count} jogo(s) (será reenviado): "
+            f"<code>{escape(str(exc))}</code>",
+        )
+        return False
+
+
+async def _run_reminder(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings = app_context.settings
+    now = utcnow()
+    with app_context.session_factory() as session:
+        tournaments = TournamentRepository(session)
+        open_ids = tournaments.open_member_fixture_ids()
+        games = GameRepository(session).list_due_for_reminder(
+            now, settings.reminder_lead, extra_eligible_ids=open_ids
+        )
+        bets = BetRepository(session)
+        views = [_view(g, _bettors_for_game(bets, g.fixture_id)) for g in games]
+        blocks = [
+            _tournament_block(
+                tournaments.non_betting_entrants_for_game(g.fixture_id),
+                settings.reminder_max_mentions,
+            )
+            if g.fixture_id in open_ids
+            else ""
+            for g in games
+        ]
+    if not views:
         return
+
+    text = reminder_text(
+        [(v.home_team_name, v.away_team_name, v.kickoff_local, v.bettors) for v in views],
+        tournament_blocks=blocks,
+    )
+    keyboard = announcement_keyboard(
+        [(v.fixture_id, f"{v.home_team_name} x {v.away_team_name}") for v in views],
+        settings.bot_username,
+    )
+    if not await _send_reminder(
+        app_context, context, text=text, keyboard=keyboard, count=len(views)
+    ):
+        return  # transient failure — leave unmarked so the next sweep retries
 
     with app_context.session_factory() as session:
         GameRepository(session).mark_reminded([v.fixture_id for v in views], now)

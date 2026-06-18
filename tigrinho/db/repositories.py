@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from tigrinho.db.models import (
@@ -164,19 +164,21 @@ class GameRepository:
                 game.announced_at = when
         self._session.flush()
 
-    def list_due_for_reminder(self, now: datetime, lead: timedelta) -> list[Game]:
+    def list_due_for_reminder(
+        self, now: datetime, lead: timedelta, *, extra_eligible_ids: frozenset[int] = frozenset()
+    ) -> list[Game]:
         """Games of the soonest unreminded kickoff slot due for a ~1h reminder (§9.3).
 
-        Selects announced, still-open, unreminded games inside their lead window
-        (``now < kickoff_utc <= now + lead``), then narrows to those sharing the *soonest*
-        such ``kickoff_utc`` — so only one kickoff slot is reminded per sweep and "combine"
-        means exactly "same kickoff time".
+        Selects still-open, unreminded games inside their lead window
+        (``now < kickoff_utc <= now + lead``) that are either announced **or** in
+        ``extra_eligible_ids`` (bolãozinho member games, eligible even without the morning
+        announcement — §22/F17), then narrows to those sharing the *soonest* such ``kickoff_utc``.
         """
         stmt = (
             select(Game)
             .where(
                 Game.status == GameStatus.SCHEDULED,
-                Game.announced_at.is_not(None),
+                or_(Game.announced_at.is_not(None), Game.fixture_id.in_(extra_eligible_ids)),
                 Game.reminded_at.is_(None),
                 Game.kickoff_utc > now,
                 Game.kickoff_utc <= now + lead,
@@ -661,3 +663,40 @@ class TournamentRepository:
         for telegram_id, points in self._session.execute(stmt).all():
             result[telegram_id] = points
         return result
+
+    # --- reminder integration (§22/§9.3) ---------------------------------------------------
+    def open_member_fixture_ids(self) -> frozenset[int]:
+        """Fixture ids belonging to any OPEN bolãozinho (reminder-eligibility set, §9.3)."""
+        stmt = (
+            select(TournamentGame.fixture_id)
+            .join(Tournament, Tournament.id == TournamentGame.tournament_id)
+            .where(Tournament.status == TournamentStatus.OPEN)
+            .distinct()
+        )
+        return frozenset(self._session.execute(stmt).scalars())
+
+    def non_betting_entrants_for_game(self, fixture_id: int) -> list[tuple[int, str]]:
+        """Entrants of OPEN bolãozinhos containing ``fixture_id`` who have NOT bet on it (§9.3).
+
+        Deduped across overlapping bolãozinhos; ordered by name. Drives the reminder's "ainda sem
+        palpite — corre!" nudge (mentions are capped by the caller, F17).
+        """
+        entrant_ids = (
+            select(TournamentEntry.player_telegram_id)
+            .join(Tournament, Tournament.id == TournamentEntry.tournament_id)
+            .join(TournamentGame, TournamentGame.tournament_id == Tournament.id)
+            .where(
+                TournamentGame.fixture_id == fixture_id,
+                Tournament.status == TournamentStatus.OPEN,
+            )
+        )
+        bettor_ids = select(Bet.player_telegram_id).where(Bet.fixture_id == fixture_id)
+        stmt = (
+            select(Player.telegram_id, Player.display_name)
+            .where(
+                Player.telegram_id.in_(entrant_ids),
+                Player.telegram_id.notin_(bettor_ids),
+            )
+            .order_by(Player.display_name)
+        )
+        return [(row[0], row[1]) for row in self._session.execute(stmt).all()]
