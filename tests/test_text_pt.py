@@ -203,6 +203,10 @@ def test_help_text_covers_required_content() -> None:
     assert "Placar exato" in text  # categories present
     assert "Primeira equipe a marcar" in text  # team-based first-scorer category
     assert "/palpite" in text  # AI palpite command
+    assert "/entrar" in text  # bolãozinho join command
+    assert "/bolaozinho_criar" in text  # bolãozinho create command
+    assert "Bolãozinhos" in text  # bolãozinho section
+    assert "Prêmio = pote − uma entrada" in text  # money rule
 
 
 def test_welcome_text_points_to_help() -> None:

@@ -209,6 +209,10 @@ startup; the bot MUST refuse to start if any required value is missing or malfor
 | `gemini_model` | no | `gemini-3.1-pro-preview` | Gemini model for `/palpite` (§20). |
 | `poll_interval_seconds` | no | `600` | Live-poll cadence during match windows (seconds). |
 | `match_window_hours` | no | `3` | How long after kickoff a game stays "active" for polling before forcing a settle/alert. |
+| `tournament_currency` | no | `R$` | Currency symbol for bolãozinho entry prices/pots/prizes (display only; money is stored as integer cents). §22 |
+| `tournament_currency_decimals` | no | `2` | Decimal places when rendering bolãozinho money. §22 |
+| `reminder_max_mentions` | no | `20` | Cap on entrant @-mentions per bolãozinho reminder before `… +N`. §22 |
+| `bolaozinho_sweep_interval_minutes` | no | `10` | How often the bolãozinho lock/finish/rescue sweep runs. §22 |
 | `api_daily_cap` | no | `100` | Hard ceiling on provider requests per budget day. |
 | `api_budget_reset_tz` | no | `UTC` | Timezone whose midnight resets the request counter (API-Football resets at 00:00 UTC). |
 | `db_path` | no | `/data/tigrinho.db` | SQLite file path (mounted volume). |
@@ -761,6 +765,9 @@ It SHOULD also provide a small **`telegram-info`** helper that prints the bot's 
 `@username`/id (via `get_me`) and echoes the configured `group_chat_id`/`admin_user_id`, to help the
 operator confirm setup.
 
+5. **Bolãozinhos (§22)** — `bolaozinho` sub-app: `create`, `list`, `show`, `add-game`, `remove-game`,
+   `set-price`, `cancel`, `entries`, `add-entry`, `remove-entry`, `standings`.
+
 CLI output MUST be readable tables; destructive commands MUST require a confirmation flag.
 
 ---
@@ -876,6 +883,9 @@ sections, in order:
   `config.yaml`.
 - Ground every external API/library in current docs via web search **before** coding it (live docs win).
 - Inline-button `callback_data` ≤ 64 bytes; messages use **HTML** parse mode.
+- **Bolãozinhos (§22):** real-money side-pots; anyone creates/joins, creator/admin manages; entry
+  freezes at first join, joins+games+price lock at first kickoff; **prize = pot − one entry**, ties
+  split it; bookkeeping only.
 
 ---
 
@@ -920,9 +930,10 @@ green and update `PROGRESS.md`.
 - Betting is **DM-only** (private chat with the bot), reached via deep-link or `/apostar` in DM. The
   group is used only for the bot's announcements/results/scoreboards.
 - **No subscription/role system** — the group membership is the audience (§12).
-- Admin actions are CLI-only (the bot exposes no admin commands; only DM alerts). Admin must press
-  **Start** in the bot's DM once to be alertable; players are prompted to Start automatically by the
-  deep-link.
+- Admin actions are CLI-only (the bot exposes no admin commands; only DM alerts) — **except
+  bolãozinho setup (§22)**, which is exposed to the group: anyone may create/read/join, but only the
+  creator (or `admin_user_id`) may manage a given bolãozinho. Admin must press **Start** in the bot's
+  DM once to be alertable; players are prompted to Start automatically by the deep-link.
 - The bot needs **no group-admin rights** and privacy mode may remain enabled.
 - `wc_league_id=1`, `wc_season=2026` for API-Football — **verify** against the live API before release.
 - The first-scorer market is **team-based** (`FIRST_TEAM`: HOME/AWAY) — no squad data is fetched,
@@ -1025,3 +1036,77 @@ same tie-breaks). Pure DB read; voided games excluded.
   (`^pjc:`), registered before the wizard catch-all.
 - `/ajuda` + `app.PRIVATE/GROUP_COMMANDS` gained `/placar_jogos`; COMPLETION.md §10 + command-scope
   list updated (§11 maintenance rule). Design + plan under `docs/superpowers/`.
+
+### 21.2 — 2026-06-18 — Bolãozinhos (tournaments) — Feature 7 (§22)
+
+User request. Real-money side-competitions over a set of fixtures, set up via Telegram slash
+commands. Full design/plan + a multi-POV adversarial review under `docs/superpowers/`
+(`2026-06-18-tournaments-design.md`, `2026-06-18-bolaozinhos.md`). See §22.
+
+---
+
+## 22. Feature 7 — Bolãozinhos (tournaments, real-money side-pot)
+
+A **bolãozinho** is a competition over a fixed set of WC fixtures with a real-money **entry price**.
+User-facing the feature is called a *bolãozinho* (commands `/bolaozinho_*`); internal code/tables keep
+English names (`tournament*`). The bot is **bookkeeping only** — it never moves money; it tracks
+entrants, computes the pot/prize, and announces the winner(s).
+
+### 22.1 Money model
+- One global currency: `tournament_currency` (+ `tournament_currency_decimals`) in `config.yaml`. All
+  money is integer **cents**; only `text_pt.format_money_cents` renders it.
+- `pot = n_entrants × entry_price`. **`prize = pot − one entry`** (the winner does not win their own
+  stake): 10 players × R$10 → pot R$100, prize R$90. Tied winners split the prize `prize ÷ k` (any
+  leftover shown as "sobra"). Lone entrant → prize R$0. Pure math in `domain/tournament.py` (100%
+  covered).
+- Winner = highest total of the existing bet points (5/2/2/2/1) over the bolãozinho's settled,
+  non-void member games. **Pure points-equality** decides ties (no board tie-breaks). Only entrants
+  are scored.
+
+### 22.2 Lifecycle, permissions & locking
+- States `DRAFT → OPEN → FINISHED`; `CANCELLED` is the no-result/terminal escape. Persisted one-way
+  `locked_at` is set when the earliest member game kicks off — it **freezes games, price, and joins**.
+- **Joining closes at the first game's kickoff** (no late joins). **Entry price freezes at the first
+  entry** (uniform price; nobody is retroactively re-billed).
+- **Anyone** can create/read/join; only the **creator (`created_by`) or `admin_user_id`** may
+  add/remove games, set price, open, or cancel a given bolãozinho. This is the *only* bot-exposed
+  admin-ish surface (everything else stays CLI-only, §19).
+- A game is addable only while `SCHEDULED` + future + unlocked.
+
+### 22.3 Commands (pt-BR)
+- `/bolaozinho_criar <nome> | <preço>` (exactly one `|`; name may not contain `|`) — DRAFT + card.
+- Management card buttons (creator/admin): `➕ Adicionar jogos` (identity-based multi-select picker —
+  a toggle writes membership immediately, **no position drift**), `📣 Abrir`, `❌ Cancelar`.
+- `/bolaozinho_preco <id> <preço>`, `/bolaozinho_abrir <id>` (publishes + announces to the group).
+- `/entrar` — lists joinable bolãozinhos / shows the join card (games, price, pot, prize) → `✅ Entrar`.
+- `/bolaozinhos`, `/bolaozinho <id>` — list / details (with a live mini-standings). Group + DM.
+- Inline state is stateless `callback_data` (`bg`/`ba`/`bd`/`bo`/`bx`/`bj`/`bk`/`bi`, ≤64 bytes).
+
+### 22.4 Resolution, announcements & corrections
+- `tournament_service.on_game_resolved(session, fixture_id)` runs after **every** member-game state
+  change — settlement (`poll_job`), reconcile re-grade, and **void / un-void in `sync_job`** — plus a
+  periodic `bolaozinho_sweep` backstop. When all member games are resolved (settled-or-void) it
+  announces the winner once (idempotent via `result_announced_at` + `result_signature`); a later
+  re-grade that flips the result posts a capped `⚠️ … corrigido` correction; an all-void `CANCELLED`
+  bolãozinho whose games later play **revives**. No scorable result (all void, or zero entrants) →
+  `CANCELLED` + a "sem resultado" notice.
+- **`bolaozinho_sweep`** (`run_repeating`, no provider calls): persists the lock, finishes
+  resolved-but-unannounced bolãozinhos (covers a last game VOIDed outside settlement), and DMs the
+  admin once per bolãozinho when a member game is stranded past its match window.
+- A member game stays **reconcile-eligible for the bolãozinho's lifetime** (not just the per-game
+  window), so a late re-grade to an early game still corrects the result.
+
+### 22.5 Reminder integration
+The §9.3 1h reminder is **merged**: a member game's `🏆` line @-mentions entrants who still haven't
+bet (deduped, capped at `reminder_max_mentions`, `… +N`). Member games are reminder-eligible even
+without the morning announcement; a permanently-oversized send still marks the slot reminded (never
+retry-spams).
+
+### 22.6 Data model (new tables, one append-only migration)
+`tournaments` (id, name, entry_price_cents, status, created_by, created_at, opened_at, locked_at,
+result_announced_at, result_signature, correction_count); `tournament_games` (M:N — a game may be in
+many bolãozinhos); `tournament_entries` (unique per player per tournament).
+
+### 22.7 CLI
+`python -m tigrinho.cli bolaozinho <create|list|show|add-game|remove-game|set-price|cancel|entries|
+add-entry|remove-entry|standings>` (destructive needs `--yes`).

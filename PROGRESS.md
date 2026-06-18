@@ -1,6 +1,6 @@
 # PROGRESS — TigrinhoDaCopa (Telegram)
 
-**Status: COMPLETE — M0–M11 done** (full build green; DoD holds) · _Created 2026-06-15_
+**Status: COMPLETE — M0–M12 done** (full build green; DoD holds) · _Created 2026-06-15_
 
 The Ralph-loop's persistent memory and live checklist. `COMPLETION.md` is the single
 source of truth; this file only tracks progress against it.
@@ -219,6 +219,18 @@ Do not emit the promise while any gate is red, any milestone is unchecked, or an
   - [ ] Full Definition of Done re-verified (all gates green, all milestones checked)
   - **Done when:** the §0 Definition of Done fully holds — at which point emit
     `<promise>TIGRINHO_TELEGRAM_COMPLETE</promise>`.
+
+- [x] **M12 — Bolãozinhos (Feature 7 / §22)**
+  - [x] Pure `domain/tournament.py` (pot/prize/winner/parsing), added to the 100%-coverage gate
+  - [x] `Tournament`/`TournamentGame`/`TournamentEntry` models + append-only migration
+        (`f1a2b3c4d5e6`); `TournamentRepository` (membership, entries, standings, resolution queries)
+  - [x] `tournament_service` (auth/lock/price-freeze/open/join + `on_game_resolved` with
+        correction/revive), wired into poll/reconcile/sync + a `bolaozinho_sweep` job
+  - [x] Bot commands + identity-based pickers/cards (`tournament_handlers`), capped reminder mentions,
+        `bolaozinho` CLI sub-app
+  - [x] Review fixes folded in (F18/F11/F4/F13/F5/F8/F17/F12/F10 + no-late-join + prize=pot−own-stake)
+  - [x] `/ajuda` + COMPLETION.md §22/§17/§13/§19/§4.2 + README updated (§11 maintenance rule)
+  - **Done when:** all four gates green with tournament coverage at 100%. ✅ **DONE**
 
 ---
 

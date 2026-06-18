@@ -127,11 +127,21 @@ All commands are in pt-BR (the players' language):
 - **`/placar`** — the scoreboard (toggle **Geral** ↔ **Semana**).
 - **`/palpite`** — the AI's palpites (Gemini, with web search) for the next 24h of games. Requires
   `GEMINI_API_KEY`; otherwise it explains that the feature is disabled.
+- **`/bolaozinhos`** — list the bolãozinhos (real-money side-competitions with a prize).
+- **`/entrar`** — enter a bolãozinho.
+- **`/bolaozinho_criar Nome | preço`** — create one (anyone can; you then manage it).
 - **`/ajuda`** — how the bolão works, categories, points, rules.
 - **`/start`** — welcome (a `bet_<id>` deep link jumps straight into the wizard).
 
 To bet: tap **🎯 Apostar** under a group announcement (opens the private chat), then pick a game →
 category → your prediction. Bets are editable until kickoff; one bet per category per game.
+
+**Bolãozinhos (real-money side-pot):** a *bolãozinho* is a competition over a set of games with an
+entry price (e.g. R$ 10). Anyone creates one with `/bolaozinho_criar Nome | preço`, adds not-yet-started
+games (creator/admin only), and opens it; players `/entrar` until the first game kicks off. The
+**prize = pot − one entry** (10 × R$ 10 → pot R$ 100, prize R$ 90), and tied winners split it. When all
+games finish the bot announces the winner and payout. The bot only does the bookkeeping — settle the
+cash among yourselves.
 
 ## 10. Admin CLI
 
@@ -155,6 +165,14 @@ python -m tigrinho.cli budget
 # Group 4 — board & DB dump
 python -m tigrinho.cli board --weekly
 python -m tigrinho.cli db --table bets
+
+# Group 5 — bolãozinhos (tournaments)
+python -m tigrinho.cli bolaozinho create "Oitavas" --price 10
+python -m tigrinho.cli bolaozinho add-game <ID> <FIXTURE_ID>
+python -m tigrinho.cli bolaozinho list
+python -m tigrinho.cli bolaozinho show <ID>
+python -m tigrinho.cli bolaozinho standings <ID>
+python -m tigrinho.cli bolaozinho cancel <ID> --yes
 
 # Setup helper
 python -m tigrinho.cli telegram-info
