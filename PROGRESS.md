@@ -758,3 +758,21 @@ number in the hundreds for a player over a long tournament).
 - **Handler** (`bot/bets_handlers.py`): `minhas_apostas_handler` updated; `on_callback` dispatches new opcodes (no new handler registration — they fall through to the unpatterned catch-all like board toggles). Scope checks (caller-scoped reads, no leaks).
 - **Tests** (`test_bets_handlers.py` + `test_text_pt.py`): default view, history paging, detail per-game, stale-page clamp, caller-scoping, empty/edge states. Kept existing settled-rendering test.
 - `/ajuda` (§8.2) + COMPLETION.md (§8.2) updated per §11 maintenance rule. No schema/migration; `help_text_test` still passes.
+
+### 2026-06-18 — Feature: `/palpite` also offers running (LIVE) games (§20)
+
+User request, built test-first. `/palpite`'s candidate set now includes **in-progress** matches, not
+just the next-24h upcoming ones — so you can pull an AI palpite for a game already underway.
+- **Repo** (`db/repositories.py`): new `GameRepository.list_palpite_games(now, horizon,
+  live_window_hours)` — unions next-24h `SCHEDULED` games with currently-`LIVE` games that kicked off
+  within `live_window_hours` (mirrors the poll job's `match_window_hours` "active" window, §9.2), so a
+  stale never-settled `LIVE` row is not offered. Ordered by `kickoff_utc` → live games sort first.
+- **Service** (`palpite_service.py`): `generate_palpites` / `load_today_palpites` take
+  `live_window_hours` and call `list_palpite_games` (was `list_upcoming_within`). Caching invariant
+  unchanged (one row per `(fixture, date)`, computed at most once; cached pre-match row shown for a
+  now-live game, else generated on demand).
+- **Handlers / job** (`bot/palpite_handlers.py`, `bot/palpite_job.py`): both pass
+  `settings.match_window_hours`; picker labels LIVE games `🔴 … · ao vivo` (vs the past kickoff
+  time); the cold-cache candidate set (`candidate_ids`) now includes live games too.
+- **Text** (`domain/text_pt.py`): `palpite_no_games_text` now says "em andamento ou nas próximas 24h".
+- `/ajuda` + COMPLETION.md (§20, §20.1) updated per §11 maintenance rule. 597 tests green (rebased onto §22 bolãozinho work); all gates pass.

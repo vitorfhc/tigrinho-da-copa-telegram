@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from tigrinho.db.models import (
@@ -98,6 +98,38 @@ class GameRepository:
                 Game.status == GameStatus.SCHEDULED,
                 Game.kickoff_utc > now,
                 Game.kickoff_utc <= now + horizon,
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
+    def list_palpite_games(
+        self, now: datetime, horizon: timedelta, live_window_hours: int
+    ) -> list[Game]:
+        """Games eligible for an AI palpite (§20): upcoming **and** in-progress, soonest first.
+
+        Unions the ``list_upcoming_within`` set (``SCHEDULED`` games kicking off within ``horizon``)
+        with currently ``LIVE`` games that kicked off within ``live_window_hours`` of now — the
+        same window the poll job treats as "active" (§9.2) — so a running match can also be
+        palpitated while a stale, never-settled ``LIVE`` row is not offered. Ordered by
+        ``kickoff_utc``, so live games (past kickoffs) sort ahead of the upcoming ones.
+        """
+        live_floor = now - timedelta(hours=live_window_hours)
+        stmt = (
+            select(Game)
+            .where(
+                or_(
+                    and_(
+                        Game.status == GameStatus.SCHEDULED,
+                        Game.kickoff_utc > now,
+                        Game.kickoff_utc <= now + horizon,
+                    ),
+                    and_(
+                        Game.status == GameStatus.LIVE,
+                        Game.kickoff_utc >= live_floor,
+                        Game.kickoff_utc <= now,
+                    ),
+                )
             )
             .order_by(Game.kickoff_utc)
         )

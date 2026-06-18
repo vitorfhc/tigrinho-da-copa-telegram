@@ -605,7 +605,8 @@ def help_text() -> str:
         "• /placar — ranking (Geral e da Semana)\n"
         "• /placar_jogo — placar de um jogo já encerrado\n"
         "• /placar_jogos — placar somando vários jogos encerrados\n"
-        "• /palpite — escolha um jogo das próximas 24h e veja o palpite da IA (Gemini)\n"
+        "• /palpite — escolha um jogo (em andamento ou nas próximas 24h) e veja o palpite da "
+        "IA (Gemini)\n"
         "• /bolaozinhos — ver os bolãozinhos (competições com prêmio em dinheiro)\n"
         "• /bolaozinho_participantes — ver quem entrou num bolãozinho\n"
         "• /entrar — entrar num bolãozinho\n"
@@ -675,7 +676,7 @@ def palpite_text(
 
 
 def palpite_pick_text() -> str:
-    """`/palpite` prompt — pick a next-24h game to see its AI palpite (§20)."""
+    """`/palpite` prompt — pick an eligible game (live or next-24h) to see its AI palpite (§20)."""
     return "🤖 Escolha um jogo para ver o palpite da IA:"
 
 
@@ -689,8 +690,8 @@ def palpite_no_key_text() -> str:
 
 
 def palpite_no_games_text() -> str:
-    """Shown when /palpite runs but no game kicks off within the next 24h (§20)."""
-    return "🤖 Nenhum jogo nas próximas 24h para palpitar. 🐯"
+    """Shown when /palpite runs but no game is in progress or kicks off within 24h (§20)."""
+    return "🤖 Nenhum jogo em andamento ou nas próximas 24h para palpitar. 🐯"
 
 
 def palpite_working_text() -> str:

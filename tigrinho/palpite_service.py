@@ -2,11 +2,11 @@
 
 Telegram-free orchestration shared by the ``/palpite`` command and the daily 06h job:
 
-- :func:`generate_palpites` finds the games kicking off in the next 24h that do **not** yet have
-  a palpite cached for ``palpite_date``, asks the generator once for those, validates the JSON,
-  and stores one row per game. Because it only ever fills the gaps, the day's predictions are
-  computed at most once (the DB is the cache).
-- :func:`load_today_palpites` reads the cached palpites for today's upcoming games (for display).
+- :func:`generate_palpites` finds the palpite-eligible games — upcoming (next 24h) **and**
+  in-progress (LIVE) — that do **not** yet have a palpite cached for ``palpite_date``, asks the
+  generator once for those, validates the JSON, and stores one row per game. Because it only ever
+  fills the gaps, the day's predictions are computed at most once (the DB is the cache).
+- :func:`load_today_palpites` reads the cached palpites for today's eligible games (for display).
 
 Network work (the Gemini call) is ``async``; the SQLite reads/writes are synchronous (the
 project's split). The generator is injected so this layer never imports ``google-genai``.
@@ -45,14 +45,16 @@ async def generate_palpites(
     *,
     now: datetime,
     palpite_date: date,
+    live_window_hours: int,
 ) -> list[int]:
-    """Generate + cache palpites for next-24h games missing one for ``palpite_date``.
+    """Generate + cache palpites for eligible games missing one for ``palpite_date``.
 
-    Returns the fixture ids that were generated this call (empty if the cache was already warm,
-    in which case the generator is never invoked).
+    Eligible = upcoming (next 24h) plus in-progress (LIVE within ``live_window_hours``). Returns
+    the fixture ids that were generated this call (empty if the cache was already warm, in which
+    case the generator is never invoked).
     """
     with session_factory() as session:
-        games = GameRepository(session).list_upcoming_within(now, PALPITE_HORIZON)
+        games = GameRepository(session).list_palpite_games(now, PALPITE_HORIZON, live_window_hours)
         cached = PalpiteRepository(session).existing_fixture_ids(
             [g.fixture_id for g in games], palpite_date
         )
@@ -97,10 +99,11 @@ def load_today_palpites(
     *,
     now: datetime,
     palpite_date: date,
+    live_window_hours: int,
 ) -> list[RenderablePalpite]:
-    """Load cached palpites for the next-24h games (skipping games without one), soonest first."""
+    """Load cached palpites for the eligible games (skipping games without one), soonest first."""
     with session_factory() as session:
-        games = GameRepository(session).list_upcoming_within(now, PALPITE_HORIZON)
+        games = GameRepository(session).list_palpite_games(now, PALPITE_HORIZON, live_window_hours)
         rows = {
             row.fixture_id: row
             for row in PalpiteRepository(session).list_for_date(

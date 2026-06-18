@@ -22,7 +22,12 @@ def _now() -> datetime:
     return datetime.now(tz=UTC).replace(tzinfo=None)
 
 
-def _seed_game(session_factory: sessionmaker[Session], fixture_id: int, hours: float) -> None:
+def _seed_game(
+    session_factory: sessionmaker[Session],
+    fixture_id: int,
+    hours: float,
+    status: GameStatus = GameStatus.SCHEDULED,
+) -> None:
     kickoff = _now() + timedelta(hours=hours)
     with session_factory() as session:
         session.add(
@@ -36,7 +41,7 @@ def _seed_game(session_factory: sessionmaker[Session], fixture_id: int, hours: f
                 away_team_name=f"Away{fixture_id}",
                 kickoff_utc=kickoff,
                 kickoff_local=kickoff,
-                status=GameStatus.SCHEDULED,
+                status=status,
             )
         )
         session.commit()
@@ -76,7 +81,9 @@ async def test_generates_and_saves_for_upcoming_games(
     _seed_game(session_factory, 2, 5)
     gen = FakeGenerator([1, 2])
 
-    generated = await generate_palpites(session_factory, gen, now=_now(), palpite_date=_TODAY)
+    generated = await generate_palpites(
+        session_factory, gen, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     assert sorted(generated) == [1, 2]
     assert gen.calls == 1
@@ -89,10 +96,14 @@ async def test_cache_skips_regeneration_when_all_present(
 ) -> None:
     _seed_game(session_factory, 1, 2)
     gen = FakeGenerator([1])
-    await generate_palpites(session_factory, gen, now=_now(), palpite_date=_TODAY)
+    await generate_palpites(
+        session_factory, gen, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     gen2 = FakeGenerator([1])
-    generated = await generate_palpites(session_factory, gen2, now=_now(), palpite_date=_TODAY)
+    generated = await generate_palpites(
+        session_factory, gen2, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     assert generated == []
     assert gen2.calls == 0  # nothing missing -> Gemini is never called
@@ -110,7 +121,9 @@ async def test_only_missing_games_are_generated(
         s.commit()
     gen = FakeGenerator([2])
 
-    generated = await generate_palpites(session_factory, gen, now=_now(), palpite_date=_TODAY)
+    generated = await generate_palpites(
+        session_factory, gen, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     assert generated == [2]
     assert "fixture_id=2" in gen.last_user_content
@@ -123,11 +136,45 @@ async def test_unknown_fixture_in_response_is_ignored(
     _seed_game(session_factory, 1, 2)
     gen = FakeGenerator([1, 999])  # 999 was never requested
 
-    await generate_palpites(session_factory, gen, now=_now(), palpite_date=_TODAY)
+    await generate_palpites(
+        session_factory, gen, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     with session_factory() as s:
         assert PalpiteRepository(s).get(999, _TODAY) is None
         assert PalpiteRepository(s).get(1, _TODAY) is not None
+
+
+async def test_generates_for_live_games(
+    session_factory: sessionmaker[Session],
+) -> None:
+    # A game that already kicked off and is in progress (LIVE) is also eligible for a palpite.
+    _seed_game(session_factory, 1, -1, status=GameStatus.LIVE)
+    gen = FakeGenerator([1])
+
+    generated = await generate_palpites(
+        session_factory, gen, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
+
+    assert generated == [1]
+    assert gen.calls == 1
+
+
+def test_load_today_palpites_includes_live_games(
+    session_factory: sessionmaker[Session],
+) -> None:
+    _seed_game(session_factory, 1, -1, status=GameStatus.LIVE)
+    with session_factory() as s:
+        PalpiteRepository(s).upsert(
+            fixture_id=1, palpite_date=_TODAY, payload_json=_palpite_json(1)
+        )
+        s.commit()
+
+    rendered = load_today_palpites(
+        session_factory, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
+
+    assert [r.fixture_id for r in rendered] == [1]
 
 
 async def test_no_upcoming_games_does_not_call_generator(
@@ -136,7 +183,9 @@ async def test_no_upcoming_games_does_not_call_generator(
     _seed_game(session_factory, 1, 40)  # beyond the 24h horizon
     gen = FakeGenerator([1])
 
-    generated = await generate_palpites(session_factory, gen, now=_now(), palpite_date=_TODAY)
+    generated = await generate_palpites(
+        session_factory, gen, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     assert generated == []
     assert gen.calls == 0
@@ -153,7 +202,9 @@ def test_load_today_palpites_returns_cached_and_skips_missing(
         )
         s.commit()
 
-    rendered = load_today_palpites(session_factory, now=_now(), palpite_date=_TODAY)
+    rendered = load_today_palpites(
+        session_factory, now=_now(), palpite_date=_TODAY, live_window_hours=3
+    )
 
     assert [r.fixture_id for r in rendered] == [1]  # game 2 has no cached palpite -> skipped
     assert rendered[0].home_team == "Home1"

@@ -44,6 +44,23 @@ def test_list_upcoming_within_window(session: Session) -> None:
     assert [g.fixture_id for g in games] == [1]
 
 
+def test_list_palpite_games_includes_live_and_upcoming(session: Session) -> None:
+    now = _now()
+    _add_game(session, 1, now - timedelta(hours=1), GameStatus.LIVE)  # live, in window
+    _add_game(session, 2, now + timedelta(hours=2), GameStatus.SCHEDULED)  # upcoming, in window
+    _add_game(session, 3, now + timedelta(hours=30), GameStatus.SCHEDULED)  # beyond 24h horizon
+    _add_game(session, 4, now - timedelta(hours=10), GameStatus.LIVE)  # stale live, beyond window
+    _add_game(session, 5, now - timedelta(hours=1), GameStatus.FINISHED)  # finished, excluded
+
+    games = GameRepository(session).list_palpite_games(
+        now, timedelta(hours=24), live_window_hours=3
+    )
+
+    # Live games (earlier kickoff) come first, then upcoming; stale-live / beyond-horizon /
+    # finished are all excluded.
+    assert [g.fixture_id for g in games] == [1, 2]
+
+
 def test_palpite_upsert_creates_then_replaces(session: Session) -> None:
     now = _now()
     _add_game(session, 1, now + timedelta(hours=2), GameStatus.SCHEDULED)

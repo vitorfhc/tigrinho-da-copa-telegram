@@ -46,8 +46,14 @@ class FakeGenerator:
         return '{"palpites": [' + items + "]}"
 
 
-def _seed_game(app_context: AppContext, fixture_id: int) -> None:
-    kickoff = _now() + timedelta(hours=3)
+def _seed_game(
+    app_context: AppContext,
+    fixture_id: int,
+    status: GameStatus = GameStatus.SCHEDULED,
+    *,
+    hours: float = 3,
+) -> None:
+    kickoff = _now() + timedelta(hours=hours)
     with app_context.session_factory() as session:
         session.add(
             Game(
@@ -60,7 +66,7 @@ def _seed_game(app_context: AppContext, fixture_id: int) -> None:
                 away_team_name=f"Away{fixture_id}",
                 kickoff_utc=kickoff,
                 kickoff_local=kickoff,
-                status=GameStatus.SCHEDULED,
+                status=status,
             )
         )
         session.commit()
@@ -110,6 +116,10 @@ def _picker_choices(keyboard: InlineKeyboardMarkup) -> list[CallbackData]:
     ]
 
 
+def _picker_labels(keyboard: InlineKeyboardMarkup) -> list[str]:
+    return [button.text for row in keyboard.inline_keyboard for button in row]
+
+
 def _edited_texts(query: AsyncMock) -> list[str]:
     return [c.args[0] for c in query.edit_message_text.await_args_list]
 
@@ -146,6 +156,20 @@ async def test_command_shows_game_picker_without_generating(app_context: AppCont
     message.reply_text.assert_awaited_once()
     keyboard = message.reply_text.await_args.kwargs["reply_markup"]
     assert _picker_choices(keyboard) == [PalpiteView(1), PalpiteView(2)]
+
+
+async def test_command_lists_live_games_with_marker(app_context: AppContext) -> None:
+    # A running (LIVE) game is offered alongside upcoming ones, labelled as live (§20).
+    _seed_game(app_context, 1, GameStatus.LIVE, hours=-1)  # kicked off 1h ago, in progress
+    _seed_game(app_context, 2)  # upcoming
+    update, message = _update()
+
+    await palpite_handler(update, _ctx(_with_generator(app_context, FakeGenerator([1, 2]))))
+
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    assert _picker_choices(keyboard) == [PalpiteView(1), PalpiteView(2)]  # live first
+    labels = _picker_labels(keyboard)
+    assert "ao vivo" in labels[0].lower()  # the live game is marked
 
 
 # --- per-game selection callback -------------------------------------------------------------
@@ -189,6 +213,19 @@ async def test_select_cold_cache_generates_and_shows_only_the_chosen_game(
     final = texts[-1]
     assert "Palpite da IA" in final and "Home2" in final  # the chosen game…
     assert "Home1" not in final  # …and only that game
+
+
+async def test_select_live_game_cold_cache_generates(app_context: AppContext) -> None:
+    # Tapping a running (LIVE) game with a cold cache generates its palpite on demand (§20).
+    _seed_game(app_context, 1, GameStatus.LIVE, hours=-1)
+    gen = FakeGenerator([1])
+    update, query = _callback_update(1)
+
+    await palpite_select(update, _ctx(_with_generator(app_context, gen)))
+
+    assert gen.calls == 1
+    final = _edited_texts(query)[-1]
+    assert "Palpite da IA" in final and "Home1" in final
 
 
 async def test_select_generation_failure_reports_error(app_context: AppContext) -> None:

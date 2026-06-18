@@ -275,7 +275,9 @@ def test_palpite_generating_text() -> None:
 
 
 def test_palpite_no_games_text() -> None:
-    assert "24h" in palpite_no_games_text()
+    text = palpite_no_games_text()
+    assert "24h" in text
+    assert "andamento" in text  # also mentions in-progress (live) games
 
 
 def test_format_kickoff_local() -> None:
