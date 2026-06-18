@@ -30,6 +30,8 @@ from tigrinho.bot.callbacks import (
     MyHistory,
     OverUnderInput,
     PalpiteView,
+    TournamentAction,
+    TournamentAddToggle,
     WinnerInput,
     encode,
 )
@@ -40,7 +42,7 @@ from tigrinho.domain.text_pt import (
     btts_labels,
     category_button_label,
 )
-from tigrinho.enums import Stage
+from tigrinho.enums import Stage, TournamentStatus
 
 MAX_SCORE_PER_SIDE = 10
 
@@ -211,3 +213,59 @@ def board_toggle_keyboard(weekly: bool) -> InlineKeyboardMarkup:
     else:
         button = _button("📅 Ver Semana", BoardView("semana"))
     return InlineKeyboardMarkup([[button]])
+
+
+# --- Bolãozinhos (Feature 7 / §22) ------------------------------------------------------------
+
+
+def tournament_card_keyboard(
+    tournament_id: int, status: TournamentStatus
+) -> InlineKeyboardMarkup | None:
+    """Creator management card buttons (None for terminal status). §5."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if status is TournamentStatus.DRAFT:
+        rows.append([_button("➕ Adicionar jogos", TournamentAction("ba", tournament_id))])
+        rows.append([_button("📣 Abrir", TournamentAction("bo", tournament_id))])
+    if status in (TournamentStatus.DRAFT, TournamentStatus.OPEN):
+        rows.append([_button("❌ Cancelar", TournamentAction("bx", tournament_id))])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+def tournament_add_picker_keyboard(
+    tournament_id: int, games: Sequence[tuple[int, str, bool]]
+) -> InlineKeyboardMarkup:
+    """Identity-based multi-select of upcoming games (F18). Each item: (fixture_id, label, in)."""
+    rows = [
+        [
+            _button(
+                f"{'✅' if selected else '☐'} {label}",
+                TournamentAddToggle(tournament_id, fixture_id),
+            )
+        ]
+        for fixture_id, label, selected in games
+    ]
+    rows.append([_button("✔️ Pronto", TournamentAction("bd", tournament_id))])
+    return InlineKeyboardMarkup(rows)
+
+
+def tournament_list_keyboard(items: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """One details button per bolãozinho. Each item: (tournament_id, label)."""
+    rows = [
+        [_button(label, TournamentAction("bi", tournament_id))] for tournament_id, label in items
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def tournament_join_list_keyboard(items: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """One join-pick button per joinable bolãozinho. Each item: (tournament_id, label)."""
+    rows = [
+        [_button(label, TournamentAction("bj", tournament_id))] for tournament_id, label in items
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def tournament_join_card_keyboard(tournament_id: int, entry_label: str) -> InlineKeyboardMarkup:
+    """Confirm-entry button shown on the /entrar card (label carries the price). §5."""
+    return InlineKeyboardMarkup(
+        [[_button(f"✅ Entrar ({entry_label})", TournamentAction("bk", tournament_id))]]
+    )

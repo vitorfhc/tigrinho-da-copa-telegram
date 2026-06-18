@@ -29,6 +29,7 @@ from tigrinho.bot.reconcile_job import schedule_reconcile_job
 from tigrinho.bot.reminder_job import schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
 from tigrinho.bot.sync_job import schedule_sync_job
+from tigrinho.bot.tournament_handlers import register_tournament_handlers
 from tigrinho.config import Settings
 from tigrinho.logging import get_logger
 
@@ -43,6 +44,9 @@ PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand("placar_jogo", "Placar de um jogo já encerrado"),
     BotCommand("placar_jogos", "Placar somando vários jogos encerrados"),
     BotCommand("palpite", "Escolha um jogo e veja o palpite da IA"),
+    BotCommand("bolaozinhos", "Ver os bolãozinhos (com prêmio)"),
+    BotCommand("entrar", "Entrar num bolãozinho"),
+    BotCommand("bolaozinho_criar", "Criar um bolãozinho: Nome | preço"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 GROUP_COMMANDS: list[BotCommand] = [
@@ -51,6 +55,9 @@ GROUP_COMMANDS: list[BotCommand] = [
     BotCommand("placar_jogo", "Placar de um jogo já encerrado"),
     BotCommand("placar_jogos", "Placar somando vários jogos encerrados"),
     BotCommand("palpite", "Escolha um jogo e veja o palpite da IA"),
+    BotCommand("bolaozinhos", "Ver os bolãozinhos (com prêmio)"),
+    BotCommand("entrar", "Entrar num bolãozinho"),
+    BotCommand("bolaozinho_criar", "Criar um bolãozinho: Nome | preço"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 
@@ -118,6 +125,9 @@ def build_application(app_context: AppContext) -> AnyApplication:
     # CallbackQueryHandler so the toggle is matched first.
     register_board_handlers(application)
     register_palpite_handlers(application)
+    # Tournament callbacks (^ba|bd|bo|bx|bj|bk|bi|bg:) MUST be registered before the wizard's
+    # catch-all CallbackQueryHandler so they are matched first (§22).
+    register_tournament_handlers(application)
     register_bet_handlers(application)
     application.add_error_handler(error_handler)
     return application
