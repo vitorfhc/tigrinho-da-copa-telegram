@@ -29,6 +29,7 @@ from tigrinho.bot.keyboards import (
     tournament_join_list_keyboard,
     tournament_list_keyboard,
     tournament_participants_keyboard,
+    tournament_placar_keyboard,
 )
 from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
@@ -47,6 +48,7 @@ from tigrinho.domain.text_pt import (
     tournament_details_text,
     tournament_list_text,
     tournament_participants_text,
+    tournament_standings_text,
 )
 from tigrinho.domain.tournament import (
     parse_create_args,
@@ -458,6 +460,72 @@ async def cmd_participantes(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+def _render_placar(session: Session, tournament: Tournament, settings: Settings) -> str:
+    """The bolãozinho placar (standings so far) — the /bolaozinho_placar reply/card (§22.4)."""
+    repo = TournamentRepository(session)
+    players = PlayerRepository(session)
+    ranked = sorted(repo.standings(tournament.id).items(), key=lambda kv: (-kv[1], kv[0]))
+    standings = [
+        ((p.display_name if (p := players.get(tid)) is not None else str(tid)), points)
+        for tid, points in ranked[:_MAX_STANDINGS]
+    ]
+    n = repo.count_entries(tournament.id)
+    price = tournament.entry_price_cents
+    return tournament_standings_text(
+        name=tournament.name,
+        settled_count=repo.count_settled_games(tournament.id),
+        total_games=len(repo.list_game_ids(tournament.id)),
+        n_entrants=n,
+        pot_cents=pot_cents(n, price),
+        prize_cents=prize_cents(n, price),
+        standings=standings,
+        currency=settings.tournament_currency,
+        decimals=settings.tournament_currency_decimals,
+        is_final=tournament.status is TournamentStatus.FINISHED,
+        with_hint=False,
+    )
+
+
+async def cmd_placar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/bolaozinho_placar [id] — a bolãozinho's placar; with no id, pick one (a wizard step)."""
+    message = update.effective_message
+    if message is None:
+        return
+    app_context = get_app_context(context.application)
+    args = context.args or []
+    if args:
+        try:
+            tournament_id = int(args[0])
+        except ValueError:
+            await message.reply_text(_NOT_FOUND)
+            return
+        with app_context.session_factory() as session:
+            tournament = TournamentRepository(session).get(tournament_id)
+            if tournament is None:
+                await message.reply_text(_NOT_FOUND)
+                return
+            text = _render_placar(session, tournament, app_context.settings)
+        await message.reply_text(text, parse_mode=ParseMode.HTML)
+        return
+
+    # No id — show a picker of bolãozinhos that have a placar to show (or the only one directly).
+    with app_context.session_factory() as session:
+        eligible = TournamentRepository(session).list_with_standings()[:_MAX_PICKER_GAMES]
+        if not eligible:
+            await message.reply_text("Nenhum bolãozinho com placar ainda. 🐯")
+            return
+        if len(eligible) == 1:
+            text = _render_placar(session, eligible[0], app_context.settings)
+            await message.reply_text(text, parse_mode=ParseMode.HTML)
+            return
+        picker = tournament_placar_keyboard([(t.id, f"#{t.id} {t.name}") for t in eligible])
+    await message.reply_text(
+        "📊 Escolha um bolãozinho pra ver o placar:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=picker,
+    )
+
+
 async def show_entrar_dm(update: Update, app_context: AppContext) -> None:
     """The /entrar flow (private chat): a picker of the open bolãozinhos to choose from (§22)."""
     message = update.effective_message
@@ -559,6 +627,8 @@ async def on_tournament_callback(update: Update, context: ContextTypes.DEFAULT_T
             await _show_details(query, app_context, tournament_id, user.id)
         case TournamentAction("bp", tournament_id):
             await _show_participants(query, app_context, tournament_id)
+        case TournamentAction("bs", tournament_id):
+            await _show_placar(query, app_context, tournament_id)
         case _:  # pragma: no cover - pattern guarantees a tournament op
             await query.answer()
 
@@ -807,6 +877,17 @@ async def _show_participants(
     await safe_edit_text(query, text)
 
 
+async def _show_placar(query: CallbackQuery, app_context: AppContext, tournament_id: int) -> None:
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            await query.answer(_NOT_FOUND, show_alert=True)
+            return
+        text = _render_placar(session, tournament, app_context.settings)
+    await query.answer()
+    await safe_edit_text(query, text)
+
+
 def register_tournament_handlers(application: AnyApplication) -> None:
     """Register bolãozinho commands + the callback dispatcher (before the bet wizard catch-all)."""
     application.add_handler(CommandHandler("bolaozinho_criar", cmd_criar))
@@ -816,7 +897,8 @@ def register_tournament_handlers(application: AnyApplication) -> None:
     application.add_handler(CommandHandler("bolaozinhos", cmd_list))
     application.add_handler(CommandHandler("bolaozinho", cmd_show))
     application.add_handler(CommandHandler("bolaozinho_participantes", cmd_participantes))
+    application.add_handler(CommandHandler("bolaozinho_placar", cmd_placar))
     application.add_handler(CommandHandler("entrar", cmd_entrar))
     application.add_handler(
-        CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg|bp):")
+        CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg|bp|bs):")
     )

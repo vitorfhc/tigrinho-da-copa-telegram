@@ -50,6 +50,7 @@ from tigrinho.domain.text_pt import (
     settled_summary_line,
     tournament_no_result_text,
     tournament_result_text,
+    tournament_standings_text,
     void_text,
     welcome_text,
 )
@@ -205,6 +206,7 @@ def test_help_text_covers_required_content() -> None:
     assert "/palpite" in text  # AI palpite command
     assert "/entrar" in text  # bolãozinho join command
     assert "/bolaozinho_criar" in text  # bolãozinho create command
+    assert "/bolaozinho_placar" in text  # bolãozinho partial-placar command
     assert "Bolãozinhos" in text  # bolãozinho section
     assert "Prêmio = pote − uma entrada" in text  # money rule
 
@@ -723,3 +725,54 @@ def test_tournament_result_tie_shows_split_and_remainder() -> None:
 
 def test_tournament_no_result_text() -> None:
     assert "sem resultado" in tournament_no_result_text(name="Y")
+
+
+def test_tournament_standings_partial_with_hint() -> None:
+    text = tournament_standings_text(
+        name="Oitavas <b>",
+        settled_count=2,
+        total_games=4,
+        n_entrants=3,
+        pot_cents=10000,
+        prize_cents=9000,
+        standings=[("Ana", 12), ("Bruno", 9), ("Cau", 7), ("Dida", 4)],
+        currency="R$",
+        decimals=2,
+    )
+    assert "📊 Placar parcial" in text
+    assert "2/4 jogos" in text
+    assert "🥇 Ana" in text and "🥈 Bruno" in text and "🥉 Cau" in text
+    assert "4. Dida" in text  # no medal past 3rd
+    assert "&lt;b&gt;" in text  # name HTML-escaped (no raw tag)
+    assert "/bolaozinho_placar" in text  # the on-demand hint by default
+
+
+def test_tournament_standings_final_drops_hint() -> None:
+    text = tournament_standings_text(
+        name="Final",
+        settled_count=3,
+        total_games=3,
+        n_entrants=2,
+        pot_cents=2000,
+        prize_cents=1000,
+        standings=[("Ana", 5)],
+        currency="R$",
+        is_final=True,
+        with_hint=False,
+    )
+    assert "🏁 Placar final" in text
+    assert "/bolaozinho_placar" not in text
+
+
+def test_tournament_standings_empty_placeholder() -> None:
+    text = tournament_standings_text(
+        name="Vazio",
+        settled_count=1,
+        total_games=2,
+        n_entrants=1,
+        pot_cents=1000,
+        prize_cents=0,
+        standings=[],
+        currency="R$",
+    )
+    assert "Ninguém pontuou" in text

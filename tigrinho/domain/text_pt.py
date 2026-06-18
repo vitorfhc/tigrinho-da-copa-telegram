@@ -608,6 +608,7 @@ def help_text() -> str:
         "• /palpite — escolha um jogo (em andamento ou nas próximas 24h) e veja o palpite da "
         "IA (Gemini)\n"
         "• /bolaozinhos — ver os bolãozinhos (competições com prêmio em dinheiro)\n"
+        "• /bolaozinho_placar — placar parcial de um bolãozinho\n"
         "• /bolaozinho_participantes — ver quem entrou num bolãozinho\n"
         "• /entrar — entrar num bolãozinho\n"
         "• /bolaozinho_criar — criar um bolãozinho (<code>Nome | preço</code>)\n"
@@ -642,6 +643,9 @@ def help_text() -> str:
         "• <b>Prêmio = pote − uma entrada</b> (você não ganha a sua própria entrada de volta): com "
         "10 pessoas a R$ 10, o pote é R$ 100 e o prêmio R$ 90. Vence quem fizer mais pontos nos "
         "jogos do bolãozinho; <b>empate divide o prêmio</b> igualmente.\n"
+        "• A cada jogo do bolãozinho que <b>termina</b>, o grupo recebe o <b>placar parcial</b> "
+        "(quem está na frente até ali). Você também pode ver a qualquer momento com "
+        "<b>/bolaozinho_placar</b>.\n"
         "• Quando todos os jogos terminam, o bot anuncia o vencedor e quanto leva. O acerto do "
         "dinheiro é por fora — o bot só faz a conta.\n\n"
         "Boa sorte! 🍀"
@@ -781,6 +785,49 @@ def tournament_no_result_text(*, name: str) -> str:
         f'🏁 Bolãozinho "{escape(name)}" encerrado — sem resultado '
         "(nenhum jogo valeu ou ninguém entrou)."
     )
+
+
+def tournament_standings_text(
+    *,
+    name: str,
+    settled_count: int,
+    total_games: int,
+    n_entrants: int,
+    pot_cents: int,
+    prize_cents: int,
+    standings: Sequence[tuple[str, int]],
+    currency: str,
+    decimals: int = 2,
+    is_final: bool = False,
+    with_hint: bool = True,
+) -> str:
+    """The bolãozinho placar — standings so far (§22.4). Shared by the auto-post and the command.
+
+    Posted to the group once per newly-finished member game (``with_hint`` points to the command);
+    also rendered on demand by ``/bolaozinho_placar`` (``with_hint=False``). ``standings`` is the
+    already-ranked ``(display_name, points)`` list; names are plain (not @-mentions) so a placar
+    posted many times never spams pings (same choice as /placar)."""
+
+    def money(cents: int) -> str:
+        return format_money_cents(cents, currency=currency, decimals=decimals)
+
+    header = "🏁 Placar final" if is_final else "📊 Placar parcial"
+    lines = [
+        f'{header} — bolãozinho "<b>{escape(name)}</b>"',
+        f"{settled_count}/{total_games} jogos · {n_entrants} {_entries_word(n_entrants)} · "
+        f"Pote {money(pot_cents)} · Prêmio {money(prize_cents)}",
+        "",
+    ]
+    if standings:
+        for position, (player_name, points) in enumerate(standings, start=1):
+            marker = _MEDALS.get(position, f"{position}.")
+            lines.append(f"{marker} {escape(player_name)} — <b>{points}</b> pts")
+    else:
+        lines.append("Ninguém pontuou ainda. 🐯")
+    if with_hint:
+        lines.append("")
+        lines.append("📲 Acompanhe o placar com /bolaozinho_placar")
+    return "\n".join(lines)
 
 
 def tournament_cancelled_dm_text(*, name: str, reason: str | None = None) -> str:

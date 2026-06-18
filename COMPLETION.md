@@ -1049,6 +1049,24 @@ User request. Real-money side-competitions over a set of fixtures, set up via Te
 commands. Full design/plan + a multi-POV adversarial review under `docs/superpowers/`
 (`2026-06-18-tournaments-design.md`, `2026-06-18-bolaozinhos.md`). See §22.
 
+### 21.3 — 2026-06-18 — Bolãozinho partial placar (auto-post + `/bolaozinho_placar`, §22.4)
+
+User request: every time a member game finishes, post the bolãozinho's standings-so-far to the
+group, plus a `/bolaozinho_placar` command (wizard picker) for partial results on demand.
+- **Auto-post:** `on_game_resolved` now emits a `TournamentPartialAnnouncement` once per
+  newly-**settled** member game while the bolãozinho is OPEN and not yet fully resolved (the final
+  game still posts the winner). Idempotent via a persisted `tournaments.partial_announced_count`
+  watermark (append-only migration `b2c3d4e5f6a7`) — a re-grade or void of an already-counted game
+  never re-posts. `tournament_announce.post_tournament_announcements` posts it best-effort.
+- **Command:** `/bolaozinho_placar [id]` — with no id, a wizard picker (`bs:<id>` op) over
+  `TournamentRepository.list_with_standings()` (FINISHED + OPEN-with-≥1-settled-game). Shared pure
+  renderer `text_pt.tournament_standings_text` (plain names, medals top-3, `X/Y jogos`).
+- **Plumbing:** `repositories.count_settled_games` + `list_with_standings`;
+  `keyboards.tournament_placar_keyboard`; `callbacks.TournamentOp` gains `bs`; handler `cmd_placar` +
+  `_show_placar` (registered with the `^…|bs):` dispatcher); `/bolaozinho_placar` added to
+  `app.PRIVATE/GROUP_COMMANDS`.
+- `/ajuda` + COMPLETION.md (§22.3/§22.4/§22.6) + README + PROGRESS updated (§11 maintenance rule).
+
 ---
 
 ## 22. Feature 7 — Bolãozinhos (tournaments, real-money side-pot)
@@ -1099,7 +1117,11 @@ entrants, computes the pot/prize, and announces the winner(s).
 - `/bolaozinhos`, `/bolaozinho <id>` — list / details (with a live mini-standings). Group + DM.
 - `/bolaozinho_participantes [id]` — who entered a bolãozinho; **with no id it shows a picker** of
   bolãozinhos to choose from (group + DM).
-- Inline state is stateless `callback_data` (`bg`/`ba`/`bd`/`bo`/`bx`/`bj`/`bk`/`bi`/`bp`, ≤64 bytes).
+- `/bolaozinho_placar [id]` — the **placar parcial** (standings so far) of a bolãozinho; **with no id
+  it shows a picker** (a wizard step) of bolãozinhos worth showing a placar for — FINISHED ones, plus
+  OPEN ones with ≥1 settled member game (DRAFT / not-yet-started OPEN are excluded). Group + DM.
+- Inline state is stateless `callback_data`
+  (`bg`/`ba`/`bd`/`bo`/`bx`/`bj`/`bk`/`bi`/`bp`/`bs`, ≤64 bytes).
 
 ### 22.4 Resolution, announcements & corrections
 - `tournament_service.on_game_resolved(session, fixture_id)` runs after **every** member-game state
@@ -1114,6 +1136,14 @@ entrants, computes the pot/prize, and announces the winner(s).
   admin once per bolãozinho when a member game is stranded past its match window.
 - A member game stays **reconcile-eligible for the bolãozinho's lifetime** (not just the per-game
   window), so a late re-grade to an early game still corrects the result.
+- **Partial placar (running standings):** each time a member game *settles* while the bolãozinho is
+  still running, the group gets a **standings-so-far** post (`tournament_standings_text`, plain names
+  — not @-mentions — so repeated posts never spam pings) — **once per newly-finished game**, idempotent
+  via the persisted `tournaments.partial_announced_count` watermark (a re-grade or void of an
+  already-counted game never re-posts). The **last** member game's resolution posts the winner
+  announcement instead of a partial. Anyone can pull the current placar on demand with
+  `/bolaozinho_placar`. Posted from the same `on_game_resolved` paths as the result (poll/reconcile/
+  sync/sweep); best-effort group send (failure → log + admin DM, §14).
 
 ### 22.5 Reminder integration
 The §9.3 1h reminder is **merged**: a member game's `🏆` line @-mentions entrants who still haven't
@@ -1123,8 +1153,9 @@ retry-spams).
 
 ### 22.6 Data model (new tables, one append-only migration)
 `tournaments` (id, name, entry_price_cents, status, created_by, created_at, opened_at, locked_at,
-result_announced_at, result_signature, correction_count, cancel_reason); `tournament_games` (M:N — a
-game may be in many bolãozinhos); `tournament_entries` (unique per player per tournament).
+result_announced_at, result_signature, correction_count, cancel_reason, partial_announced_count);
+`tournament_games` (M:N — a game may be in many bolãozinhos); `tournament_entries` (unique per player
+per tournament).
 
 ### 22.7 CLI
 `python -m tigrinho.cli bolaozinho <create|list|show|add-game|remove-game|set-price|cancel|entries|

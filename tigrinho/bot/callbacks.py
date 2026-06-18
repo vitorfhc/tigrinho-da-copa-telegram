@@ -24,8 +24,9 @@ Opcodes:
   ``mg:<fixture>:<page>``             /minhas_apostas: my bets for one game (page=return)
   ``mm``                              /minhas_apostas: back to default listing view
   ``bg:<tid>:<fixture>``              bolãozinho: toggle a fixture in the slate (§22)
-  ``ba|bd|bo|bx|bj|bk|bi|bp:<tid>``   bolãozinho actions: add-picker / done / open / cancel /
-                                      join-pick / join-confirm / details / participants (§22)
+  ``ba|bd|bo|bx|bj|bk|bi|bp|bs:<tid>``
+      bolãozinho actions: add-picker / done / open / cancel / join-pick / join-confirm /
+      details / participants / placar (§22)
 """
 
 from __future__ import annotations
@@ -39,10 +40,10 @@ BoardScope = Literal["geral", "semana"]
 _BOARD_SCOPE_TO_CODE: dict[BoardScope, str] = {"geral": "g", "semana": "s"}
 _CODE_TO_BOARD_SCOPE: dict[str, BoardScope] = {"g": "geral", "s": "semana"}
 
-# Single-id bolãozinho actions (Feature 7 / §22): open add-games picker / done / open / cancel /
-# join-pick / join-confirm / details / participants. The 2-arg toggle is ``TournamentAddToggle``.
-TournamentOp = Literal["ba", "bd", "bo", "bx", "bj", "bk", "bi", "bp"]
-_TOURNAMENT_OPS: frozenset[str] = frozenset(("ba", "bd", "bo", "bx", "bj", "bk", "bi", "bp"))
+# Single-id bolãozinho actions (Feature 7 / §22): add-games picker / done / open / cancel /
+# join-pick / join-confirm / details / participants / placar (2-arg toggle: TournamentAddToggle).
+TournamentOp = Literal["ba", "bd", "bo", "bx", "bj", "bk", "bi", "bp", "bs"]
+_TOURNAMENT_OPS: frozenset[str] = frozenset(("ba", "bd", "bo", "bx", "bj", "bk", "bi", "bp", "bs"))
 
 MAX_CALLBACK_BYTES = 64
 

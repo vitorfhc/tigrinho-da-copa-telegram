@@ -190,3 +190,51 @@ def test_reconcilable_member_games_only_active_tournaments(session: Session) -> 
     session.flush()
     ids = {g.fixture_id for g in repo.reconcilable_member_games()}
     assert ids == {1}
+
+
+def test_count_settled_games(session: Session) -> None:
+    repo = TournamentRepository(session)
+    g1 = _game(session, 1, status=GameStatus.FINISHED)
+    g1.settled_at = datetime(2026, 6, 16, 21, 0)
+    _game(session, 2, status=GameStatus.VOID)
+    g3 = _game(session, 3, status=GameStatus.FINISHED)  # finished but not yet settled
+    session.flush()
+    t = repo.create(name="T", entry_price_cents=1000, created_by=1)
+    for fid in (1, 2, 3):
+        repo.add_game(t.id, fid)
+    # Only the FINISHED-and-settled game counts (void and unsettled-finished are excluded).
+    assert repo.count_settled_games(t.id) == 1
+    g3.settled_at = datetime(2026, 6, 16, 22, 0)
+    session.flush()
+    assert repo.count_settled_games(t.id) == 2
+    # An empty bolãozinho has zero.
+    empty = repo.create(name="E", entry_price_cents=1, created_by=1)
+    assert repo.count_settled_games(empty.id) == 0
+
+
+def test_list_with_standings(session: Session) -> None:
+    repo = TournamentRepository(session)
+    g1 = _game(session, 1, status=GameStatus.FINISHED)
+    g1.settled_at = datetime(2026, 6, 16, 21, 0)
+    g2 = _game(session, 2, status=GameStatus.FINISHED)
+    g2.settled_at = datetime(2026, 6, 16, 21, 0)
+    _game(session, 3, status=GameStatus.SCHEDULED)
+    session.flush()
+
+    finished = repo.create(name="Fin", entry_price_cents=1000, created_by=1)
+    repo.add_game(finished.id, 1)
+    finished.status = TournamentStatus.FINISHED
+
+    open_with = repo.create(name="OpenWith", entry_price_cents=1000, created_by=1)
+    repo.add_game(open_with.id, 2)
+    open_with.status = TournamentStatus.OPEN
+
+    open_without = repo.create(name="OpenWithout", entry_price_cents=1000, created_by=1)
+    repo.add_game(open_without.id, 3)  # only a SCHEDULED game -> nothing to show
+    open_without.status = TournamentStatus.OPEN
+
+    repo.create(name="Draft", entry_price_cents=1000, created_by=1)  # DRAFT -> excluded
+    session.flush()
+
+    # FINISHED + OPEN-with-≥1-settled-game; DRAFT and not-yet-started OPEN are excluded.
+    assert {t.id for t in repo.list_with_standings()} == {finished.id, open_with.id}

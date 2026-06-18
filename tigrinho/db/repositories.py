@@ -516,6 +516,19 @@ class TournamentRepository:
         )
         return list(self._session.execute(stmt).scalars())
 
+    def list_with_standings(self) -> list[Tournament]:
+        """Bolãozinhos worth showing a placar for: FINISHED, plus OPEN with ≥1 settled game (§22.4).
+
+        Drives the ``/bolaozinho_placar`` picker — anything with a meaningful standing to show
+        (DRAFT, CANCELLED, and not-yet-started OPEN bolãozinhos are excluded).
+        """
+        eligible = self.list_by_status(TournamentStatus.FINISHED) + [
+            t
+            for t in self.list_by_status(TournamentStatus.OPEN)
+            if self.count_settled_games(t.id) > 0
+        ]
+        return sorted(eligible, key=lambda t: t.id, reverse=True)
+
     def delete(self, tournament_id: int) -> bool:
         tournament = self._session.get(Tournament, tournament_id)
         if tournament is None:
@@ -601,6 +614,26 @@ class TournamentRepository:
         )
         non_void = self._session.execute(stmt).scalar_one()
         return non_void == 0
+
+    def count_settled_games(self, tournament_id: int) -> int:
+        """Number of member games already FINISHED with a result (partial-placar watermark, §22.4).
+
+        Voided games are excluded — they never produce points — so this counts exactly the games a
+        partial placar reflects, and a void/un-void never spuriously bumps it.
+        """
+        game_ids = self.list_game_ids(tournament_id)
+        if not game_ids:
+            return 0
+        stmt = (
+            select(func.count())
+            .select_from(Game)
+            .where(
+                Game.fixture_id.in_(game_ids),
+                Game.status == GameStatus.FINISHED,
+                Game.settled_at.is_not(None),
+            )
+        )
+        return self._session.execute(stmt).scalar_one()
 
     def reconcilable_member_games(self) -> list[Game]:
         """Settled member games of still-active (DRAFT/OPEN) tournaments — the F8 reconcile widen.

@@ -75,6 +75,7 @@ _CASES: list[CallbackData] = [
     TournamentAction("bk", 999_999_999),
     TournamentAction("bi", 1),
     TournamentAction("bp", 42),
+    TournamentAction("bs", 7),
     TournamentAddToggle(999_999_999, 999_999_999),
 ]
 

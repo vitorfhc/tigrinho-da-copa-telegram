@@ -189,7 +189,14 @@ def test_on_game_resolved_announces_single_winner_idempotently(session: Session)
     _graded_bet(session, fixture_id=1, player=200, points=2)
     _finish_game(session, 1)
 
-    # Only game 1 done -> not all resolved -> nothing.
+    # Only game 1 done -> still running -> a partial placar is posted (§22.4).
+    partial = svc.on_game_resolved(session, 1)
+    assert len(partial) == 1
+    p = partial[0]
+    assert isinstance(p, svc.TournamentPartialAnnouncement)
+    assert (p.settled_count, p.total_games, p.n_entrants) == (1, 2, 2)
+    assert p.standings == (("Ana", 7), ("Bruno", 2))  # Ana leads
+    # Re-resolving game 1 (no newly-finished game) is idempotent -> no second partial.
     assert svc.on_game_resolved(session, 1) == []
     _finish_game(session, 2)
     anns = svc.on_game_resolved(session, 2)
@@ -215,12 +222,56 @@ def test_on_game_resolved_last_game_void_still_finishes(session: Session) -> Non
     svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
     _graded_bet(session, fixture_id=1, player=100, points=5)
     _finish_game(session, 1)
-    assert svc.on_game_resolved(session, 1) == []  # game 2 still scheduled
+    # game 2 still scheduled -> a partial placar is posted, not the final result yet.
+    partial = svc.on_game_resolved(session, 1)
+    assert len(partial) == 1
+    assert isinstance(partial[0], svc.TournamentPartialAnnouncement)
     _void_game(session, 2)
     anns = svc.on_game_resolved(session, 2)
     assert len(anns) == 1
     assert isinstance(anns[0], svc.TournamentWinnerAnnouncement)
     assert t.status is TournamentStatus.FINISHED
+
+
+def test_partial_placar_posts_once_per_finished_game(session: Session) -> None:
+    """§22.4: a partial placar each time a member game finishes, never twice for the same game,
+    and never for the last game (the winner announcement covers it)."""
+    PlayerRepository(session).get_or_create(100, "Ana")
+    PlayerRepository(session).get_or_create(200, "Bruno")
+    t = _running_tournament(session, fixtures=[1, 2, 3])
+    svc.join(session, t, telegram_id=100, display_name="Ana", now=_NOW)
+    svc.join(session, t, telegram_id=200, display_name="Bruno", now=_NOW)
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    _graded_bet(session, fixture_id=2, player=200, points=5)
+
+    # Game 1 finishes -> partial #1.
+    _finish_game(session, 1)
+    first = svc.on_game_resolved(session, 1)
+    assert len(first) == 1
+    assert isinstance(first[0], svc.TournamentPartialAnnouncement)
+    assert first[0].settled_count == 1
+    assert t.partial_announced_count == 1
+
+    # A void of another game is not a "finish" -> no partial, watermark unchanged.
+    _void_game(session, 2)
+    assert svc.on_game_resolved(session, 2) == []
+    assert t.partial_announced_count == 1
+
+    # Game 3 is the last unresolved game -> the final result fires, NOT a partial.
+    _graded_bet(session, fixture_id=3, player=100, points=2)
+    _finish_game(session, 3)
+    last = svc.on_game_resolved(session, 3)
+    assert len(last) == 1
+    assert isinstance(last[0], svc.TournamentWinnerAnnouncement)
+    assert t.status is TournamentStatus.FINISHED
+
+
+def test_partial_placar_skipped_with_no_entrants(session: Session) -> None:
+    """A still-running bolãozinho with no entrants has nothing to rank -> no partial post."""
+    t = _running_tournament(session, fixtures=[1, 2])
+    _finish_game(session, 1)
+    assert svc.on_game_resolved(session, 1) == []
+    assert t.partial_announced_count == 0
 
 
 def test_on_game_resolved_zero_entrants_cancels(session: Session) -> None:

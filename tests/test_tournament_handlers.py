@@ -20,11 +20,12 @@ from tigrinho.bot.tournament_handlers import (
     cmd_criar,
     cmd_entrar,
     cmd_participantes,
+    cmd_placar,
     on_tournament_callback,
     show_join_card_dm,
 )
 from tigrinho.db.models import Game, GameStatus, Stage, TournamentStatus
-from tigrinho.db.repositories import PlayerRepository, TournamentRepository
+from tigrinho.db.repositories import BetRepository, PlayerRepository, TournamentRepository
 
 _CREATOR = User(id=7, is_bot=False, first_name="Dono")
 _OTHER = User(id=8, is_bot=False, first_name="Outro")
@@ -259,6 +260,94 @@ async def test_participantes_callback_shows_list(app_context: AppContext) -> Non
     await on_tournament_callback(update, _context(app_context))
     text = query.edit_message_text.await_args.args[0]
     assert "Participantes" in text
+    assert "Ana" in text
+
+
+def _settle_member_game(
+    app_context: AppContext, fixture_id: int, *, player: int, points: int
+) -> None:
+    """Grade a bet then mark the member game FINISHED + settled (drives the placar standings)."""
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    with app_context.session_factory() as session:
+        bet = BetRepository(session).upsert(
+            fixture_id=fixture_id,
+            player_telegram_id=player,
+            category="WINNER",
+            payload_json="{}",
+        )
+        bet.is_correct = points > 0
+        bet.points_awarded = points
+        bet.settled_at = now
+        game = session.get(Game, fixture_id)
+        assert game is not None
+        game.status = GameStatus.FINISHED
+        game.settled_at = now
+        session.commit()
+
+
+def _eligible_placar_tournament(app_context: AppContext, fixture_id: int, *, name: str) -> int:
+    """An OPEN bolãozinho with one settled member game and a graded entrant bet."""
+    _seed_game(app_context, fixture_id)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    with app_context.session_factory() as session:
+        tournament = svc.create_tournament(session, name=name, entry_price_cents=1000, created_by=7)
+        svc.add_game(session, tournament, fixture_id, now=now)
+        svc.open_tournament(session, tournament, now=now)
+        svc.join(session, tournament, telegram_id=100, display_name="Ana", now=now)
+        tid = tournament.id
+        session.commit()
+    _settle_member_game(app_context, fixture_id, player=100, points=5)
+    return tid
+
+
+async def test_placar_direct_id_shows_standings(app_context: AppContext) -> None:
+    tid = _eligible_placar_tournament(app_context, 1001, name="Oitavas")
+    update, message = _cmd_update(_OTHER)
+    await cmd_placar(update, _context(app_context, args=[str(tid)]))
+    text = message.reply_text.await_args.args[0]
+    assert "Placar" in text
+    assert "Ana" in text
+    assert "5" in text
+
+
+async def test_placar_no_arg_shows_picker(app_context: AppContext) -> None:
+    _eligible_placar_tournament(app_context, 1001, name="A")
+    _eligible_placar_tournament(app_context, 1002, name="B")
+    update, message = _cmd_update(_OTHER)
+    await cmd_placar(update, _context(app_context, args=[]))
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    assert len(markup.inline_keyboard) == 2  # one placar button per eligible bolãozinho
+    data = markup.inline_keyboard[0][0].callback_data
+    assert isinstance(data, str) and data.startswith("bs:")  # placar picker op
+
+
+async def test_placar_no_arg_single_renders_directly(app_context: AppContext) -> None:
+    _eligible_placar_tournament(app_context, 1001, name="Só")
+    update, message = _cmd_update(_OTHER)
+    await cmd_placar(update, _context(app_context, args=[]))
+    # Exactly one eligible bolãozinho -> render its placar without a picker step.
+    assert message.reply_text.await_args.kwargs.get("reply_markup") is None
+    assert "Placar" in message.reply_text.await_args.args[0]
+
+
+async def test_placar_no_eligible(app_context: AppContext) -> None:
+    # A DRAFT (never opened, no settled game) is excluded from the placar picker.
+    _seed_game(app_context, 1001)
+    with app_context.session_factory() as session:
+        svc.create_tournament(session, name="Rascunho", entry_price_cents=1000, created_by=7)
+        session.commit()
+    update, message = _cmd_update(_OTHER)
+    await cmd_placar(update, _context(app_context, args=[]))
+    assert "Nenhum bolãozinho com placar" in message.reply_text.await_args.args[0]
+
+
+async def test_placar_callback_shows_standings(app_context: AppContext) -> None:
+    tid = _eligible_placar_tournament(app_context, 1001, name="Oitavas")
+    update, query = _cb_update(encode(TournamentAction("bs", tid)), _OTHER)
+    await on_tournament_callback(update, _context(app_context))
+    text = query.edit_message_text.await_args.args[0]
+    assert "Placar" in text
     assert "Ana" in text
 
 

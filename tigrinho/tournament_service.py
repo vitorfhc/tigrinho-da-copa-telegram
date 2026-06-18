@@ -196,15 +196,72 @@ class TournamentNoResultAnnouncement:
     name: str
 
 
-TournamentAnnouncement = TournamentWinnerAnnouncement | TournamentNoResultAnnouncement
+@dataclass(frozen=True, slots=True)
+class TournamentPartialAnnouncement:
+    """Standings so far — posted once per newly-finished member game while running (§22.4)."""
+
+    tournament_id: int
+    name: str
+    settled_count: int
+    total_games: int
+    n_entrants: int
+    pot_cents: int
+    prize_cents: int
+    standings: tuple[tuple[str, int], ...]  # ranked (display_name, points)
+
+
+TournamentAnnouncement = (
+    TournamentWinnerAnnouncement | TournamentNoResultAnnouncement | TournamentPartialAnnouncement
+)
 
 _NO_RESULT_SIGNATURE = "NORESULT"
+# Cap on the standings rows shown in a partial-placar post (mirrors the details mini-standings).
+_MAX_PARTIAL_STANDINGS = 15
 
 
 def signature_of(outcome: TournamentOutcome) -> str:
     """A stable hash of the announced outcome (winners + payout + score), to detect re-grades."""
     ids = ",".join(str(i) for i in outcome.winner_ids)
     return f"W:{ids}|{outcome.per_winner_cents}|{outcome.remainder_cents}|{outcome.winning_score}"
+
+
+def _partial_announcement(
+    session: Session,
+    repo: TournamentRepository,
+    players: PlayerRepository,
+    tournament: Tournament,
+) -> TournamentPartialAnnouncement | None:
+    """Standings post for a still-running bolãozinho, once per newly-finished member game (§22.4).
+
+    Fires only while the bolãozinho is OPEN and not yet fully resolved (the final game's resolution
+    posts the winner instead). Idempotent via the persisted ``partial_announced_count`` watermark —
+    a re-grade or void of an already-counted game never re-posts. Returns ``None`` when nothing new
+    settled or there is no one to rank.
+    """
+    if tournament.status is not TournamentStatus.OPEN:
+        return None
+    settled_count = repo.count_settled_games(tournament.id)
+    n_entrants = repo.count_entries(tournament.id)
+    if settled_count <= tournament.partial_announced_count or n_entrants == 0:
+        return None
+    tournament.partial_announced_count = settled_count
+    session.flush()
+    ranked = sorted(repo.standings(tournament.id).items(), key=lambda kv: (-kv[1], kv[0]))
+    standings = tuple(
+        ((p.display_name if (p := players.get(tid)) is not None else str(tid)), points)
+        for tid, points in ranked[:_MAX_PARTIAL_STANDINGS]
+    )
+    price = tournament.entry_price_cents
+    return TournamentPartialAnnouncement(
+        tournament_id=tournament.id,
+        name=tournament.name,
+        settled_count=settled_count,
+        total_games=len(repo.list_game_ids(tournament.id)),
+        n_entrants=n_entrants,
+        pot_cents=pot_cents(n_entrants, price),
+        prize_cents=prize_cents(n_entrants, price),
+        standings=standings,
+    )
 
 
 def on_game_resolved(session: Session, fixture_id: int) -> list[TournamentAnnouncement]:
@@ -225,6 +282,9 @@ def on_game_resolved(session: Session, fixture_id: int) -> list[TournamentAnnoun
         if tournament.status is TournamentStatus.CANCELLED and tournament.result_signature is None:
             continue
         if not repo.all_games_resolved(tournament.id):
+            partial = _partial_announcement(session, repo, players, tournament)
+            if partial is not None:
+                announcements.append(partial)
             continue
 
         no_result = repo.count_entries(tournament.id) == 0 or repo.has_only_void_games(

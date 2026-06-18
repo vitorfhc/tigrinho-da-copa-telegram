@@ -180,6 +180,9 @@ class Tournament(Base):
     # Stable hash of the announced outcome — detects a re-grade flipping the result (§7 correction).
     result_signature: Mapped[str | None] = mapped_column(String, default=None)
     correction_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Watermark of settled member games at the last partial-placar group post — the bot posts the
+    # standings once per newly-finished member game while the bolãozinho is still running (§22.4).
+    partial_announced_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # Why a bolãozinho was cancelled (shown in details + DM'd to participants; §22).
     cancel_reason: Mapped[str | None] = mapped_column(String, default=None)
 

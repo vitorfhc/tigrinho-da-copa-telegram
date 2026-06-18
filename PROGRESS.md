@@ -776,3 +776,24 @@ just the next-24h upcoming ones — so you can pull an AI palpite for a game alr
   time); the cold-cache candidate set (`candidate_ids`) now includes live games too.
 - **Text** (`domain/text_pt.py`): `palpite_no_games_text` now says "em andamento ou nas próximas 24h".
 - `/ajuda` + COMPLETION.md (§20, §20.1) updated per §11 maintenance rule. 597 tests green (rebased onto §22 bolãozinho work); all gates pass.
+
+### 2026-06-18 — Feature: bolãozinho partial placar (auto-post + `/bolaozinho_placar`, §22.4)
+
+User request: every time a member game of a bolãozinho finishes, post the standings-so-far to the
+group, and add a `/bolaozinho_placar` command (wizard picker) for the partial result on demand.
+- **Service:** `on_game_resolved` now emits a `TournamentPartialAnnouncement` once per
+  newly-**settled** member game while the bolãozinho is OPEN and not yet fully resolved — the **last**
+  game still posts the winner (user decision: skip the partial there). Idempotent via a persisted
+  `tournaments.partial_announced_count` watermark (append-only migration `b2c3d4e5f6a7`); a re-grade or
+  void of an already-counted game never re-posts. `tournament_announce` posts it best-effort.
+- **Command:** `/bolaozinho_placar [id]` — no id → wizard picker (`bs:<id>` op) over
+  `TournamentRepository.list_with_standings()` (FINISHED + OPEN-with-≥1-settled-game; user-chosen
+  "in-progress + finished" scope). Shared pure renderer `text_pt.tournament_standings_text` (plain
+  names — not @-mentions, same anti-ping choice as `/placar` — medals top-3, `X/Y jogos · pote · prêmio`).
+- **Plumbing:** `repositories.count_settled_games` + `list_with_standings`;
+  `keyboards.tournament_placar_keyboard`; `callbacks.TournamentOp` gains `bs`; `cmd_placar` +
+  `_show_placar` (dispatcher pattern `^(…|bs):`); `/bolaozinho_placar` in `app.PRIVATE/GROUP_COMMANDS`.
+- **Tests (+12):** service watermark/last-game/no-entrants paths (2 existing assertions updated),
+  repo count+list, text (partial/final/empty), announce group-post, 5 handler paths (id/picker/single/
+  none/callback), callbacks `bs` round-trip, `/ajuda` assertion. `/ajuda` + COMPLETION.md (§22.3/§22.4/
+  §22.6 + change-log §21.3) + README updated (§11). All four gates green; domain coverage 100%.

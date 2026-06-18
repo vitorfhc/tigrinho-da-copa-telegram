@@ -16,11 +16,17 @@ from telegram.ext import ContextTypes
 
 from tigrinho.bot.alerts import notify_admin
 from tigrinho.bot.runtime import AppContext
-from tigrinho.domain.text_pt import escape, tournament_no_result_text, tournament_result_text
+from tigrinho.domain.text_pt import (
+    escape,
+    tournament_no_result_text,
+    tournament_result_text,
+    tournament_standings_text,
+)
 from tigrinho.logging import get_logger
 from tigrinho.tournament_service import (
     TournamentAnnouncement,
     TournamentNoResultAnnouncement,
+    TournamentPartialAnnouncement,
     TournamentWinnerAnnouncement,
     on_game_resolved,
 )
@@ -106,6 +112,28 @@ async def post_tournament_announcements(
                 tournament_no_result_text(name=ann.name),
                 what="o encerramento do bolãozinho",
             )
+        else:
+            await _post_group(
+                app_context,
+                context,
+                _partial_text(app_context, ann),
+                what="o placar parcial do bolãozinho",
+            )
+
+
+def _partial_text(app_context: AppContext, ann: TournamentPartialAnnouncement) -> str:
+    settings = app_context.settings
+    return tournament_standings_text(
+        name=ann.name,
+        settled_count=ann.settled_count,
+        total_games=ann.total_games,
+        n_entrants=ann.n_entrants,
+        pot_cents=ann.pot_cents,
+        prize_cents=ann.prize_cents,
+        standings=ann.standings,
+        currency=settings.tournament_currency,
+        decimals=settings.tournament_currency_decimals,
+    )
 
 
 async def resolve_and_post(
