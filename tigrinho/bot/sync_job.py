@@ -25,6 +25,7 @@ from telegram.ext import ContextTypes, JobQueue
 from tigrinho.bot.alerts import notify_admin
 from tigrinho.bot.keyboards import announcement_keyboard
 from tigrinho.bot.runtime import AppContext, get_app_context
+from tigrinho.bot.tournament_announce import resolve_and_post
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, GameStatus, utcnow
 from tigrinho.db.repositories import BetRepository, GameRepository
@@ -265,6 +266,11 @@ async def sync_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             void_text(game.home_team_name, game.away_team_name),
             f"anulação do jogo #{game.fixture_id}",
         )
+
+    # A void can finish a bolãozinho (its last game; F4) and an un-void/reschedule can revive a
+    # terminal one (F5) — re-evaluate every affected fixture's bolãozinhos (§22/§7).
+    for game in [*voided, *rescheduled]:
+        await resolve_and_post(app_context, context, game.fixture_id)
 
 
 def schedule_sync_job(job_queue: JobQueue[ContextTypes.DEFAULT_TYPE], settings: Settings) -> None:

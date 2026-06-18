@@ -28,9 +28,10 @@ from telegram.ext import ContextTypes, JobQueue
 
 from tigrinho.bot.alerts import alert_cap_reached, notify_admin
 from tigrinho.bot.runtime import AppContext, get_app_context
+from tigrinho.bot.tournament_announce import resolve_and_post
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, GameStatus, utcnow
-from tigrinho.db.repositories import BetRepository, GameRepository
+from tigrinho.db.repositories import BetRepository, GameRepository, TournamentRepository
 from tigrinho.domain.bets import BetCategory
 from tigrinho.domain.scoring import first_genuine_scorer
 from tigrinho.domain.settlement import PendingBet, settle_game
@@ -76,7 +77,15 @@ async def _run_reconcile(app_context: AppContext, context: ContextTypes.DEFAULT_
     steady = timedelta(minutes=settings.reconcile_interval_minutes)
     with app_context.session_factory() as session:
         games = GameRepository(session).list_reconcilable(now, settings.reconcile_window_hours)
-        due = [g.fixture_id for g in games if _is_due(g, now, first_delay, steady)]
+        # F8: a settled member game of an active bolãozinho stays re-checkable for the whole
+        # bolãozinho lifetime (not just the per-game window), so a late re-grade still reaches it.
+        seen = {g.fixture_id for g in games}
+        extra = [
+            g
+            for g in TournamentRepository(session).reconcilable_member_games()
+            if g.fixture_id not in seen
+        ]
+        due = [g.fixture_id for g in [*games, *extra] if _is_due(g, now, first_delay, steady)]
 
     for fixture_id in due:
         await _reconcile_one(app_context, context, fixture_id, now)
@@ -147,13 +156,22 @@ async def _reconcile_one(
         session.commit()
 
     affected = [p for p in summary.players if p.total_points != old_totals.get(p.telegram_id, 0)]
-    if not affected:
+    if affected:
+        await _post_correction(
+            app_context,
+            context,
+            fixture_id,
+            summary,
+            old_totals,
+            affected,
+            score_changed,
+            prev_score,
+        )
+    else:
         _log.info("reconciled_silent", fixture_id=fixture_id)  # re-graded, no standing moved
-        return
 
-    await _post_correction(
-        app_context, context, fixture_id, summary, old_totals, affected, score_changed, prev_score
-    )
+    # A re-grade can flip a bolãozinho result — re-evaluate/correct it too (§22/§7, F8).
+    await resolve_and_post(app_context, context, fixture_id)
 
 
 async def _post_correction(

@@ -22,6 +22,7 @@ from tigrinho.tournament_service import (
     TournamentAnnouncement,
     TournamentNoResultAnnouncement,
     TournamentWinnerAnnouncement,
+    on_game_resolved,
 )
 
 _log = get_logger("tigrinho.tournament_announce")
@@ -105,3 +106,17 @@ async def post_tournament_announcements(
                 tournament_no_result_text(name=ann.name),
                 what="o encerramento do bolãozinho",
             )
+
+
+async def resolve_and_post(
+    app_context: AppContext, context: ContextTypes.DEFAULT_TYPE, fixture_id: int
+) -> None:
+    """Re-evaluate every bolãozinho containing ``fixture_id`` and post any announcements (§7).
+
+    Called from every game state-change path (settle, void, un-void, sweep). Idempotent — when
+    nothing changed, ``on_game_resolved`` returns no announcements and nothing is posted.
+    """
+    with app_context.session_factory() as session:
+        announcements = on_game_resolved(session, fixture_id)
+        session.commit()
+    await post_tournament_announcements(app_context, context, announcements)

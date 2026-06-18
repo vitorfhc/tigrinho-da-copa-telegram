@@ -24,6 +24,7 @@ from telegram.ext import ContextTypes, JobQueue
 
 from tigrinho.bot.alerts import alert_cap_reached, notify_admin
 from tigrinho.bot.runtime import AppContext, get_app_context
+from tigrinho.bot.tournament_announce import resolve_and_post
 from tigrinho.config import Settings
 from tigrinho.db.models import GameStatus, utcnow
 from tigrinho.db.repositories import BetRepository, GameRepository
@@ -371,6 +372,9 @@ async def _settle_and_announce(
             f"⚠️ Resultado do jogo #{fixture_id} apurado, mas falhou ao postar no grupo: "
             f"<code>{escape(str(exc))}</code>",
         )
+
+    # Finish/correct any bolãozinho whose last game this was (§22/§7).
+    await resolve_and_post(app_context, context, fixture_id)
 
 
 def schedule_poll_job(job_queue: JobQueue[ContextTypes.DEFAULT_TYPE], settings: Settings) -> None:
