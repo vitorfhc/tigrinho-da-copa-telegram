@@ -23,18 +23,26 @@ Opcodes:
   ``mh:<page>``                       /minhas_apostas: open/navigate the settled-history page
   ``mg:<fixture>:<page>``             /minhas_apostas: my bets for one game (page=return)
   ``mm``                              /minhas_apostas: back to default listing view
+  ``bg:<tid>:<fixture>``              bolãozinho: toggle a fixture in the slate (§22)
+  ``ba|bd|bo|bx|bj|bk|bi:<tid>``      bolãozinho actions: add-picker / done / open /
+                                      cancel / join-pick / join-confirm / details (§22)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, assert_never
+from typing import Literal, assert_never, cast
 
 from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
 
 BoardScope = Literal["geral", "semana"]
 _BOARD_SCOPE_TO_CODE: dict[BoardScope, str] = {"geral": "g", "semana": "s"}
 _CODE_TO_BOARD_SCOPE: dict[str, BoardScope] = {"g": "geral", "s": "semana"}
+
+# Single-id bolãozinho actions (Feature 7 / §22): open add-games picker / done / open / cancel /
+# join-pick / join-confirm / details. The 2-arg add toggle is ``TournamentAddToggle``.
+TournamentOp = Literal["ba", "bd", "bo", "bx", "bj", "bk", "bi"]
+_TOURNAMENT_OPS: frozenset[str] = frozenset(("ba", "bd", "bo", "bx", "bj", "bk", "bi"))
 
 MAX_CALLBACK_BYTES = 64
 
@@ -172,6 +180,22 @@ class MyBetsHome:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class TournamentAction:
+    """A single-id bolãozinho action (see :data:`TournamentOp`)."""
+
+    op: TournamentOp
+    tournament_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class TournamentAddToggle:
+    """Toggle a fixture's membership in a bolãozinho's slate (identity-based; F18)."""
+
+    tournament_id: int
+    fixture_id: int
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -191,6 +215,8 @@ CallbackData = (
     | MyHistory
     | MyGameDetail
     | MyBetsHome
+    | TournamentAction
+    | TournamentAddToggle
 )
 
 
@@ -233,6 +259,10 @@ def encode(data: CallbackData) -> str:
             result = f"mg:{fixture_id}:{page}"
         case MyBetsHome():
             result = "mm"
+        case TournamentAction(op, tournament_id):
+            result = f"{op}:{tournament_id}"
+        case TournamentAddToggle(tournament_id, fixture_id):
+            result = f"bg:{tournament_id}:{fixture_id}"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -281,6 +311,10 @@ def decode(data: str) -> CallbackData:
             return MyGameDetail(int(parts[1]), int(parts[2]))
         if op == "mm":
             return MyBetsHome()
+        if op == "bg":
+            return TournamentAddToggle(int(parts[1]), int(parts[2]))
+        if op in _TOURNAMENT_OPS:
+            return TournamentAction(cast(TournamentOp, op), int(parts[1]))
     except (IndexError, KeyError, ValueError) as exc:
         raise ValueError(f"invalid callback_data: {data!r}") from exc
     raise ValueError(f"unknown callback_data opcode: {data!r}")

@@ -51,6 +51,12 @@ class AppContext:
     # Per-game count of group "Placar corrigido" posts made by the reconcile job this process, so a
     # flapping (VAR-oscillating) feed cannot spam the group; capped, then it DMs the admin (§8.3).
     reconcile_posts: dict[int, int] = field(default_factory=dict)
+    # Per-bolãozinho count of group result *correction* posts this process, capped like the
+    # reconcile posts so an oscillating re-grade can't spam contradictory winners (§22/§7).
+    tournament_corrections: dict[int, int] = field(default_factory=dict)
+    # Bolãozinho ids already alerted as "stuck" this process (a member game stranded past its
+    # window), so the sweep DMs the admin once per stranded bolãozinho, not every cycle (§22/§7).
+    tournament_stuck_alerted: set[int] = field(default_factory=set)
 
 
 def get_app_context(application: AnyApplication) -> AppContext:

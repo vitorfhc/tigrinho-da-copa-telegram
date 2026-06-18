@@ -29,6 +29,7 @@ from tigrinho.domain.bets import (
     WinnerSel,
 )
 from tigrinho.domain.scoring import POINTS
+from tigrinho.enums import TournamentStatus
 
 CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.EXACT_SCORE: "Placar exato",
@@ -677,3 +678,232 @@ def palpite_generating_text() -> str:
 def palpite_error_text() -> str:
     """Shown when the AI palpite generation fails (§20)."""
     return "🤖 Não consegui gerar os palpites agora. Tente de novo mais tarde. 🐯"
+
+
+# --- Bolãozinhos (tournaments, Feature 7 / §22) -----------------------------------------------
+
+_TOURNAMENT_STATUS_LABELS: dict[TournamentStatus, str] = {
+    TournamentStatus.DRAFT: "rascunho",
+    TournamentStatus.OPEN: "aberto",
+    TournamentStatus.FINISHED: "encerrado",
+    TournamentStatus.CANCELLED: "cancelado",
+}
+
+
+def tournament_status_label(status: TournamentStatus) -> str:
+    """pt-BR label for a bolãozinho status."""
+    return _TOURNAMENT_STATUS_LABELS[status]
+
+
+def _entries_word(n: int) -> str:
+    return "entrada" if n == 1 else "entradas"
+
+
+def _game_line(home: str, away: str, kickoff_local: datetime) -> str:
+    return f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff_local)}"
+
+
+def tournament_result_text(
+    *,
+    name: str,
+    n_entrants: int,
+    pot_cents: int,
+    prize_cents: int,
+    winners: Sequence[tuple[int, str, int]],
+    per_winner_cents: int,
+    remainder_cents: int,
+    is_correction: bool,
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """The group winner/payout post (``winners`` = (telegram_id, name, score)); §7."""
+
+    def money(cents: int) -> str:
+        return format_money_cents(cents, currency=currency, decimals=decimals)
+
+    safe_name = escape(name)
+    header = (
+        f'⚠️ Resultado do bolãozinho "{safe_name}" corrigido!'
+        if is_correction
+        else f'🏆 Bolãozinho "{safe_name}" encerrado!'
+    )
+    lines = [
+        header,
+        f"Pote: {money(pot_cents)} ({n_entrants} {_entries_word(n_entrants)}) · "
+        f"Prêmio: {money(prize_cents)}",
+        "",
+    ]
+    sobra = f" (sobra {money(remainder_cents)})" if remainder_cents else ""
+    if len(winners) == 1:
+        telegram_id, winner_name, score = winners[0]
+        lines.append(f"🥇 Vencedor: {mention(telegram_id, winner_name)} — {score} pts")
+        lines.append(f"Leva {money(per_winner_cents)}{sobra}")
+    else:
+        score = winners[0][2]
+        lines.append(f"🥇 Empate ({len(winners)}) — {score} pts cada:")
+        lines.append("  ".join(f"• {mention(tid, nm)}" for tid, nm, _ in winners))
+        lines.append(f"Cada um leva {money(per_winner_cents)}{sobra}")
+    return "\n".join(lines)
+
+
+def tournament_no_result_text(*, name: str) -> str:
+    """The group "no scorable result" notice (all games void, or no entrants); §7."""
+    return (
+        f'🏁 Bolãozinho "{escape(name)}" encerrado — sem resultado '
+        "(nenhum jogo valeu ou ninguém entrou)."
+    )
+
+
+def tournament_announcement_text(
+    *,
+    name: str,
+    entry_price_cents: int,
+    games: Sequence[tuple[str, str, datetime]],
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """The group "novo bolãozinho" publish post (deep-link buttons added by the keyboard); §5."""
+    price = format_money_cents(entry_price_cents, currency=currency, decimals=decimals)
+    lines = [
+        f"🏆 Novo bolãozinho: <b>{escape(name)}</b> — entrada {price}",
+        f"{len(games)} jogo(s):",
+        *[_game_line(home, away, kickoff) for home, away, kickoff in games],
+        "",
+        "Use /entrar para participar! 🐯",
+    ]
+    return "\n".join(lines)
+
+
+def tournament_card_text(
+    *,
+    tournament_id: int,
+    name: str,
+    status: TournamentStatus,
+    entry_price_cents: int,
+    games: Sequence[tuple[str, str, datetime]],
+    n_entrants: int,
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """The creator's management card; §5."""
+    price = format_money_cents(entry_price_cents, currency=currency, decimals=decimals)
+    lines = [
+        f"🐯 Bolãozinho #{tournament_id} — <b>{escape(name)}</b>",
+        f"Status: {tournament_status_label(status)} · Entrada: {price} · "
+        f"{n_entrants} {_entries_word(n_entrants)}",
+        f"Jogos ({len(games)}):",
+    ]
+    if games:
+        lines += [_game_line(home, away, kickoff) for home, away, kickoff in games]
+    else:
+        lines.append("• Nenhum jogo ainda.")
+    return "\n".join(lines)
+
+
+def tournament_list_text(
+    items: Sequence[tuple[int, str, TournamentStatus, int, int]],
+    *,
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """List of bolãozinhos: items = (id, name, status, pot_cents, n_entrants); §5."""
+    if not items:
+        return "🐯 Nenhum bolãozinho ainda. Crie um com /bolaozinho_criar."
+    lines = ["🐯 <b>Bolãozinhos</b>"]
+    for tournament_id, name, status, pot_cents, n_entrants in items:
+        pot = format_money_cents(pot_cents, currency=currency, decimals=decimals)
+        lines.append(
+            f"• #{tournament_id} {escape(name)} — {tournament_status_label(status)} · "
+            f"pote {pot} · {n_entrants} {_entries_word(n_entrants)}"
+        )
+    return "\n".join(lines)
+
+
+def tournament_details_text(
+    *,
+    tournament_id: int,
+    name: str,
+    status: TournamentStatus,
+    entry_price_cents: int,
+    pot_cents: int,
+    prize_cents: int,
+    n_entrants: int,
+    games: Sequence[tuple[str, str, datetime, int | None, int | None]],
+    standings: Sequence[tuple[str, int]],
+    you_entered: bool,
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """Public details + live mini-standings; games = (home,away,kickoff,home_goals,away_goals)."""
+
+    def money(cents: int) -> str:
+        return format_money_cents(cents, currency=currency, decimals=decimals)
+
+    lines = [
+        f"🐯 Bolãozinho #{tournament_id} — <b>{escape(name)}</b>",
+        f"Status: {tournament_status_label(status)} · Entrada: {money(entry_price_cents)}",
+        f"Pote: {money(pot_cents)} ({n_entrants} {_entries_word(n_entrants)}) · "
+        f"Prêmio: {money(prize_cents)}",
+        "Jogos:",
+    ]
+    for home, away, kickoff, home_goals, away_goals in games:
+        if home_goals is not None and away_goals is not None:
+            lines.append(f"• {escape(home)} {home_goals}x{away_goals} {escape(away)}")
+        else:
+            lines.append(_game_line(home, away, kickoff))
+    if standings:
+        lines.append("")
+        lines.append("📊 Parcial:")
+        for rank, (player_name, points) in enumerate(standings, start=1):
+            lines.append(f"{rank}. {escape(player_name)} — {points} pts")
+    lines.append("")
+    lines.append("✅ Você está participando." if you_entered else "Use /entrar para participar.")
+    return "\n".join(lines)
+
+
+def entry_card_text(
+    *,
+    name: str,
+    entry_price_cents: int,
+    pot_cents: int,
+    prize_cents: int,
+    n_entrants: int,
+    games: Sequence[tuple[str, str, datetime]],
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """The /entrar confirmation card shown before joining; §5."""
+
+    def money(cents: int) -> str:
+        return format_money_cents(cents, currency=currency, decimals=decimals)
+
+    lines = [
+        f"🏆 <b>{escape(name)}</b>",
+        f"Entrada: {money(entry_price_cents)} · Pote atual: {money(pot_cents)} "
+        f"({n_entrants} {_entries_word(n_entrants)}) · Prêmio: {money(prize_cents)}",
+        f"Jogos ({len(games)}):",
+        *[_game_line(home, away, kickoff) for home, away, kickoff in games],
+    ]
+    return "\n".join(lines)
+
+
+def entry_confirmed_text(
+    *,
+    name: str,
+    n_entrants: int,
+    pot_cents: int,
+    prize_cents: int,
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """Shown right after a successful /entrar; §5."""
+
+    def money(cents: int) -> str:
+        return format_money_cents(cents, currency=currency, decimals=decimals)
+
+    return (
+        f"✅ Você entrou no bolãozinho <b>{escape(name)}</b>!\n"
+        f"Pote: {money(pot_cents)} ({n_entrants} {_entries_word(n_entrants)}) · "
+        f"Prêmio: {money(prize_cents)}\n\n"
+        "Agora faça seus palpites nos jogos abaixo 👇 (as apostas fecham no apito inicial)."
+    )

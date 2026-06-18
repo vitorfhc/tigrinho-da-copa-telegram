@@ -48,6 +48,8 @@ from tigrinho.domain.text_pt import (
     reminder_text,
     results_text,
     settled_summary_line,
+    tournament_no_result_text,
+    tournament_result_text,
     void_text,
     welcome_text,
 )
@@ -675,3 +677,43 @@ def test_format_money_cents_pt_br() -> None:
     assert format_money_cents(1285, currency="US$") == "US$ 12,85"
     assert format_money_cents(0, currency="R$") == "R$ 0,00"
     assert format_money_cents(9000, currency="R$", decimals=0) == "R$ 9000"
+
+
+def test_tournament_result_single_winner() -> None:
+    text = tournament_result_text(
+        name="Oitavas",
+        n_entrants=10,
+        pot_cents=10000,
+        prize_cents=9000,
+        winners=[(100, "Ana", 14)],
+        per_winner_cents=9000,
+        remainder_cents=0,
+        is_correction=False,
+        currency="R$",
+    )
+    assert "🏆" in text and "encerrado" in text
+    assert "Pote: R$ 100,00 (10 entradas)" in text
+    assert "Prêmio: R$ 90,00" in text
+    assert "tg://user?id=100" in text
+    assert "Leva R$ 90,00" in text
+
+
+def test_tournament_result_tie_shows_split_and_remainder() -> None:
+    text = tournament_result_text(
+        name="X",
+        n_entrants=3,
+        pot_cents=3000,
+        prize_cents=2000,
+        winners=[(1, "A", 12), (2, "B", 12), (3, "C", 12)],
+        per_winner_cents=666,
+        remainder_cents=2,
+        is_correction=True,
+        currency="R$",
+    )
+    assert "corrigido" in text
+    assert "Empate (3)" in text
+    assert "Cada um leva R$ 6,66 (sobra R$ 0,02)" in text
+
+
+def test_tournament_no_result_text() -> None:
+    assert "sem resultado" in tournament_no_result_text(name="Y")

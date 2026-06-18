@@ -24,6 +24,8 @@ from tigrinho.bot.callbacks import (
     MyHistory,
     OverUnderInput,
     PalpiteView,
+    TournamentAction,
+    TournamentAddToggle,
     WinnerInput,
     decode,
     encode,
@@ -65,6 +67,14 @@ _CASES: list[CallbackData] = [
     MyGameDetail(123456, 0),
     MyGameDetail(999_999_999, 12),
     MyBetsHome(),
+    TournamentAction("ba", 7),
+    TournamentAction("bd", 7),
+    TournamentAction("bo", 7),
+    TournamentAction("bx", 7),
+    TournamentAction("bj", 999_999_999),
+    TournamentAction("bk", 999_999_999),
+    TournamentAction("bi", 1),
+    TournamentAddToggle(999_999_999, 999_999_999),
 ]
 
 
