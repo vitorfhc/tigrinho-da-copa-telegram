@@ -242,3 +242,63 @@ def test_telegram_info(
     assert result.exit_code == 0
     assert "@TigrinhoDaCopaBot" in result.stdout
     assert str(settings.group_chat_id) in result.stdout
+
+
+def _seed_future_game(session_factory: sessionmaker[Session], fixture_id: int) -> None:
+    kickoff = datetime.now(tz=UTC).replace(tzinfo=None) + timedelta(hours=3)
+    with session_factory() as session:
+        session.add(
+            Game(
+                fixture_id=fixture_id,
+                match_hash=f"h{fixture_id}",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="Brasil",
+                away_team_id=20,
+                away_team_name="Argentina",
+                kickoff_utc=kickoff,
+                kickoff_local=kickoff,
+                status=GameStatus.SCHEDULED,
+            )
+        )
+        session.commit()
+
+
+def test_bolaozinho_cli_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    session_factory: sessionmaker[Session],
+) -> None:
+    _patch_context(monkeypatch, settings, session_factory)
+    created = runner.invoke(app, ["bolaozinho", "create", "Oitavas", "--price", "10"])
+    assert created.exit_code == 0
+    assert "Created bolãozinho #1" in created.stdout
+
+    listed = runner.invoke(app, ["bolaozinho", "list"])
+    assert "Oitavas" in listed.stdout
+
+    _seed_future_game(session_factory, 2001)
+    added = runner.invoke(app, ["bolaozinho", "add-game", "1", "2001"])
+    assert added.exit_code == 0
+    assert "Added." in added.stdout
+
+    runner.invoke(app, ["bolaozinho", "add-entry", "1", "555"])
+    entries = runner.invoke(app, ["bolaozinho", "entries", "1"])
+    assert "555" in entries.stdout
+
+    # cancel needs --yes
+    assert runner.invoke(app, ["bolaozinho", "cancel", "1"]).exit_code != 0
+    cancelled = runner.invoke(app, ["bolaozinho", "cancel", "1", "--yes"])
+    assert cancelled.exit_code == 0
+    assert "Cancelled." in cancelled.stdout
+
+
+def test_bolaozinho_cli_bad_price(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    session_factory: sessionmaker[Session],
+) -> None:
+    _patch_context(monkeypatch, settings, session_factory)
+    result = runner.invoke(app, ["bolaozinho", "create", "X", "--price", "abc"])
+    assert result.exit_code == 1
+    assert "Invalid price" in result.stdout

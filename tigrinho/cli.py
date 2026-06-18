@@ -25,16 +25,20 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 from telegram import Bot, User
 
+from tigrinho import tournament_service as svc
 from tigrinho.board_data import load_board_records
 from tigrinho.config import Settings, get_settings
 from tigrinho.db.engine import create_db_engine, create_session_factory
-from tigrinho.db.models import GameStatus
+from tigrinho.db.models import GameStatus, utcnow
 from tigrinho.db.repositories import (
     ApiUsageRepository,
     BetRepository,
     GameRepository,
     PlayerRepository,
+    TournamentRepository,
 )
+from tigrinho.domain.text_pt import format_money_cents
+from tigrinho.domain.tournament import compute_outcome, parse_price_to_cents
 from tigrinho.providers.base import FootballProvider, GoalEvent, MatchResult
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.factory import make_provider
@@ -82,9 +86,11 @@ app = typer.Typer(no_args_is_help=True, help="TigrinhoDaCopa admin CLI")
 games_app = typer.Typer(no_args_is_help=True, help="CRUD on games")
 bets_app = typer.Typer(no_args_is_help=True, help="CRUD on bets")
 players_app = typer.Typer(no_args_is_help=True, help="CRUD on players")
+bolaozinho_app = typer.Typer(no_args_is_help=True, help="Manage bolãozinhos (tournaments)")
 app.add_typer(games_app, name="games")
 app.add_typer(bets_app, name="bets")
 app.add_typer(players_app, name="players")
+app.add_typer(bolaozinho_app, name="bolaozinho")
 
 
 # --- group 1: CRUD --------------------------------------------------------------------------
@@ -354,6 +360,227 @@ def telegram_info() -> None:
     typer.echo(f"configured bot_username: {ctx.settings.bot_username}")
     typer.echo(f"group_chat_id: {ctx.settings.group_chat_id}")
     typer.echo(f"admin_user_id: {ctx.settings.admin_user_id}")
+
+
+# --- group 5: bolãozinhos (tournaments, §22) ------------------------------------------------
+
+
+def _money(ctx: CliContext, cents: int) -> str:
+    return format_money_cents(
+        cents,
+        currency=ctx.settings.tournament_currency,
+        decimals=ctx.settings.tournament_currency_decimals,
+    )
+
+
+@bolaozinho_app.command("create")
+def bolaozinho_create(
+    name: str,
+    price: Annotated[str, typer.Option("--price", help="Entry price, e.g. 10 or 10,50")],
+) -> None:
+    """Create a DRAFT bolãozinho owned by the configured admin."""
+    ctx = build_cli_context()
+    try:
+        price_cents = parse_price_to_cents(price)
+    except ValueError as exc:
+        typer.echo(f"Invalid price: {exc}")
+        raise typer.Exit(code=1) from exc
+    with ctx.session_factory() as session:
+        tournament = svc.create_tournament(
+            session, name=name, entry_price_cents=price_cents, created_by=ctx.settings.admin_user_id
+        )
+        session.commit()
+        typer.echo(f"Created bolãozinho #{tournament.id}: {name} ({_money(ctx, price_cents)})")
+
+
+@bolaozinho_app.command("list")
+def bolaozinho_list() -> None:
+    """List all bolãozinhos."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        repo = TournamentRepository(session)
+        rows = [
+            [
+                str(t.id),
+                t.name,
+                t.status.value,
+                _money(ctx, t.entry_price_cents),
+                str(repo.count_entries(t.id)),
+                _money(ctx, repo.count_entries(t.id) * t.entry_price_cents),
+            ]
+            for t in repo.list_all()
+        ]
+    _print_table(["id", "name", "status", "price", "entrants", "pot"], rows)
+
+
+@bolaozinho_app.command("show")
+def bolaozinho_show(tournament_id: int) -> None:
+    """Show one bolãozinho: games, entrants, and the current standings."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        repo = TournamentRepository(session)
+        tournament = repo.get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        typer.echo(
+            f"#{tournament.id} {tournament.name} [{tournament.status.value}] "
+            f"entrada={_money(ctx, tournament.entry_price_cents)}"
+        )
+        typer.echo("Games:")
+        for game in repo.list_games(tournament.id):
+            typer.echo(
+                f"  #{game.fixture_id} {game.home_team_name} x {game.away_team_name} "
+                f"[{game.status.value}]"
+            )
+        standings = repo.standings(tournament.id)
+        players = PlayerRepository(session)
+        typer.echo("Standings:")
+        for telegram_id, points in sorted(standings.items(), key=lambda kv: (-kv[1], kv[0])):
+            player = players.get(telegram_id)
+            name = player.display_name if player is not None else str(telegram_id)
+            typer.echo(f"  {name}: {points}")
+
+
+@bolaozinho_app.command("add-game")
+def bolaozinho_add_game(tournament_id: int, fixture_id: int) -> None:
+    """Add a (scheduled, future) game to a bolãozinho."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        try:
+            svc.add_game(session, tournament, fixture_id, now=utcnow())
+        except svc.TournamentError as exc:
+            typer.echo(exc.message)
+            raise typer.Exit(code=1) from exc
+        session.commit()
+    typer.echo("Added.")
+
+
+@bolaozinho_app.command("remove-game")
+def bolaozinho_remove_game(tournament_id: int, fixture_id: int) -> None:
+    """Remove a game from a bolãozinho (before it locks)."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        try:
+            svc.remove_game(session, tournament, fixture_id, now=utcnow())
+        except svc.TournamentError as exc:
+            typer.echo(exc.message)
+            raise typer.Exit(code=1) from exc
+        session.commit()
+    typer.echo("Removed.")
+
+
+@bolaozinho_app.command("set-price")
+def bolaozinho_set_price(tournament_id: int, price: str) -> None:
+    """Set the entry price (before the first entry / lock)."""
+    ctx = build_cli_context()
+    try:
+        price_cents = parse_price_to_cents(price)
+    except ValueError as exc:
+        typer.echo(f"Invalid price: {exc}")
+        raise typer.Exit(code=1) from exc
+    with ctx.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        try:
+            svc.set_price(session, tournament, price_cents, now=utcnow())
+        except svc.TournamentError as exc:
+            typer.echo(exc.message)
+            raise typer.Exit(code=1) from exc
+        session.commit()
+    typer.echo(f"Price set to {_money(ctx, price_cents)}.")
+
+
+@bolaozinho_app.command("cancel")
+def bolaozinho_cancel(
+    tournament_id: int, yes: Annotated[bool, typer.Option("--yes")] = False
+) -> None:
+    """Cancel a bolãozinho."""
+    if not yes:
+        typer.echo("Refusing to cancel without --yes.")
+        raise typer.Exit(code=1)
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        try:
+            svc.cancel_tournament(session, tournament)
+        except svc.TournamentError as exc:
+            typer.echo(exc.message)
+            raise typer.Exit(code=1) from exc
+        session.commit()
+    typer.echo("Cancelled.")
+
+
+@bolaozinho_app.command("entries")
+def bolaozinho_entries(tournament_id: int) -> None:
+    """List a bolãozinho's entrants."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        repo = TournamentRepository(session)
+        players = PlayerRepository(session)
+        rows = []
+        for telegram_id in repo.entry_ids(tournament_id):
+            player = players.get(telegram_id)
+            rows.append([str(telegram_id), player.display_name if player is not None else "?"])
+    _print_table(["telegram_id", "name"], rows)
+
+
+@bolaozinho_app.command("add-entry")
+def bolaozinho_add_entry(tournament_id: int, telegram_id: int) -> None:
+    """Admin fixup: add a player to a bolãozinho (creates the player row if needed)."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        PlayerRepository(session).get_or_create(telegram_id, str(telegram_id))
+        added = TournamentRepository(session).add_entry(tournament_id, telegram_id)
+        session.commit()
+    typer.echo("Added." if added else "Already entered.")
+
+
+@bolaozinho_app.command("remove-entry")
+def bolaozinho_remove_entry(tournament_id: int, telegram_id: int) -> None:
+    """Admin fixup: remove a player from a bolãozinho."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        removed = TournamentRepository(session).remove_entry(tournament_id, telegram_id)
+        session.commit()
+    typer.echo("Removed." if removed else "Not entered.")
+
+
+@bolaozinho_app.command("standings")
+def bolaozinho_standings(tournament_id: int) -> None:
+    """Print the recomputed standings + payout outcome (read-only, from settled bets)."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        repo = TournamentRepository(session)
+        tournament = repo.get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        outcome = compute_outcome(repo.standings(tournament.id), tournament.entry_price_cents)
+        players = PlayerRepository(session)
+        winner_names = [
+            (player.display_name if (player := players.get(tid)) is not None else str(tid))
+            for tid in outcome.winner_ids
+        ]
+    typer.echo(f"pot={_money(ctx, outcome.pot_cents)} prize={_money(ctx, outcome.prize_cents)}")
+    typer.echo(f"winners={winner_names} score={outcome.winning_score}")
+    typer.echo(
+        f"per_winner={_money(ctx, outcome.per_winner_cents)} "
+        f"remainder={_money(ctx, outcome.remainder_cents)}"
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
