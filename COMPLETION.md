@@ -1077,14 +1077,18 @@ entrants, computes the pot/prize, and announces the winner(s).
 - `/bolaozinho_criar <nome> | <preço>` (exactly one `|`; name may not contain `|`) — DRAFT + card.
 - Management card buttons (creator/admin): `➕ Adicionar jogos` (identity-based multi-select picker —
   a toggle writes membership immediately, **no position drift**), `📣 Abrir`, `❌ Cancelar`.
-- `/bolaozinho_preco <id> <preço>`, `/bolaozinho_abrir <id>` (publishes + announces to the group).
-- `/entrar` — lists joinable bolãozinhos as a picker (disambiguates when several are open) / shows
-  the join card (games, price, pot, prize) → `✅ Entrar`. On confirm, the **games-to-bet confirmation
-  (with `🎯 Apostar` deep-links) is sent to the joiner's DM** (the group card just refreshes its pot/
-  count); if the user hasn't pressed Start, an alert tells them to open the bot's private chat.
+- `/bolaozinho_preco <id> <preço>`, `/bolaozinho_abrir <id>` — publish: posts the group announcement
+  and **@-mentions every known player** (anyone with a `Player` row) in the same message so they're
+  all pinged about the new bolãozinho (a bot can't enumerate group members).
+- `/entrar` — **always a picker** of the open joinable bolãozinhos (a wizard step) → tap one to open
+  its join card (games, price, pot, prize) → `✅ Entrar`. In a **group** it replies with a deep-link
+  button to the private chat (`?start=entrar`) — the whole flow happens in DM. On confirm, the
+  **games-to-bet confirmation (with `🎯 Apostar` deep-links) is sent to the joiner's DM**; if the user
+  hasn't pressed Start, an alert tells them to open the bot's private chat.
 - `/bolaozinhos`, `/bolaozinho <id>` — list / details (with a live mini-standings). Group + DM.
-- `/bolaozinho_participantes <id>` — list who has entered a bolãozinho (group + DM).
-- Inline state is stateless `callback_data` (`bg`/`ba`/`bd`/`bo`/`bx`/`bj`/`bk`/`bi`, ≤64 bytes).
+- `/bolaozinho_participantes [id]` — who entered a bolãozinho; **with no id it shows a picker** of
+  bolãozinhos to choose from (group + DM).
+- Inline state is stateless `callback_data` (`bg`/`ba`/`bd`/`bo`/`bx`/`bj`/`bk`/`bi`/`bp`, ≤64 bytes).
 
 ### 22.4 Resolution, announcements & corrections
 - `tournament_service.on_game_resolved(session, fixture_id)` runs after **every** member-game state

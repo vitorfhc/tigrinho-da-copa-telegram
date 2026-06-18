@@ -11,8 +11,8 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy.orm import Session
-from telegram import CallbackQuery, InlineKeyboardMarkup, Update
-from telegram.constants import ParseMode
+from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatType, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -26,6 +26,7 @@ from tigrinho.bot.keyboards import (
     tournament_join_card_keyboard,
     tournament_join_list_keyboard,
     tournament_list_keyboard,
+    tournament_participants_keyboard,
 )
 from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
@@ -74,6 +75,15 @@ def _display_name(update: Update) -> str:
 
 def _game_triples(games: list[Game]) -> list[tuple[str, str, datetime]]:
     return [(g.home_team_name, g.away_team_name, g.kickoff_local) for g in games]
+
+
+def _all_player_mentions(session: Session) -> list[tuple[int, str]]:
+    """Everyone the bot knows (has a Player row) — pinged in the new-bolãozinho post (§22).
+
+    A bot can't enumerate group members, so this @-mentions all known players (anyone who has
+    interacted with the bot); their ``tg://user?id=`` mention still notifies them in the group.
+    """
+    return [(p.telegram_id, p.display_name) for p in PlayerRepository(session).list_all()]
 
 
 # --- render helpers (text + keyboard) ---------------------------------------------------------
@@ -196,6 +206,7 @@ async def _post_open_announcement(
     settings: Settings,
     tournament: Tournament,
     games: list[Game],
+    mentions: list[tuple[int, str]],
 ) -> None:
     text = tournament_announcement_text(
         name=tournament.name,
@@ -203,6 +214,7 @@ async def _post_open_announcement(
         games=_game_triples(games),
         currency=settings.tournament_currency,
         decimals=settings.tournament_currency_decimals,
+        mentions=mentions,
     )
     keyboard = announcement_keyboard(
         [(g.fixture_id, f"{g.home_team_name} x {g.away_team_name}") for g in games],
@@ -304,9 +316,10 @@ async def cmd_abrir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await message.reply_text(exc.message)
             return
         games = TournamentRepository(session).list_games(tournament.id)
+        mentions = _all_player_mentions(session)
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
-    await _post_open_announcement(context, app_context.settings, tournament, games)
+    await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
     await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
@@ -346,50 +359,72 @@ async def cmd_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
+def _render_participants(session: Session, tournament: Tournament, settings: Settings) -> str:
+    repo = TournamentRepository(session)
+    players = PlayerRepository(session)
+    names = [
+        (player.display_name if (player := players.get(tid)) is not None else str(tid))
+        for tid in repo.entry_ids(tournament.id)
+    ]
+    n = repo.count_entries(tournament.id)
+    price = tournament.entry_price_cents
+    return tournament_participants_text(
+        name=tournament.name,
+        participants=names,
+        pot_cents=pot_cents(n, price),
+        prize_cents=prize_cents(n, price),
+        currency=settings.tournament_currency,
+        decimals=settings.tournament_currency_decimals,
+    )
+
+
 async def cmd_participantes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/bolaozinho_participantes <id> — list who has entered a bolãozinho."""
+    """/bolaozinho_participantes [id] — who entered; with no id, pick from a list of bolãozinhos."""
     message = update.effective_message
     if message is None:
         return
-    args = context.args or []
-    try:
-        tournament_id = int(args[0])
-    except (IndexError, ValueError):
-        await message.reply_text(
-            "Uso: <code>/bolaozinho_participantes &lt;id&gt;</code>", parse_mode=ParseMode.HTML
-        )
-        return
     app_context = get_app_context(context.application)
-    with app_context.session_factory() as session:
-        repo = TournamentRepository(session)
-        tournament = repo.get(tournament_id)
-        if tournament is None:
+    args = context.args or []
+    if args:
+        try:
+            tournament_id = int(args[0])
+        except ValueError:
             await message.reply_text(_NOT_FOUND)
             return
-        players = PlayerRepository(session)
-        names = [
-            (player.display_name if (player := players.get(tid)) is not None else str(tid))
-            for tid in repo.entry_ids(tournament.id)
-        ]
-        n = repo.count_entries(tournament.id)
-        price = tournament.entry_price_cents
-        text = tournament_participants_text(
-            name=tournament.name,
-            participants=names,
-            pot_cents=pot_cents(n, price),
-            prize_cents=prize_cents(n, price),
-            currency=app_context.settings.tournament_currency,
-            decimals=app_context.settings.tournament_currency_decimals,
+        with app_context.session_factory() as session:
+            tournament = TournamentRepository(session).get(tournament_id)
+            if tournament is None:
+                await message.reply_text(_NOT_FOUND)
+                return
+            text = _render_participants(session, tournament, app_context.settings)
+        await message.reply_text(text, parse_mode=ParseMode.HTML)
+        return
+
+    # No id — show a picker of existing bolãozinhos (or the only one directly).
+    with app_context.session_factory() as session:
+        tournaments = TournamentRepository(session).list_all()[:_MAX_PICKER_GAMES]
+        if not tournaments:
+            await message.reply_text("Nenhum bolãozinho ainda. 🐯")
+            return
+        if len(tournaments) == 1:
+            text = _render_participants(session, tournaments[0], app_context.settings)
+            await message.reply_text(text, parse_mode=ParseMode.HTML)
+            return
+        picker = tournament_participants_keyboard(
+            [(t.id, f"#{t.id} {t.name}") for t in tournaments]
         )
-    await message.reply_text(text, parse_mode=ParseMode.HTML)
+    await message.reply_text(
+        "👥 Escolha um bolãozinho pra ver os participantes:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=picker,
+    )
 
 
-async def cmd_entrar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/entrar — list joinable bolãozinhos (or jump straight in when there's exactly one)."""
+async def show_entrar_dm(update: Update, app_context: AppContext) -> None:
+    """The /entrar flow (private chat): a picker of the open bolãozinhos to choose from (§22)."""
     message = update.effective_message
     if message is None:
         return
-    app_context = get_app_context(context.application)
     now = utcnow()
     with app_context.session_factory() as session:
         repo = TournamentRepository(session)
@@ -403,14 +438,26 @@ async def cmd_entrar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if not joinable:
             await message.reply_text("Nenhum bolãozinho aberto pra entrar agora. 🐯")
             return
-        if len(joinable) == 1:
-            text, keyboard = _render_join_card(session, joinable[0], app_context.settings)
-            await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
-            return
+        # Always present a picker so it's easy to choose which bolãozinho to enter (a wizard step).
         list_kb = tournament_join_list_keyboard([(t.id, f"#{t.id} {t.name}") for t in joinable])
     await message.reply_text(
         "🏆 Escolha o bolãozinho pra entrar:", parse_mode=ParseMode.HTML, reply_markup=list_kb
     )
+
+
+async def cmd_entrar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/entrar — in DM show the join flow; in the group redirect to the private chat (§22)."""
+    message = update.effective_message
+    chat = update.effective_chat
+    if message is None or chat is None:
+        return
+    app_context = get_app_context(context.application)
+    if chat.type != ChatType.PRIVATE:
+        url = f"https://t.me/{app_context.settings.bot_username}?start=entrar"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("👉 Entrar no privado", url=url)]])
+        await message.reply_text("Os bolãozinhos são no meu privado 👇", reply_markup=keyboard)
+        return
+    await show_entrar_dm(update, app_context)
 
 
 # --- callbacks --------------------------------------------------------------------------------
@@ -458,6 +505,8 @@ async def on_tournament_callback(update: Update, context: ContextTypes.DEFAULT_T
             await _do_join(query, context, app_context, update, tournament_id, user.id)
         case TournamentAction("bi", tournament_id):
             await _show_details(query, app_context, tournament_id, user.id)
+        case TournamentAction("bp", tournament_id):
+            await _show_participants(query, app_context, tournament_id)
         case _:  # pragma: no cover - pattern guarantees a tournament op
             await query.answer()
 
@@ -541,9 +590,10 @@ async def _do_open(
             await query.answer(exc.message, show_alert=True)
             return
         games = TournamentRepository(session).list_games(tournament.id)
+        mentions = _all_player_mentions(session)
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
-    await _post_open_announcement(context, app_context.settings, tournament, games)
+    await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
     await query.answer("Bolãozinho aberto! 📣")
     await safe_edit_text(query, text, reply_markup=keyboard)
 
@@ -666,6 +716,19 @@ async def _show_details(
     await safe_edit_text(query, text)
 
 
+async def _show_participants(
+    query: CallbackQuery, app_context: AppContext, tournament_id: int
+) -> None:
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            await query.answer(_NOT_FOUND, show_alert=True)
+            return
+        text = _render_participants(session, tournament, app_context.settings)
+    await query.answer()
+    await safe_edit_text(query, text)
+
+
 def register_tournament_handlers(application: AnyApplication) -> None:
     """Register bolãozinho commands + the callback dispatcher (before the bet wizard catch-all)."""
     application.add_handler(CommandHandler("bolaozinho_criar", cmd_criar))
@@ -676,5 +739,5 @@ def register_tournament_handlers(application: AnyApplication) -> None:
     application.add_handler(CommandHandler("bolaozinho_participantes", cmd_participantes))
     application.add_handler(CommandHandler("entrar", cmd_entrar))
     application.add_handler(
-        CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg):")
+        CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg|bp):")
     )

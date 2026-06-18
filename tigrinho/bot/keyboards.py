@@ -269,3 +269,11 @@ def tournament_join_card_keyboard(tournament_id: int, entry_label: str) -> Inlin
     return InlineKeyboardMarkup(
         [[_button(f"✅ Entrar ({entry_label})", TournamentAction("bk", tournament_id))]]
     )
+
+
+def tournament_participants_keyboard(items: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """Picker to view a bolãozinho's participants. Each item: (tournament_id, label). §22."""
+    rows = [
+        [_button(label, TournamentAction("bp", tournament_id))] for tournament_id, label in items
+    ]
+    return InlineKeyboardMarkup(rows)

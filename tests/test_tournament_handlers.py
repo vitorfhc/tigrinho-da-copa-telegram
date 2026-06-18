@@ -22,7 +22,7 @@ from tigrinho.bot.tournament_handlers import (
     on_tournament_callback,
 )
 from tigrinho.db.models import Game, GameStatus, Stage
-from tigrinho.db.repositories import TournamentRepository
+from tigrinho.db.repositories import PlayerRepository, TournamentRepository
 
 _CREATOR = User(id=7, is_bot=False, first_name="Dono")
 _OTHER = User(id=8, is_bot=False, first_name="Outro")
@@ -48,12 +48,14 @@ def _seed_game(app_context: AppContext, fixture_id: int) -> None:
         session.commit()
 
 
-def _cmd_update(user: User) -> tuple[Update, AsyncMock]:
+def _cmd_update(user: User, *, chat_type: ChatType = ChatType.GROUP) -> tuple[Update, AsyncMock]:
     message = AsyncMock()
     update = MagicMock()
     update.effective_message = message
     update.effective_user = user
-    update.effective_chat = Chat(id=-100, type=ChatType.GROUP)
+    update.effective_chat = Chat(
+        id=user.id if chat_type == ChatType.PRIVATE else -100, type=chat_type
+    )
     return cast(Update, update), message
 
 
@@ -147,22 +149,33 @@ async def test_abrir_opens_and_announces_to_group(app_context: AppContext) -> No
     assert tournament.status.value == "OPEN"
 
 
-async def test_entrar_and_join_flow(app_context: AppContext) -> None:
+async def test_entrar_in_dm_shows_join_card_and_join_flow(app_context: AppContext) -> None:
     _seed_game(app_context, 1001)
     tid = _make_tournament(app_context, opened=True)
-    # /entrar shows the join card (single joinable tournament).
-    update, message = _cmd_update(_OTHER)
+    # /entrar in DM shows the open-bolãozinhos picker (a wizard step).
+    update, message = _cmd_update(_OTHER, chat_type=ChatType.PRIVATE)
     await cmd_entrar(update, _context(app_context))
     assert isinstance(message.reply_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup)
-    # Tapping "Entrar" creates the entry.
+    # Tapping "Entrar" (after picking the bolãozinho) creates the entry.
     update2, query = _cb_update(encode(TournamentAction("bk", tid)), _OTHER)
     await on_tournament_callback(update2, _context(app_context))
     with app_context.session_factory() as session:
         assert TournamentRepository(session).is_entered(tid, 8) is True
 
 
+async def test_entrar_in_group_redirects_to_private(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    _make_tournament(app_context, opened=True)
+    update, message = _cmd_update(_OTHER, chat_type=ChatType.GROUP)
+    await cmd_entrar(update, _context(app_context))
+    text = message.reply_text.await_args.args[0]
+    assert "privado" in text
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    assert markup.inline_keyboard[0][0].url.endswith("?start=entrar")
+
+
 async def test_entrar_none_open(app_context: AppContext) -> None:
-    update, message = _cmd_update(_OTHER)
+    update, message = _cmd_update(_OTHER, chat_type=ChatType.PRIVATE)
     await cmd_entrar(update, _context(app_context))
     assert "Nenhum bolãozinho" in message.reply_text.await_args.args[0]
 
@@ -211,7 +224,50 @@ async def test_participantes_lists_entrants(app_context: AppContext) -> None:
     assert "Bruno" in text
 
 
-async def test_participantes_usage_without_id(app_context: AppContext) -> None:
+async def test_participantes_no_arg_none_exist(app_context: AppContext) -> None:
     update, message = _cmd_update(_OTHER)
     await cmd_participantes(update, _context(app_context, args=[]))
-    assert "Uso" in message.reply_text.await_args.args[0]
+    assert "Nenhum bolãozinho" in message.reply_text.await_args.args[0]
+
+
+async def test_participantes_no_arg_shows_picker(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    _seed_game(app_context, 1002)
+    with app_context.session_factory() as session:
+        svc.create_tournament(session, name="A", entry_price_cents=1000, created_by=7)
+        svc.create_tournament(session, name="B", entry_price_cents=2000, created_by=7)
+        session.commit()
+    update, message = _cmd_update(_OTHER)
+    await cmd_participantes(update, _context(app_context, args=[]))
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    assert len(markup.inline_keyboard) == 2  # one picker button per bolãozinho
+
+
+async def test_participantes_callback_shows_list(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=True)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    with app_context.session_factory() as session:
+        tournament = TournamentRepository(session).get(tid)
+        assert tournament is not None
+        svc.join(session, tournament, telegram_id=100, display_name="Ana", now=now)
+        session.commit()
+    update, query = _cb_update(encode(TournamentAction("bp", tid)), _OTHER)
+    await on_tournament_callback(update, _context(app_context))
+    text = query.edit_message_text.await_args.args[0]
+    assert "Participantes" in text
+    assert "Ana" in text
+
+
+async def test_open_announcement_mentions_known_players(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=False)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(555, "Zé")
+        session.commit()
+    update, message = _cmd_update(_CREATOR)
+    ctx = _context(app_context, args=[str(tid)])
+    await cmd_abrir(update, ctx)
+    text = ctx.bot.send_message.await_args.kwargs["text"]  # type: ignore[attr-defined]
+    assert "tg://user?id=555" in text  # the known player is pinged in the announcement

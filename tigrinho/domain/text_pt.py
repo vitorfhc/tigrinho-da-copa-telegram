@@ -786,8 +786,13 @@ def tournament_announcement_text(
     games: Sequence[tuple[str, str, datetime]],
     currency: str,
     decimals: int = 2,
+    mentions: Sequence[tuple[int, str]] = (),
 ) -> str:
-    """The group "novo bolãozinho" publish post (deep-link buttons added by the keyboard); §5."""
+    """The group "novo bolãozinho" publish post (deep-link buttons added by the keyboard); §5/§22.
+
+    ``mentions`` (telegram_id, name) are @-mentioned in the same message so everyone the bot knows
+    is pinged about the new bolãozinho.
+    """
     price = format_money_cents(entry_price_cents, currency=currency, decimals=decimals)
     lines = [
         f"🏆 Novo bolãozinho: <b>{escape(name)}</b> — entrada {price}",
@@ -796,6 +801,9 @@ def tournament_announcement_text(
         "",
         "Use /entrar para participar! 🐯",
     ]
+    if mentions:
+        pings = " ".join(mention(telegram_id, person) for telegram_id, person in mentions)
+        lines.append(f"\n📣 {pings}")
     return "\n".join(lines)
 
 
