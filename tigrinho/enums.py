@@ -26,3 +26,12 @@ class GameStatus(enum.StrEnum):
     POSTPONED = "POSTPONED"
     CANCELLED = "CANCELLED"
     VOID = "VOID"
+
+
+class TournamentStatus(enum.StrEnum):
+    """Lifecycle of a bolãozinho (Feature 7 / §22)."""
+
+    DRAFT = "DRAFT"
+    OPEN = "OPEN"
+    FINISHED = "FINISHED"
+    CANCELLED = "CANCELLED"
