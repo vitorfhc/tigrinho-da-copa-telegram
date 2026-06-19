@@ -613,6 +613,7 @@ def help_text() -> str:
         "• /entrar — entrar num bolãozinho\n"
         "• /bolaozinho_criar — criar um bolãozinho (<code>Nome | preço</code>)\n"
         "• /bolaozinho_cancelar — cancelar um bolãozinho (<code>id [motivo]</code>)\n"
+        "• /vincular_splitwise — vincular sua conta do Splitwise (pro acerto do prêmio)\n"
         "• /ajuda — esta mensagem\n"
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
@@ -648,7 +649,10 @@ def help_text() -> str:
         "(quem está na frente até ali). Você também pode ver a qualquer momento com "
         "<b>/bolaozinho_placar</b>.\n"
         "• Quando todos os jogos terminam, o bot anuncia o vencedor e quanto leva. O acerto do "
-        "dinheiro é por fora — o bot só faz a conta.\n\n"
+        "dinheiro é por fora — o bot só faz a conta.\n"
+        "• <b>Splitwise:</b> se o grupo usa Splitwise, vincule sua conta com "
+        "<b>/vincular_splitwise</b> (uma vez só). Quando um bolãozinho termina, eu registro o "
+        "acerto lá automaticamente — quem perdeu deve a entrada, quem ganhou recebe.\n\n"
         "Boa sorte! 🍀"
     )
 
@@ -890,6 +894,72 @@ def tournament_open_dm_text(
         "Toque em <b>Entrar no bolãozinho</b> aqui embaixo pra participar! 🐯",
     ]
     return "\n".join(lines)
+
+
+# --- Splitwise linking + registration (Feature 8 / §23) ------------------------------------------
+def splitwise_link_intro_text() -> str:
+    """The first wizard step: ask whether the player is already in the Splitwise group (§23)."""
+    return (
+        "💸 <b>Vincular Splitwise</b>\n\n"
+        "Pra eu registrar os acertos do bolãozinho no Splitwise, preciso saber quem é você lá.\n\n"
+        "<b>Você já está no grupo do Splitwise?</b>"
+    )
+
+
+def splitwise_ask_email_text() -> str:
+    """Prompt for the email when the player is not yet in the group (the "Não" branch)."""
+    return (
+        "Beleza! Me manda o <b>e-mail</b> que você usa (ou vai usar) no Splitwise, que eu te "
+        "adiciono ao grupo. 📧"
+    )
+
+
+def splitwise_linked_text(*, member_name: str) -> str:
+    """Confirmation after a successful link."""
+    return (
+        f"✅ Splitwise vinculado a <b>{escape(member_name)}</b>. "
+        "Agora é só entrar nos bolãozinhos! 🐯"
+    )
+
+
+def splitwise_invalid_email_text() -> str:
+    """Rejection of a malformed email (keeps the wizard waiting)."""
+    return "Hmm, isso não parece um e-mail válido. Tenta de novo? 📧"
+
+
+def splitwise_link_required_text() -> str:
+    """Join-guard rejection: an AUTO bolãozinho needs the player linked first (§23)."""
+    return (
+        "🔗 Antes de entrar, <b>vincule seu Splitwise</b> (é rapidinho) — assim eu consigo "
+        "registrar o acerto do prêmio. Toque no botão aqui embaixo."
+    )
+
+
+def splitwise_all_linked_text() -> str:
+    """Shown when every group member is already linked to a Telegram player."""
+    return (
+        "Todo mundo do grupo do Splitwise já está vinculado por aqui. Se você não está no grupo "
+        "ainda, escolha <b>Não estou no grupo</b>."
+    )
+
+
+def splitwise_not_configured_text() -> str:
+    """Shown when the feature is disabled (no key/group)."""
+    return "O Splitwise não está configurado neste bot."
+
+
+def splitwise_expense_description(*, name: str, winners: Sequence[str]) -> str:
+    """The Splitwise expense description for a finished bolãozinho's result."""
+    who = ", ".join(winners) if winners else "—"
+    return f"🏆 Bolãozinho '{name}' — {who}"
+
+
+def splitwise_admin_ready_text(*, tournament_id: int, name: str) -> str:
+    """DM to the admin when a MANUAL bolãozinho is fully linked and ready to register (§23)."""
+    return (
+        f"💸 Bolãozinho #{tournament_id} (<b>{escape(name)}</b>) já está com todo mundo vinculado "
+        "no Splitwise. Use /bolaozinho_splitwise pra registrar o acerto."
+    )
 
 
 def tournament_card_text(

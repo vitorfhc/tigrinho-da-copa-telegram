@@ -48,6 +48,15 @@ from tigrinho.domain.text_pt import (
     reminder_text,
     results_text,
     settled_summary_line,
+    splitwise_admin_ready_text,
+    splitwise_all_linked_text,
+    splitwise_ask_email_text,
+    splitwise_expense_description,
+    splitwise_invalid_email_text,
+    splitwise_link_intro_text,
+    splitwise_link_required_text,
+    splitwise_linked_text,
+    splitwise_not_configured_text,
     tournament_no_result_text,
     tournament_result_text,
     tournament_standings_text,
@@ -209,10 +218,29 @@ def test_help_text_covers_required_content() -> None:
     assert "/bolaozinho_placar" in text  # bolãozinho partial-placar command
     assert "Bolãozinhos" in text  # bolãozinho section
     assert "Prêmio = pote − uma entrada" in text  # money rule
+    assert "/vincular_splitwise" in text  # splitwise linking command (§23)
+    assert "Splitwise" in text  # splitwise section
 
 
 def test_welcome_text_points_to_help() -> None:
     assert "/ajuda" in welcome_text()
+
+
+def test_splitwise_text_functions() -> None:
+    assert "já está no grupo do Splitwise" in splitwise_link_intro_text()
+    assert "e-mail" in splitwise_ask_email_text()
+    assert "Maria &amp; Cia" in splitwise_linked_text(member_name="Maria & Cia")  # HTML-escaped
+    assert "válido" in splitwise_invalid_email_text()
+    assert "vincule" in splitwise_link_required_text().lower()
+    assert "vinculado" in splitwise_all_linked_text()
+    assert "não está configurado" in splitwise_not_configured_text()
+    # Expense description is plain text for the Splitwise API (not Telegram HTML) — no escaping.
+    desc = splitwise_expense_description(name="Fase & Final", winners=["João", "Ana"])
+    assert desc == "🏆 Bolãozinho 'Fase & Final' — João, Ana"
+    assert splitwise_expense_description(name="X", winners=[]) == "🏆 Bolãozinho 'X' — —"
+    admin = splitwise_admin_ready_text(tournament_id=7, name="Fase")
+    assert "#7" in admin
+    assert "/bolaozinho_splitwise" in admin
 
 
 def test_palpite_text_renders_each_category() -> None:
