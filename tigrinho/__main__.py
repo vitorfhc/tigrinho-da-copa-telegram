@@ -16,6 +16,7 @@ from tigrinho.db.engine import create_db_engine, create_session_factory
 from tigrinho.logging import configure_logging, get_logger
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.factory import make_provider
+from tigrinho.providers.splitwise import SplitwiseClient
 
 _log = get_logger("tigrinho.main")
 
@@ -25,6 +26,13 @@ def make_palpite_generator(settings: Settings) -> PalpiteGenerator | None:
     if not settings.gemini_api_key:
         return None
     return GeminiPalpiteGenerator(api_key=settings.gemini_api_key, model=settings.gemini_model)
+
+
+def make_splitwise_client(settings: Settings) -> SplitwiseClient | None:
+    """Build the Splitwise client, or None when the feature is disabled (no key/group; §23)."""
+    if not settings.splitwise_enabled or settings.splitwise_api_key is None:
+        return None
+    return SplitwiseClient(base_url=settings.splitwise_base_url, api_key=settings.splitwise_api_key)
 
 
 def create_application_from_settings(settings: Settings) -> AnyApplication:
@@ -41,6 +49,7 @@ def create_application_from_settings(settings: Settings) -> AnyApplication:
             reset_tz=settings.budget_tzinfo,
         ),
         palpite_generator=make_palpite_generator(settings),
+        splitwise_client=make_splitwise_client(settings),
     )
     return build_application(app_context)
 

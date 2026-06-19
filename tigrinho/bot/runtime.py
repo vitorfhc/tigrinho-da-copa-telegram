@@ -19,6 +19,7 @@ from tigrinho.ai.base import PalpiteGenerator
 from tigrinho.config import Settings
 from tigrinho.providers.base import FootballProvider
 from tigrinho.providers.budget import RequestBudget
+from tigrinho.providers.splitwise import SplitwiseClient
 
 # A fully Any-parameterized Application — handlers are typed separately via the default context,
 # so the bot-wiring layer does not need the exact 6-parameter Application generic.
@@ -57,6 +58,11 @@ class AppContext:
     # Bolãozinho ids already alerted as "stuck" this process (a member game stranded past its
     # window), so the sweep DMs the admin once per stranded bolãozinho, not every cycle (§22/§7).
     tournament_stuck_alerted: set[int] = field(default_factory=set)
+    # Splitwise client (§23); None when the feature is disabled (no key/group configured).
+    splitwise_client: SplitwiseClient | None = None
+    # Per-bolãozinho count of Splitwise expense *correction* updates this process, capped like the
+    # group correction posts so an oscillating re-grade can't thrash the ledger (§23).
+    splitwise_corrections: dict[int, int] = field(default_factory=dict)
 
 
 def get_app_context(application: AnyApplication) -> AppContext:

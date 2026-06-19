@@ -27,6 +27,10 @@ class TournamentError(Exception):
         self.message = message
 
 
+class SplitwiseLinkRequired(TournamentError):
+    """Raised by :func:`join` when an AUTO bolãozinho needs the player linked to Splitwise (§23)."""
+
+
 # --- permissions (F11) ---------------------------------------------------------------------------
 def can_manage(tournament: Tournament, actor_id: int, admin_id: int) -> bool:
     """Only the creator (or the configured admin) may manage a bolãozinho."""
@@ -159,7 +163,7 @@ def join(
     # Splitwise join guard (§23): an AUTO bolãozinho requires every entrant linked so its result can
     # auto-register and the expense always balances. MANUAL/EXCLUDED keep frictionless joining.
     if tournament.splitwise_mode is SplitwiseMode.AUTO and player.splitwise_user_id is None:
-        raise TournamentError("Vincule seu Splitwise antes de entrar.")
+        raise SplitwiseLinkRequired("Vincule seu Splitwise antes de entrar.")
     repo = TournamentRepository(session)
     added = repo.add_entry(tournament.id, telegram_id)
     n = repo.count_entries(tournament.id)

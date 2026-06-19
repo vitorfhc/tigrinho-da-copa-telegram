@@ -9,6 +9,7 @@ Grounding (per §2), verified June 2026:
 
 from __future__ import annotations
 
+import httpx
 from telegram import (
     Bot,
     BotCommand,
@@ -28,11 +29,13 @@ from tigrinho.bot.poll_job import schedule_poll_job
 from tigrinho.bot.reconcile_job import schedule_reconcile_job
 from tigrinho.bot.reminder_job import schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AnyApplication, AppContext, get_app_context
+from tigrinho.bot.splitwise_handlers import register_splitwise_handlers
 from tigrinho.bot.sweep_job import schedule_sweep_job
 from tigrinho.bot.sync_job import schedule_sync_job
 from tigrinho.bot.tournament_handlers import register_tournament_handlers
 from tigrinho.config import Settings
 from tigrinho.logging import get_logger
+from tigrinho.providers.splitwise import SplitwiseError
 
 _log = get_logger("tigrinho.app")
 
@@ -51,6 +54,7 @@ PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand("entrar", "Entrar num bolãozinho"),
     BotCommand("bolaozinho_criar", "Criar um bolãozinho: Nome | preço"),
     BotCommand("bolaozinho_cancelar", "Cancelar um bolãozinho: id [motivo]"),
+    BotCommand("vincular_splitwise", "Vincular sua conta do Splitwise"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]
 GROUP_COMMANDS: list[BotCommand] = [
@@ -104,10 +108,24 @@ async def set_commands(bot: Bot) -> None:
     await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
 
 
+async def validate_splitwise(app_context: AppContext) -> None:
+    """Best-effort Splitwise reachability check at startup (§23). Non-fatal — logs and proceeds."""
+    client = app_context.splitwise_client
+    if client is None:
+        return
+    try:
+        user = await client.get_current_user()
+    except (SplitwiseError, httpx.HTTPError) as exc:
+        _log.error("splitwise_validation_failed", error=str(exc))
+        return
+    _log.info("splitwise_validated", splitwise_user_id=user.id)
+
+
 async def post_init(application: AnyApplication) -> None:
     """Run startup validation, register commands, and schedule jobs before polling begins."""
     app_context = get_app_context(application)
     await validate_startup(application.bot, app_context.settings)
+    await validate_splitwise(app_context)
     await set_commands(application.bot)
     if application.job_queue is not None:
         schedule_sync_job(application.job_queue, app_context.settings)
@@ -136,6 +154,8 @@ def build_application(app_context: AppContext) -> AnyApplication:
     # Tournament callbacks (^ba|bd|bo|bx|bj|bk|bi|bg:) MUST be registered before the wizard's
     # catch-all CallbackQueryHandler so they are matched first (§22).
     register_tournament_handlers(application)
+    # Splitwise callbacks (^sv|sn|sp|sr) + the guarded email MessageHandler (§23).
+    register_splitwise_handlers(application)
     register_bet_handlers(application)
     application.add_error_handler(error_handler)
     return application

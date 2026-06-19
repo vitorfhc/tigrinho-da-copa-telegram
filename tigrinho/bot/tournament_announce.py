@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from tigrinho.bot.alerts import notify_admin
 from tigrinho.bot.runtime import AppContext
+from tigrinho.bot.splitwise_register import register_finished_tournament
 from tigrinho.domain.text_pt import (
     escape,
     tournament_no_result_text,
@@ -148,3 +149,9 @@ async def resolve_and_post(
         announcements = on_game_resolved(session, fixture_id)
         session.commit()
     await post_tournament_announcements(app_context, context, announcements)
+    # Mirror each finished AUTO bolãozinho's result into Splitwise (best-effort; §23).
+    for ann in announcements:
+        if isinstance(ann, TournamentWinnerAnnouncement):
+            await register_finished_tournament(
+                app_context, context, ann.tournament_id, is_correction=ann.is_correction
+            )

@@ -22,6 +22,7 @@ from tigrinho.bot.alerts import notify_admin
 from tigrinho.bot.callbacks import TournamentAction, TournamentAddToggle, decode
 from tigrinho.bot.keyboards import (
     announcement_keyboard,
+    splitwise_link_button,
     tournament_add_picker_keyboard,
     tournament_card_keyboard,
     tournament_entrar_keyboard,
@@ -42,6 +43,7 @@ from tigrinho.domain.text_pt import (
     escape,
     format_kickoff_short,
     format_money_cents,
+    splitwise_link_required_text,
     tournament_announcement_text,
     tournament_cancelled_dm_text,
     tournament_card_text,
@@ -348,7 +350,12 @@ async def cmd_abrir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         try:
             svc.require_manage(tournament, user.id, app_context.settings.admin_user_id)
-            svc.open_tournament(session, tournament, now=utcnow())
+            svc.open_tournament(
+                session,
+                tournament,
+                now=utcnow(),
+                splitwise_enabled=app_context.settings.splitwise_enabled,
+            )
         except svc.TournamentError as exc:
             await message.reply_text(exc.message)
             return
@@ -741,7 +748,12 @@ async def _do_open(
         if tournament is None:
             return
         try:
-            svc.open_tournament(session, tournament, now=utcnow())
+            svc.open_tournament(
+                session,
+                tournament,
+                now=utcnow(),
+                splitwise_enabled=app_context.settings.splitwise_enabled,
+            )
         except svc.TournamentError as exc:
             await query.answer(exc.message, show_alert=True)
             return
@@ -852,6 +864,15 @@ async def _do_join(
                 display_name=_display_name(update),
                 now=utcnow(),
             )
+        except svc.SplitwiseLinkRequired as exc:
+            await query.answer(exc.message, show_alert=True)
+            await _send_dm(
+                context,
+                actor_id,
+                splitwise_link_required_text(),
+                splitwise_link_button(settings.bot_username),
+            )
+            return
         except svc.TournamentError as exc:
             await query.answer(exc.message, show_alert=True)
             return

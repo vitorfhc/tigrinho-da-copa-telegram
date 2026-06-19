@@ -20,12 +20,14 @@ from telegram.ext import ContextTypes, JobQueue
 from tigrinho import tournament_service as svc
 from tigrinho.bot.alerts import notify_admin
 from tigrinho.bot.runtime import AppContext, get_app_context
+from tigrinho.bot.splitwise_register import register_finished_tournament
 from tigrinho.bot.tournament_announce import resolve_and_post
 from tigrinho.config import Settings
 from tigrinho.db.models import GameStatus, TournamentStatus, utcnow
 from tigrinho.db.repositories import TournamentRepository
-from tigrinho.domain.text_pt import escape
+from tigrinho.domain.text_pt import escape, splitwise_admin_ready_text
 from tigrinho.logging import get_logger
+from tigrinho.splitwise_service import finished_auto_tournaments, manual_ready_to_notify
 
 _log = get_logger("tigrinho.sweep_job")
 
@@ -111,6 +113,36 @@ async def _run_sweep(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE
         alerted.add(tournament_id)
     if to_resolve or stranded:
         _log.info("swept", resolved=len(to_resolve), stranded=len(stranded))
+
+    await _splitwise_sweep(app_context, context)
+
+
+async def _splitwise_sweep(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Retry unsynced AUTO registrations and DM the admin once per now-ready MANUAL one (§23)."""
+    if not app_context.settings.splitwise_enabled:
+        return
+    # AUTO: retry registration for finished AUTO bolãozinhos (build_registration no-ops if synced).
+    with app_context.session_factory() as session:
+        auto = [
+            (t.id, t.splitwise_expense_id is not None) for t in finished_auto_tournaments(session)
+        ]
+    for tournament_id, has_expense in auto:
+        await register_finished_tournament(
+            app_context, context, tournament_id, is_correction=has_expense
+        )
+    # MANUAL: mark + notify the admin once for each newly fully-linked, not-yet-registered one.
+    with app_context.session_factory() as session:
+        ready = manual_ready_to_notify(session)
+        notes = [(t.id, t.name) for t in ready]
+        for tournament in ready:
+            tournament.splitwise_admin_notified_at = utcnow()
+        session.commit()
+    for tournament_id, name in notes:
+        await notify_admin(
+            context.bot,
+            app_context.settings.admin_user_id,
+            splitwise_admin_ready_text(tournament_id=tournament_id, name=name),
+        )
 
 
 def schedule_sweep_job(job_queue: JobQueue[ContextTypes.DEFAULT_TYPE], settings: Settings) -> None:
