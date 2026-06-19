@@ -19,6 +19,7 @@ from tigrinho.bot.tournament_handlers import (
     cmd_cancelar,
     cmd_criar,
     cmd_entrar,
+    cmd_list,
     cmd_participantes,
     cmd_placar,
     on_tournament_callback,
@@ -475,6 +476,29 @@ async def test_cancel_command_notifies_entrants_with_reason(app_context: AppCont
     dm_text = ctx.bot.send_message.await_args_list[0].kwargs["text"]  # type: ignore[attr-defined]
     assert "cancelado" in dm_text
     assert "jogo adiado" in dm_text
+
+
+async def test_list_hides_cancelled_bolaozinhos(app_context: AppContext) -> None:
+    with app_context.session_factory() as session:
+        visible = svc.create_tournament(
+            session, name="Visivel", entry_price_cents=1000, created_by=7
+        )
+        cancelled = svc.create_tournament(
+            session, name="Cancelado", entry_price_cents=1000, created_by=7
+        )
+        svc.cancel_tournament(session, cancelled, reason="jogo adiado")
+        session.commit()
+    update, message = _cmd_update(_CREATOR)
+    await cmd_list(update, _context(app_context))
+    text = message.reply_text.await_args.args[0]
+    assert "Visivel" in text
+    assert "Cancelado" not in text
+    # The picker keyboard must not offer the cancelled bolãozinho either.
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(keyboard, InlineKeyboardMarkup)
+    button_labels = [btn.text for row in keyboard.inline_keyboard for btn in row]
+    assert any(f"#{visible.id}" in label for label in button_labels)
+    assert all(f"#{cancelled.id}" not in label for label in button_labels)
 
 
 async def test_cancel_command_refused_for_non_creator(app_context: AppContext) -> None:

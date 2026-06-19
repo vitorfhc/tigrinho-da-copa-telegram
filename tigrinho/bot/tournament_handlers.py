@@ -185,7 +185,7 @@ def _render_details(
 
 def _list_payload(session: Session, settings: Settings) -> tuple[str, InlineKeyboardMarkup | None]:
     repo = TournamentRepository(session)
-    tournaments = repo.list_all()
+    tournaments = repo.list_visible()
     items = [
         (
             t.id,
@@ -405,7 +405,7 @@ async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/bolaozinhos — list every bolãozinho with status, pot, and entrant count."""
+    """/bolaozinhos — list bolãozinhos (status, pot, entrants); CANCELLED hidden (§22.3)."""
     message = update.effective_message
     if message is None:
         return
