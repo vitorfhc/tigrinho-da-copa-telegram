@@ -111,6 +111,55 @@ def build_registration(session: Session, tournament_id: int) -> SplitwiseRegistr
     )
 
 
+def build_forced_registration(session: Session, tournament_id: int) -> SplitwiseRegistration:
+    """Like :func:`build_registration` but over LINKED entrants only — the admin ``--force`` path.
+
+    Drops unlinked **losers** (an admin-acknowledged distortion for a never-linker) and raises
+    :class:`ValueError` if the bolãozinho is missing, has no scorable result, any **winner** is
+    unlinked (can't credit a payout off Splitwise), or there are no linked losers to bill.
+    """
+    repo = TournamentRepository(session)
+    players = PlayerRepository(session)
+    tournament = repo.get(tournament_id)
+    if tournament is None:
+        raise ValueError("bolãozinho não encontrado")
+    outcome = compute_outcome(repo.standings(tournament_id), tournament.entry_price_cents)
+    if not outcome.has_result:
+        raise ValueError("sem resultado pra registrar")
+
+    user_id_by_tid: dict[int, int] = {}
+    name_by_tid: dict[int, str] = {}
+    for tid in repo.entry_ids(tournament_id):
+        player = players.get(tid)
+        if player is not None and player.splitwise_user_id is not None:
+            user_id_by_tid[tid] = player.splitwise_user_id
+            name_by_tid[tid] = player.display_name
+    missing_winner = [w for w in outcome.winner_ids if w not in user_id_by_tid]
+    if missing_winner:
+        raise ValueError("um vencedor não está vinculado ao Splitwise — não dá pra forçar")
+
+    linked_ids = [tid for tid in repo.entry_ids(tournament_id) if tid in user_id_by_tid]
+    ledger = build_ledger(linked_ids, outcome.winner_ids, tournament.entry_price_cents)
+    if not ledger:
+        raise ValueError("nada a registrar (nenhum perdedor vinculado)")
+    shares = tuple(
+        ExpenseShare(
+            user_id=user_id_by_tid[tid], paid_cents=share.paid_cents, owed_cents=share.owed_cents
+        )
+        for tid, share in ledger.items()
+    )
+    winner_names = [name_by_tid[tid] for tid in outcome.winner_ids]
+    return SplitwiseRegistration(
+        tournament_id=tournament_id,
+        expense_id=tournament.splitwise_expense_id,
+        cost_cents=ledger_cost_cents(ledger),
+        description=splitwise_expense_description(name=tournament.name, winners=winner_names),
+        signature=signature_of(outcome) + "|FORCED",
+        shares=shares,
+        is_correction=tournament.splitwise_expense_id is not None,
+    )
+
+
 def mark_synced(tournament: Tournament, *, expense_id: int, signature: str) -> None:
     """Record that ``tournament`` is registered in Splitwise at ``signature`` (caller commits)."""
     tournament.splitwise_expense_id = expense_id

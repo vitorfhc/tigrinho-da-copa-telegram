@@ -29,7 +29,7 @@ from tigrinho import tournament_service as svc
 from tigrinho.board_data import load_board_records
 from tigrinho.config import Settings, get_settings
 from tigrinho.db.engine import create_db_engine, create_session_factory
-from tigrinho.db.models import GameStatus, utcnow
+from tigrinho.db.models import GameStatus, SplitwiseMode, TournamentStatus, utcnow
 from tigrinho.db.repositories import (
     ApiUsageRepository,
     BetRepository,
@@ -42,8 +42,15 @@ from tigrinho.domain.tournament import compute_outcome, parse_price_to_cents
 from tigrinho.providers.base import FootballProvider, GoalEvent, MatchResult
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.factory import make_provider
+from tigrinho.providers.splitwise import SplitwiseClient
 from tigrinho.scoreboard import rank
 from tigrinho.settlement_service import settle_fixture
+from tigrinho.splitwise_service import (
+    SplitwiseRegistration,
+    build_forced_registration,
+    build_registration,
+    mark_synced,
+)
 
 _DUMPABLE_TABLES = ("players", "games", "bets", "api_usage")
 
@@ -587,6 +594,166 @@ def bolaozinho_standings(tournament_id: int) -> None:
         f"per_winner={_money(ctx, outcome.per_winner_cents)} "
         f"remainder={_money(ctx, outcome.remainder_cents)}"
     )
+
+
+# --- Splitwise (Feature 8 / §23) -----------------------------------------------------------------
+async def _push_to_splitwise(settings: Settings, reg: SplitwiseRegistration) -> int:
+    """Create/update the expense on Splitwise and return its id (CLI builds its own client)."""
+    assert settings.splitwise_api_key is not None and settings.splitwise_group_id is not None
+    client = SplitwiseClient(
+        base_url=settings.splitwise_base_url, api_key=settings.splitwise_api_key
+    )
+    try:
+        if reg.expense_id is None:
+            return await client.create_expense(
+                group_id=settings.splitwise_group_id,
+                cost_cents=reg.cost_cents,
+                currency_code=settings.splitwise_currency_code,
+                description=reg.description,
+                shares=list(reg.shares),
+            )
+        await client.update_expense(
+            reg.expense_id,
+            group_id=settings.splitwise_group_id,
+            cost_cents=reg.cost_cents,
+            currency_code=settings.splitwise_currency_code,
+            description=reg.description,
+            shares=list(reg.shares),
+        )
+        return reg.expense_id
+    finally:
+        await client.aclose()
+
+
+@bolaozinho_app.command("splitwise-status")
+def bolaozinho_splitwise_status(
+    tournament_id: Annotated[int | None, typer.Argument()] = None,
+) -> None:
+    """Show each bolãozinho's Splitwise mode, expense id, and linked/total entrants (read-only)."""
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        repo = TournamentRepository(session)
+        players = PlayerRepository(session)
+        if tournament_id is None:
+            tournaments = repo.list_all()
+        else:
+            one = repo.get(tournament_id)
+            tournaments = [one] if one is not None else []
+        rows = []
+        for tournament in tournaments:
+            ids = repo.entry_ids(tournament.id)
+            linked = sum(
+                1
+                for tid in ids
+                if (p := players.get(tid)) is not None and p.splitwise_user_id is not None
+            )
+            rows.append(
+                [
+                    str(tournament.id),
+                    tournament.name,
+                    tournament.splitwise_mode.value,
+                    str(tournament.splitwise_expense_id or "-"),
+                    f"{linked}/{len(ids)}",
+                ]
+            )
+    _print_table(["id", "name", "mode", "expense", "linked"], rows)
+
+
+@bolaozinho_app.command("splitwise-exclude")
+def bolaozinho_splitwise_exclude(
+    tournament_id: int, yes: Annotated[bool, typer.Option("--yes")] = False
+) -> None:
+    """Mark a bolãozinho EXCLUDED so the bot never registers it (e.g. already settled by hand)."""
+    if not yes:
+        typer.echo("Refusing to change mode without --yes.")
+        raise typer.Exit(code=1)
+    ctx = build_cli_context()
+    with ctx.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is None:
+            typer.echo("Not found.")
+            raise typer.Exit(code=1)
+        tournament.splitwise_mode = SplitwiseMode.EXCLUDED
+        session.commit()
+    typer.echo("Excluded.")
+
+
+@bolaozinho_app.command("register-splitwise")
+def bolaozinho_register_splitwise(
+    tournament_id: int,
+    force: Annotated[bool, typer.Option("--force", help="Register among LINKED entrants only")] = (
+        False
+    ),
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+) -> None:
+    """Manually register a finished bolãozinho's result in Splitwise (admin escape hatch)."""
+    ctx = build_cli_context()
+    if not ctx.settings.splitwise_enabled:
+        typer.echo("Splitwise is not configured.")
+        raise typer.Exit(code=1)
+    if force and not yes:
+        typer.echo("--force drops unlinked losers; pass --yes to confirm.")
+        raise typer.Exit(code=1)
+    with ctx.session_factory() as session:
+        try:
+            reg = (
+                build_forced_registration(session, tournament_id)
+                if force
+                else build_registration(session, tournament_id)
+            )
+        except ValueError as exc:
+            typer.echo(f"Cannot register: {exc}")
+            raise typer.Exit(code=1) from exc
+        if reg is None:
+            typer.echo("Nothing to register (no result, unlinked entrants, or already synced).")
+            raise typer.Exit(code=1)
+    expense_id = asyncio.run(_push_to_splitwise(ctx.settings, reg))
+    with ctx.session_factory() as session:
+        tournament = TournamentRepository(session).get(tournament_id)
+        if tournament is not None:
+            mark_synced(tournament, expense_id=expense_id, signature=reg.signature)
+            session.commit()
+    typer.echo(f"Registered expense {expense_id} (cost={_money(ctx, reg.cost_cents)}).")
+
+
+async def _dm_nudge(settings: Settings, targets: list[tuple[int, str]]) -> int:
+    """Best-effort DM each (telegram_id, name) the link prompt; return how many were reached."""
+    bot = Bot(settings.telegram_bot_token)
+    reached = 0
+    async with bot:
+        for telegram_id, _name in targets:
+            try:
+                await bot.send_message(
+                    chat_id=telegram_id,
+                    text="🔗 Vincule seu Splitwise pra eu acertar o bolãozinho: "
+                    "/vincular_splitwise",
+                )
+                reached += 1
+            except Exception:  # noqa: BLE001 - best-effort; one unreachable user mustn't stop the rest
+                continue
+    return reached
+
+
+@bolaozinho_app.command("nudge-splitwise")
+def bolaozinho_nudge_splitwise(yes: Annotated[bool, typer.Option("--yes")] = False) -> None:
+    """DM unlinked entrants of OPEN, non-excluded bolãozinhos to link Splitwise (best-effort)."""
+    if not yes:
+        typer.echo("This DMs people; pass --yes to confirm.")
+        raise typer.Exit(code=1)
+    ctx = build_cli_context()
+    targets: dict[int, str] = {}
+    with ctx.session_factory() as session:
+        repo = TournamentRepository(session)
+        players = PlayerRepository(session)
+        for tournament in repo.list_by_status(TournamentStatus.OPEN):
+            if tournament.splitwise_mode is SplitwiseMode.EXCLUDED:
+                continue
+            for tid in repo.entry_ids(tournament.id):
+                player = players.get(tid)
+                if player is not None and player.splitwise_user_id is None:
+                    targets[tid] = player.display_name
+    reached = asyncio.run(_dm_nudge(ctx.settings, list(targets.items())))
+    typer.echo(f"Nudged {reached}/{len(targets)} unlinked entrants.")
 
 
 if __name__ == "__main__":  # pragma: no cover

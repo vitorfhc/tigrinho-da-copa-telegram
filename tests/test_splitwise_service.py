@@ -184,6 +184,46 @@ def test_manual_ready_and_registerable_and_auto_filters(session: Session) -> Non
     assert [x.id for x in svc.finished_auto_tournaments(session)] == [tid]
 
 
+def _finished_three(session: Session) -> int:
+    """Ana wins; Bruno + Caio lose. Returns the tournament id (caller links who it wants)."""
+    for tid, name in ((100, "Ana"), (200, "Bruno"), (300, "Caio")):
+        PlayerRepository(session).get_or_create(tid, name)
+    for fid in (1, 2):
+        _game(session, fid)
+    t = tsvc.create_tournament(session, name="Fase", entry_price_cents=1000, created_by=1)
+    for fid in (1, 2):
+        tsvc.add_game(session, t, fid, now=_NOW)
+    tsvc.open_tournament(session, t, now=_NOW)
+    for tid in (100, 200, 300):
+        tsvc.join(session, t, telegram_id=tid, display_name=str(tid), now=_NOW)
+    _graded_bet(session, fixture_id=1, player=100, points=5)
+    _graded_bet(session, fixture_id=1, player=200, points=2)
+    _graded_bet(session, fixture_id=1, player=300, points=2)
+    _finish(session, 1)
+    _finish(session, 2)
+    return t.id
+
+
+def test_build_forced_registration_drops_unlinked_loser(session: Session) -> None:
+    tid = _finished_three(session)
+    _link(session, 100, 1001)  # winner Ana
+    _link(session, 200, 1002)  # loser Bruno linked
+    # loser Caio (300) stays unlinked → dropped by --force.
+    reg = svc.build_forced_registration(session, tid)
+    by_user = {s.user_id: s for s in reg.shares}
+    assert set(by_user) == {1001, 1002}  # Caio (unlinked) excluded
+    assert reg.cost_cents == 1000  # only Bruno's stake is billed
+    assert by_user[1001].paid_cents == 1000  # Ana credited the one linked loser's stake
+    assert by_user[1002].owed_cents == 1000
+
+
+def test_build_forced_registration_raises_when_winner_unlinked(session: Session) -> None:
+    tid = _finished_three(session)
+    _link(session, 200, 1002)  # only a loser linked; winner Ana unlinked
+    with pytest.raises(ValueError, match="vencedor"):
+        svc.build_forced_registration(session, tid)
+
+
 def test_open_tournament_stamps_auto_only_when_enabled(session: Session) -> None:
     for fid in (1, 2):
         _game(session, fid)

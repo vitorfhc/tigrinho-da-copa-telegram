@@ -11,10 +11,23 @@ from telegram import User
 from typer.testing import CliRunner
 
 import tigrinho.cli as cli
+import tigrinho.tournament_service as svc
 from tigrinho.cli import CliContext, app
 from tigrinho.config import Settings
-from tigrinho.db.models import Game, GameStatus, Stage, utcnow
-from tigrinho.db.repositories import BetRepository, GameRepository, PlayerRepository
+from tigrinho.db.models import (
+    Game,
+    GameStatus,
+    SplitwiseMode,
+    Stage,
+    TournamentStatus,
+    utcnow,
+)
+from tigrinho.db.repositories import (
+    BetRepository,
+    GameRepository,
+    PlayerRepository,
+    TournamentRepository,
+)
 from tigrinho.providers.base import Fixture
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.fake import FakeProvider
@@ -324,3 +337,152 @@ def test_bolaozinho_cli_bad_price(
     result = runner.invoke(app, ["bolaozinho", "create", "X", "--price", "abc"])
     assert result.exit_code == 1
     assert "Invalid price" in result.stdout
+
+
+# --- Splitwise CLI (§23) -------------------------------------------------------------------------
+def _patch_sw_context(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    session_factory: sessionmaker[Session],
+) -> CliContext:
+    enabled = settings.model_copy(update={"splitwise_api_key": "k", "splitwise_group_id": 55})
+    return _patch_context(monkeypatch, enabled, session_factory)
+
+
+def _seed_finished_linked_cli(
+    session_factory: sessionmaker[Session], *, mode: SplitwiseMode, link: bool = True
+) -> int:
+    now = datetime(2026, 6, 16, 10, 0)
+    with session_factory() as session:
+        PlayerRepository(session).get_or_create(100, "Ana")
+        PlayerRepository(session).get_or_create(200, "Bruno")
+        session.add(
+            Game(
+                fixture_id=1,
+                match_hash="h1",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="Brasil",
+                away_team_id=20,
+                away_team_name="Argentina",
+                kickoff_utc=datetime(2026, 6, 16, 19, 0),
+                kickoff_local=datetime(2026, 6, 16, 19, 0),
+                status=GameStatus.SCHEDULED,
+            )
+        )
+        session.flush()
+        t = svc.create_tournament(session, name="Fase", entry_price_cents=1000, created_by=1)
+        svc.add_game(session, t, 1, now=now)
+        svc.open_tournament(session, t, now=now)
+        if link:
+            for tid, uid in ((100, 1001), (200, 1002)):
+                p = PlayerRepository(session).get(tid)
+                assert p is not None
+                p.splitwise_user_id = uid
+        svc.join(session, t, telegram_id=100, display_name="Ana", now=now)
+        svc.join(session, t, telegram_id=200, display_name="Bruno", now=now)
+        for player, points in ((100, 5), (200, 2)):
+            bet = BetRepository(session).upsert(
+                fixture_id=1, player_telegram_id=player, category="WINNER", payload_json="{}"
+            )
+            bet.is_correct = points > 0
+            bet.points_awarded = points
+            bet.settled_at = now
+        game = session.get(Game, 1)
+        assert game is not None
+        game.status = GameStatus.FINISHED
+        game.settled_at = now
+        t.status = TournamentStatus.FINISHED
+        t.splitwise_mode = mode
+        session.commit()
+        return t.id
+
+
+def test_cli_splitwise_exclude(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    tid = _seed_finished_linked_cli(session_factory, mode=SplitwiseMode.MANUAL)
+    _patch_context(monkeypatch, settings, session_factory)
+    refused = runner.invoke(app, ["bolaozinho", "splitwise-exclude", str(tid)])
+    assert refused.exit_code == 1
+    ok = runner.invoke(app, ["bolaozinho", "splitwise-exclude", str(tid), "--yes"])
+    assert ok.exit_code == 0
+    with session_factory() as session:
+        t = TournamentRepository(session).get(tid)
+        assert t is not None and t.splitwise_mode is SplitwiseMode.EXCLUDED
+
+
+def test_cli_splitwise_status(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    tid = _seed_finished_linked_cli(session_factory, mode=SplitwiseMode.MANUAL)
+    _patch_context(monkeypatch, settings, session_factory)
+    result = runner.invoke(app, ["bolaozinho", "splitwise-status"])
+    assert result.exit_code == 0
+    assert str(tid) in result.stdout
+    assert "MANUAL" in result.stdout
+    assert "2/2" in result.stdout  # both entrants linked
+
+
+def test_cli_register_splitwise(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    tid = _seed_finished_linked_cli(session_factory, mode=SplitwiseMode.MANUAL)
+    _patch_sw_context(monkeypatch, settings, session_factory)
+    monkeypatch.setattr(cli, "_push_to_splitwise", AsyncMock(return_value=999))
+    result = runner.invoke(app, ["bolaozinho", "register-splitwise", str(tid)])
+    assert result.exit_code == 0
+    assert "999" in result.stdout
+    with session_factory() as session:
+        t = TournamentRepository(session).get(tid)
+        assert t is not None and t.splitwise_expense_id == 999
+
+
+def test_cli_register_splitwise_disabled(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    tid = _seed_finished_linked_cli(session_factory, mode=SplitwiseMode.MANUAL)
+    _patch_context(monkeypatch, settings, session_factory)  # feature disabled
+    result = runner.invoke(app, ["bolaozinho", "register-splitwise", str(tid)])
+    assert result.exit_code == 1
+    assert "not configured" in result.stdout
+
+
+def test_cli_nudge_splitwise(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    # An OPEN bolãozinho with an unlinked entrant.
+    now = datetime(2026, 6, 16, 10, 0)
+    with session_factory() as session:
+        PlayerRepository(session).get_or_create(100, "Ana")
+        session.add(
+            Game(
+                fixture_id=1,
+                match_hash="h1",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="A",
+                away_team_id=20,
+                away_team_name="B",
+                kickoff_utc=datetime(2026, 6, 16, 19, 0),
+                kickoff_local=datetime(2026, 6, 16, 19, 0),
+                status=GameStatus.SCHEDULED,
+            )
+        )
+        session.flush()
+        t = svc.create_tournament(session, name="X", entry_price_cents=1000, created_by=1)
+        svc.add_game(session, t, 1, now=now)
+        svc.open_tournament(session, t, now=now)  # MANUAL → unlinked join allowed
+        svc.join(session, t, telegram_id=100, display_name="Ana", now=now)
+        session.commit()
+    _patch_sw_context(monkeypatch, settings, session_factory)
+    sent = AsyncMock(return_value=1)
+    monkeypatch.setattr(cli, "_dm_nudge", sent)
+    refused = runner.invoke(app, ["bolaozinho", "nudge-splitwise"])
+    assert refused.exit_code == 1
+    ok = runner.invoke(app, ["bolaozinho", "nudge-splitwise", "--yes"])
+    assert ok.exit_code == 0
+    # One unlinked entrant was selected as a target.
+    assert sent.await_args is not None
+    targets = sent.await_args.args[1]
+    assert [tid for tid, _ in targets] == [100]
