@@ -35,3 +35,17 @@ class TournamentStatus(enum.StrEnum):
     OPEN = "OPEN"
     FINISHED = "FINISHED"
     CANCELLED = "CANCELLED"
+
+
+class SplitwiseMode(enum.StrEnum):
+    """How Splitwise applies to a bolãozinho (Feature 8 / §23).
+
+    ``AUTO`` — opened while the feature was enabled, so the join guard ensured every entrant is
+    linked: the result auto-registers (and auto-corrects) in Splitwise. ``MANUAL`` — an old
+    bolãozinho: the bot only notifies the admin once it is fully linked and the admin triggers
+    registration. ``EXCLUDED`` — never touched (closed at deploy, or already settled by hand).
+    """
+
+    AUTO = "AUTO"
+    MANUAL = "MANUAL"
+    EXCLUDED = "EXCLUDED"

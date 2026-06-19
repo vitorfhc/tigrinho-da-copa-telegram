@@ -29,7 +29,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # Re-exported so existing imports (`from tigrinho.db.models import Stage, GameStatus`) keep working;
 # the canonical home is the dependency-free leaf module ``tigrinho.enums``.
-from tigrinho.enums import GameStatus, Stage, TournamentStatus
+from tigrinho.enums import GameStatus, SplitwiseMode, Stage, TournamentStatus
 
 __all__ = [
     "AiPalpite",
@@ -39,6 +39,7 @@ __all__ = [
     "Game",
     "GameStatus",
     "Player",
+    "SplitwiseMode",
     "Stage",
     "Tournament",
     "TournamentEntry",
@@ -65,6 +66,10 @@ class Player(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     display_name: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Splitwise link (Feature 8 / §23). ``splitwise_user_id`` is the canonical identity / matching
+    # key ("linked" ≡ this is set); ``splitwise_email`` is informational (matched/invited address).
+    splitwise_user_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    splitwise_email: Mapped[str | None] = mapped_column(String, default=None)
 
     bets: Mapped[list[Bet]] = relationship(back_populates="player", cascade="all, delete-orphan")
 
@@ -185,6 +190,18 @@ class Tournament(Base):
     partial_announced_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # Why a bolãozinho was cancelled (shown in details + DM'd to participants; §22).
     cancel_reason: Mapped[str | None] = mapped_column(String, default=None)
+    # Splitwise integration (Feature 8 / §23). ``splitwise_mode`` carries the policy (AUTO/MANUAL/
+    # EXCLUDED); ``splitwise_expense_id`` is the registered expense (idempotency + corrections);
+    # ``splitwise_synced_signature`` is the outcome signature last pushed (re-push only on a flip);
+    # ``splitwise_admin_notified_at`` makes the MANUAL "ready to register" admin DM fire once.
+    splitwise_mode: Mapped[SplitwiseMode] = mapped_column(
+        Enum(SplitwiseMode, name="splitwise_mode"),
+        default=SplitwiseMode.MANUAL,
+        server_default=SplitwiseMode.MANUAL.value,
+    )
+    splitwise_expense_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    splitwise_synced_signature: Mapped[str | None] = mapped_column(String, default=None)
+    splitwise_admin_notified_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
 
     games: Mapped[list[TournamentGame]] = relationship(
         back_populates="tournament", cascade="all, delete-orphan"

@@ -9,7 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import Bet, Game, GameStatus, Player, Stage
+from tigrinho.db.models import (
+    Bet,
+    Game,
+    GameStatus,
+    Player,
+    SplitwiseMode,
+    Stage,
+    Tournament,
+    TournamentStatus,
+)
 
 
 def _seed_player_and_game(session: Session) -> tuple[Player, Game]:
@@ -55,6 +64,30 @@ def test_create_and_query(session: Session) -> None:
     assert stored_game.status is GameStatus.SCHEDULED
     assert stored_game.home_goals_90 is None
     assert stored_game.advancing_team_id is None
+
+
+def test_splitwise_column_defaults(session: Session) -> None:
+    player = Player(telegram_id=7, display_name="Tigrão")
+    tournament = Tournament(
+        name="Fase de Grupos",
+        entry_price_cents=1000,
+        status=TournamentStatus.DRAFT,
+        created_by=7,
+    )
+    session.add_all([player, tournament])
+    session.commit()
+
+    stored_player = session.get(Player, 7)
+    assert stored_player is not None
+    assert stored_player.splitwise_user_id is None
+    assert stored_player.splitwise_email is None
+
+    stored = session.get(Tournament, tournament.id)
+    assert stored is not None
+    assert stored.splitwise_mode is SplitwiseMode.MANUAL
+    assert stored.splitwise_expense_id is None
+    assert stored.splitwise_synced_signature is None
+    assert stored.splitwise_admin_notified_at is None
 
 
 def test_one_bet_per_category_unique(session: Session) -> None:
