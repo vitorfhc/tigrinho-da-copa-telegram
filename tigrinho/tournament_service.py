@@ -14,7 +14,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from tigrinho.db.models import GameStatus, Tournament, TournamentStatus, utcnow
+from tigrinho.db.models import GameStatus, SplitwiseMode, Tournament, TournamentStatus, utcnow
 from tigrinho.db.repositories import GameRepository, PlayerRepository, TournamentRepository
 from tigrinho.domain.tournament import TournamentOutcome, compute_outcome, pot_cents, prize_cents
 
@@ -98,7 +98,9 @@ def set_price(
     session.flush()
 
 
-def open_tournament(session: Session, tournament: Tournament, *, now: datetime) -> None:
+def open_tournament(
+    session: Session, tournament: Tournament, *, now: datetime, splitwise_enabled: bool = False
+) -> None:
     repo = TournamentRepository(session)
     if tournament.status is not TournamentStatus.DRAFT:
         raise TournamentError("Esse bolãozinho não está em rascunho.")
@@ -111,6 +113,10 @@ def open_tournament(session: Session, tournament: Tournament, *, now: datetime) 
         raise TournamentError("Um dos jogos já começou — não dá mais pra abrir.")
     tournament.status = TournamentStatus.OPEN
     tournament.opened_at = now
+    # Stamp AUTO when the Splitwise feature is on at open: the join guard then ensures every entrant
+    # links, so the result can auto-register. Otherwise it stays MANUAL (admin-triggered). §23.
+    if splitwise_enabled:
+        tournament.splitwise_mode = SplitwiseMode.AUTO
     session.flush()
 
 
@@ -149,7 +155,11 @@ def join(
     ensure_lock(session, tournament, now)
     if is_locked(tournament):
         raise TournamentError("As entradas fecharam — o primeiro jogo já começou.")
-    PlayerRepository(session).get_or_create(telegram_id, display_name)
+    player = PlayerRepository(session).get_or_create(telegram_id, display_name)
+    # Splitwise join guard (§23): an AUTO bolãozinho requires every entrant linked so its result can
+    # auto-register and the expense always balances. MANUAL/EXCLUDED keep frictionless joining.
+    if tournament.splitwise_mode is SplitwiseMode.AUTO and player.splitwise_user_id is None:
+        raise TournamentError("Vincule seu Splitwise antes de entrar.")
     repo = TournamentRepository(session)
     added = repo.add_entry(tournament.id, telegram_id)
     n = repo.count_entries(tournament.id)
