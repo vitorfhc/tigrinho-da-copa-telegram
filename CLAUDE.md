@@ -108,6 +108,12 @@ text** AND **`COMPLETION.md`** in the **same change**.
   `/start` handler parses the payload, auto-creates the player, and jumps into the wizard.
 - **Mentions** use HTML inline `<a href="tg://user?id=USER_ID">Name</a>` (works without `@username`).
 - **No roles, no subscription system** — the group post itself is the notification.
+- **Keyboard-wizard first (ALWAYS when possible)** — every command collects its input through
+  inline-keyboard wizards (pickers / multi-select / button steps via `callback_data`), **never
+  positional or free-text args**. Commands start **argless** and, when input is missing, open a wizard
+  (e.g. `/entrar`, `/bolaozinho_placar` → picker). Free text is a last resort, only for values that
+  genuinely can't be buttons (e.g. an email address); even then the command starts argless and
+  **prompts** for that value. Every **new** command MUST follow this — no new `<arg>`-style commands.
 
 ## Coding conventions
 
