@@ -73,6 +73,8 @@ cp config.example.yaml config.yaml   # fill group_chat_id, admin_user_id, bot_us
   - `API_FOOTBALL_KEY` — from API-Football
   - `GEMINI_API_KEY` — *optional*, from Google AI Studio. Enables the AI `/palpite` feature; leave
     blank to disable it.
+  - `SPLITWISE_API_KEY` — *optional*, a Splitwise personal API key. With `splitwise_group_id`,
+    enables auto-registering bolãozinho results in Splitwise (§23); leave blank to disable.
 - **`config.yaml`** (everything else). Settings reference:
 
   | Key | Required | Default | Purpose |
@@ -90,6 +92,9 @@ cp config.example.yaml config.yaml   # fill group_chat_id, admin_user_id, bot_us
   | `gemini_model` | no | `gemini-3.1-pro-preview` | Gemini model for `/palpite`. |
   | `poll_interval_seconds` | no | `600` | Live-poll cadence during matches (seconds). |
   | `match_window_hours` | no | `3` | How long after kickoff a game stays "active". |
+  | `splitwise_group_id` | no | — | Shared Splitwise group for bolãozinho expenses; enables §23. |
+  | `splitwise_base_url` | no | `https://secure.splitwise.com/api/v3.0` | Splitwise API base URL. |
+  | `splitwise_currency_code` | no | `BRL` | ISO-4217 code sent to Splitwise (display stays `R$`). |
   | `api_daily_cap` | no | `100` | Hard ceiling on provider requests/day. |
   | `api_budget_reset_tz` | no | `UTC` | Timezone whose midnight resets the counter. |
   | `db_path` | no | `/data/tigrinho.db` | SQLite path (mounted volume). |
@@ -144,6 +149,12 @@ games (creator/admin only), and opens it; players `/entrar` until the first game
 time a member game finishes the group gets the **running placar** (standings so far); `/bolaozinho_placar`
 shows it on demand. When all games finish the bot announces the winner and payout. The bot only does
 the bookkeeping — settle the cash among yourselves.
+
+**Splitwise (optional, §23):** if `SPLITWISE_API_KEY` + `splitwise_group_id` are configured, players
+link their Splitwise account once with `/vincular_splitwise` (pick yourself from the group, or enter an
+email). When a bolãozinho finishes, the bot registers the result in your shared Splitwise group as one
+expense — each loser owes their entry, the winner is owed the rest — so balances update automatically
+(still no money moved by the bot).
 
 ## 10. Admin CLI
 

@@ -191,6 +191,7 @@ startup; the bot MUST refuse to start if any required value is missing or malfor
 | `TELEGRAM_BOT_TOKEN` | yes | Bot token from **@BotFather**. |
 | `API_FOOTBALL_KEY` | yes | API-Football key. |
 | `GEMINI_API_KEY` | no | Google Gemini API key. **Optional** — enables the AI `/palpite` feature (§20). When unset, `/palpite` reports that no key is configured and the daily generation job is skipped. |
+| `SPLITWISE_API_KEY` | no | Splitwise personal API key. **Optional** — with `splitwise_group_id`, enables Splitwise auto-registration of bolãozinho results (§23). When unset, the feature is fully dormant. |
 
 ### 4.2 Settings — `config.yaml` (commit `config.example.yaml`)
 
@@ -213,6 +214,9 @@ startup; the bot MUST refuse to start if any required value is missing or malfor
 | `tournament_currency_decimals` | no | `2` | Decimal places when rendering bolãozinho money. §22 |
 | `reminder_max_mentions` | no | `20` | Cap on entrant @-mentions per bolãozinho reminder before `… +N`. §22 |
 | `bolaozinho_sweep_interval_minutes` | no | `10` | How often the bolãozinho lock/finish/rescue sweep runs. §22 |
+| `splitwise_group_id` | no | _(none)_ | Shared Splitwise group all bolãozinho expenses post to; with `SPLITWISE_API_KEY`, enables Splitwise registration. §23 |
+| `splitwise_base_url` | no | `https://secure.splitwise.com/api/v3.0` | Splitwise REST API base URL. §23 |
+| `splitwise_currency_code` | no | `BRL` | ISO-4217 currency code sent to the Splitwise API (display symbol stays `tournament_currency`). §23 |
 | `api_daily_cap` | no | `100` | Hard ceiling on provider requests per budget day. |
 | `api_budget_reset_tz` | no | `UTC` | Timezone whose midnight resets the request counter (API-Football resets at 00:00 UTC). |
 | `db_path` | no | `/data/tigrinho.db` | SQLite file path (mounted volume). |
@@ -1162,4 +1166,86 @@ per tournament).
 
 ### 22.7 CLI
 `python -m tigrinho.cli bolaozinho <create|list|show|add-game|remove-game|set-price|cancel|entries|
-add-entry|remove-entry|standings>` (destructive needs `--yes`).
+add-entry|remove-entry|standings>` (destructive needs `--yes`). Splitwise subcommands (§23.5):
+`splitwise-status|splitwise-exclude|register-splitwise|nudge-splitwise`.
+
+## 23. Feature 8 — Splitwise auto-registration of bolãozinho results
+
+A bolãozinho is a **real-money side-pot** where the bot is *bookkeeping only — it never moves money*
+(§22). This feature mirrors a finished bolãozinho's result into a shared **Splitwise** group (which is
+itself a who-owes-whom ledger), so the friends' balances update automatically with **zero money
+movement**. Optional and **dormant** unless both a Splitwise API key (`.env`) and a target group id
+(`config.yaml`) are set — exactly like `/palpite` / `GEMINI_API_KEY`.
+
+Grounding (verified 2026-06-19, https://dev.splitwise.com/): auth `Authorization: Bearer <key>`;
+`GET /get_current_user`; `GET /get_group/{id}` (members carry `id`/`email`/`first_name`/`last_name`);
+`POST /add_user_to_group`; `POST /create_expense` (form `cost`, `currency_code`, `group_id`,
+`description`, per-user `users__{i}__user_id`/`paid_share`/`owed_share`) → `{expenses:[{id}],errors}`;
+`POST /update_expense/{id}`. A 200 may still carry a non-empty `errors` — it is always checked.
+
+### 23.1 Money → ledger (`domain/splitwise_ledger.py`, 100% covered)
+One balanced expense per bolãozinho, **"losers fund winners"**: `cost = (n−k)×entry`; each loser
+**owes** `entry` (paid 0); the winners split that pot (`paid = cost//k`, the `cost%k` leftover cents
+one-per-winner to the lowest ids), owing nothing. Per-user paid/owed always satisfy
+`Σpaid == Σowed == cost` (Splitwise rejects unbalanced expenses). A **single winner** is owed exactly
+the announced §22 prize; **ties** split the losers' stakes equally — the exact zero-sum settlement,
+which may differ by a few cents from §22's display-only "prize ÷ k" abstraction (which is intentionally
+not cash-conserving on ties). `cost == 0` (lone entrant, or a full tie with no losers) → register
+nothing.
+
+### 23.2 Identity & linking (member-picker wizard)
+Players link **once** (global, all bolãozinhos) via the keyboard wizard `/vincular_splitwise`
+(argless; group → deep-link into DM; also `?start=vincular`): it first asks **"Você já está no grupo do
+Splitwise?"** — **Sim** → pick yourself from the group's real members (those not yet linked to any
+Telegram player) → store `players.splitwise_user_id`; **Não** → type an email → `add_user_to_group`
+invites you → store the returned id. Keying on `user_id` (never a raw typed email) avoids minting a
+**duplicate** user for someone already in the group under a different email. The link is the canonical
+identity; `players.splitwise_email` is informational. Expenses reference `users__{i}__user_id`.
+
+### 23.3 Per-bolãozinho mode (`tournaments.splitwise_mode`: AUTO / MANUAL / EXCLUDED)
+- **AUTO** — opened while the feature was enabled (`open_tournament(..., splitwise_enabled=True)`).
+  The join guard (`/entrar`) **requires every entrant linked**, so the result **auto-registers** at
+  settle and **auto-corrects** on a re-grade. The guard raises `SplitwiseLinkRequired`; the join card
+  surfaces a 🔗 link button.
+- **MANUAL** — opened while the feature was off, or an OPEN/DRAFT bolãozinho at deploy. Frictionless
+  joining (no link required). The bot **never auto-registers**; instead, once its roster is fully
+  linked it **DMs the admin once** and the admin triggers registration with `/bolaozinho_splitwise`
+  (a picker) or the CLI.
+- **EXCLUDED** — never touched. The migration marks every existing **FINISHED/CANCELLED** bolãozinho
+  EXCLUDED at deploy (covers ones already settled by hand); the admin can exclude others via the CLI.
+
+Mode is per-bolãozinho and lifelong, so each behaves consistently for its whole life. New rows default
+to MANUAL; `open_tournament` promotes to AUTO when the feature is enabled.
+
+### 23.4 Triggers (eventually-consistent)
+A bolãozinho registers **whenever** `feature_enabled AND all_entrants_linked` becomes true — not only
+at the settle instant. (1) **Settle**: `resolve_and_post` registers each finished **AUTO** bolãozinho
+after posting the winner. (2) **Sweep** (`bolaozinho_sweep`): retries any finished AUTO bolãozinho whose
+synced signature ≠ current (covers transient API failures), and DMs the admin **once** per finished
+MANUAL bolãozinho that has become fully linked (`splitwise_admin_notified_at` watermark). (3) **Manual**:
+the admin command/CLI. Corrections (`update_expense`) are capped at **2** automatic updates per
+bolãozinho (mirrors the §22 group-correction cap), then admin DM. All Splitwise calls are best-effort:
+a failure logs + DMs the admin and never crashes the bot; the winner announcement always posts.
+
+### 23.5 Commands
+- `/vincular_splitwise` — player linking wizard (§23.2). In `/ajuda`.
+- `/bolaozinho_splitwise` — **admin-only** wizard: a picker of MANUAL, finished, fully-linked, not-yet-
+  registered bolãozinhos → registers the chosen one.
+- CLI: `python -m tigrinho.cli bolaozinho <splitwise-status | splitwise-exclude <id> --yes |
+  register-splitwise <id> [--force] [--yes] | nudge-splitwise --yes>`. `register-splitwise --force`
+  registers among **linked entrants only** (drops unlinked losers; refuses if any **winner** is
+  unlinked) — the never-linker escape hatch. `nudge-splitwise` DMs unlinked entrants of OPEN,
+  non-excluded bolãozinhos (best-effort), run once after deploy.
+
+### 23.6 Config & data model
+- `.env`: `SPLITWISE_API_KEY` (optional secret). `config.yaml`: `splitwise_group_id`,
+  `splitwise_base_url` (default `https://secure.splitwise.com/api/v3.0`), `splitwise_currency_code`
+  (ISO-4217, default `BRL`; the display symbol stays `tournament_currency`). `Settings.splitwise_enabled`
+  = key + group both set. Best-effort startup validation via `get_current_user` (non-fatal).
+- One append-only migration (`c3d4e5f6a7b8`): `players.splitwise_user_id`/`splitwise_email`;
+  `tournaments.splitwise_mode`/`splitwise_expense_id`/`splitwise_synced_signature`/
+  `splitwise_admin_notified_at`; + the transition data-fix (FINISHED/CANCELLED → EXCLUDED).
+
+### 23.7 Out of scope (YAGNI)
+OAuth (API key suffices); per-bolãozinho Splitwise groups; Splitwise→bot sync; expense deletion/undo on
+cancel; categories/receipts/currency conversion; an unlink command.

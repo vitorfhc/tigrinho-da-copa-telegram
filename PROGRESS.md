@@ -814,3 +814,34 @@ DM about it — not just the group @-mention.
   existing open-announcement tests now inspect the group call explicitly. New: DMs every known player
   (ids + Entrar button), broadcast survives an unreachable (`Forbidden`) player, and the `📣 Abrir`
   callback path DMs too. `/ajuda` + COMPLETION.md §22.3 updated (§11 maintenance rule).
+
+### 2026-06-19 — Feature 8: Splitwise auto-registration of bolãozinho results (§23)
+
+User request: register finished bolãozinho results automatically in a shared Splitwise group (the bot
+stays bookkeeping-only). Implemented end to end on branch `worktree-splitwise-bolaozinho` (NOT yet
+merged/deployed — pending user review).
+- **Money model:** pure `domain/splitwise_ledger.py` (100% covered) — "losers fund winners",
+  `cost = (n−k)×entry`; single winner = announced prize; ties = exact zero-sum (documented divergence
+  from the §22 display "prize ÷ k"); cost 0 → skip.
+- **Client:** async `providers/splitwise.py` (httpx, Bearer) — `get_current_user`, `get_group_members`,
+  `add_user_to_group`, `create_expense`, `update_expense`; checks the 200-with-`errors` body.
+- **Identity:** `players.splitwise_user_id`/`splitwise_email`; keyboard-wizard `/vincular_splitwise`
+  ("já está no grupo?" → member picker keyed on `user_id`, or email-invite fallback) → no duplicate
+  identities. Join guard requires linking for **AUTO** bolãozinhos (`SplitwiseLinkRequired` + 🔗 DM).
+- **Modes** (`tournaments.splitwise_mode` AUTO/MANUAL/EXCLUDED): AUTO auto-registers at settle +
+  auto-corrects (capped 2); MANUAL → admin-notified + `/bolaozinho_splitwise` (or CLI) triggers;
+  EXCLUDED untouched. Migration `c3d4e5f6a7b8` adds the columns + marks existing FINISHED/CANCELLED
+  EXCLUDED (transition data-fix).
+- **Triggers:** `resolve_and_post` (AUTO at settle) + `bolaozinho_sweep` (AUTO retry, MANUAL
+  notify-once). Best-effort everywhere (log + admin DM; never crashes the bot; the §22 announcement
+  always posts). Startup `get_current_user` validation (non-fatal).
+- **CLI:** `bolaozinho splitwise-status | splitwise-exclude | register-splitwise [--force] | nudge-splitwise`.
+- **Config:** `.env SPLITWISE_API_KEY`; `config.yaml splitwise_group_id`/`splitwise_base_url`/
+  `splitwise_currency_code`. Dormant unless key + group both set (`Settings.splitwise_enabled`).
+- **Tests (+~50):** ledger (100%), client (MockTransport), service (build/forced/guard/modes), register
+  executor, linking + admin handlers, sweep AUTO/MANUAL, CLI, migration data-fix. All four gates green
+  (689 tests, domain coverage 100%). `/ajuda` + COMPLETION.md §23 + README + CLAUDE.md (wizard rule)
+  updated (§11). Spec/plan: `docs/superpowers/specs/2026-06-19-splitwise-bolaozinho-design.md`,
+  `docs/superpowers/plans/2026-06-19-splitwise-bolaozinho.md`.
+- **Deploy note:** prod `.env` needs a 4th secret `SPLITWISE_API_KEY` + `splitwise_group_id` in
+  `config.yaml` (scp'd, not carried by `git pull`) to activate; otherwise ships dormant.
