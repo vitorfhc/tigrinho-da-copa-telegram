@@ -293,6 +293,28 @@ def test_bolaozinho_cli_lifecycle(
     assert "Cancelled." in cancelled.stdout
 
 
+def test_bolaozinho_add_entry_preserves_existing_name(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Admin add-entry must not clobber an existing player's display name."""
+    _patch_context(monkeypatch, settings, session_factory)
+    with session_factory() as session:
+        PlayerRepository(session).get_or_create(555, "Caio Habibe")
+        session.commit()
+
+    assert runner.invoke(app, ["bolaozinho", "create", "Oitavas", "--price", "10"]).exit_code == 0
+    added = runner.invoke(app, ["bolaozinho", "add-entry", "1", "555"])
+    assert added.exit_code == 0
+    assert "Added." in added.stdout
+
+    with session_factory() as session:
+        player = PlayerRepository(session).get(555)
+        assert player is not None
+        assert player.display_name == "Caio Habibe"
+
+
 def test_bolaozinho_cli_bad_price(
     monkeypatch: pytest.MonkeyPatch,
     settings: Settings,

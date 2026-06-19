@@ -545,7 +545,11 @@ def bolaozinho_add_entry(tournament_id: int, telegram_id: int) -> None:
     """Admin fixup: add a player to a bolãozinho (creates the player row if needed)."""
     ctx = build_cli_context()
     with ctx.session_factory() as session:
-        PlayerRepository(session).get_or_create(telegram_id, str(telegram_id))
+        players = PlayerRepository(session)
+        # Only seed a placeholder name for a brand-new player; never clobber an
+        # existing player's real display name (get_or_create would overwrite it).
+        if players.get(telegram_id) is None:
+            players.get_or_create(telegram_id, str(telegram_id))
         added = TournamentRepository(session).add_entry(tournament_id, telegram_id)
         session.commit()
     typer.echo("Added." if added else "Already entered.")
