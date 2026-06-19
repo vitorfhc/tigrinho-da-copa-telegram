@@ -1117,7 +1117,9 @@ entrants, computes the pot/prize, and announces the winner(s).
   button to the private chat (`?start=entrar`) — the whole flow happens in DM. On confirm, the
   **games-to-bet confirmation (with `🎯 Apostar` deep-links) is sent to the joiner's DM**; if the user
   hasn't pressed Start, an alert tells them to open the bot's private chat.
-- `/bolaozinhos`, `/bolaozinho <id>` — list / details (with a live mini-standings). Group + DM.
+- `/bolaozinhos`, `/bolaozinho <id>` — list / details (with a live mini-standings). The list shows
+  DRAFT / OPEN / FINISHED bolãozinhos; **CANCELLED ones are hidden** (still reachable by id via
+  `/bolaozinho <id>`). Group + DM.
 - `/bolaozinho_participantes [id]` — who entered a bolãozinho; **with no id it shows a picker** of
   bolãozinhos to choose from (group + DM).
 - `/bolaozinho_placar [id]` — the **placar parcial** (standings so far) of a bolãozinho; **with no id

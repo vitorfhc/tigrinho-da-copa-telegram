@@ -814,3 +814,15 @@ DM about it — not just the group @-mention.
   existing open-announcement tests now inspect the group call explicitly. New: DMs every known player
   (ids + Entrar button), broadcast survives an unreachable (`Forbidden`) player, and the `📣 Abrir`
   callback path DMs too. `/ajuda` + COMPLETION.md §22.3 updated (§11 maintenance rule).
+
+### 2026-06-19 — Change: `/bolaozinhos` list hides CANCELLED bolãozinhos (§22.3)
+
+User request: the list of bolãozinhos must not show the cancelled ones.
+- **Behavior:** `/bolaozinhos` (`cmd_list` → `_list_payload`) now lists only DRAFT / OPEN / FINISHED;
+  CANCELLED bolãozinhos are dropped from both the text and the picker keyboard. They remain reachable
+  by id via `/bolaozinho <id>` (details are unchanged).
+- **Code:** new `TournamentRepository.list_visible()` (= `list_by_status(DRAFT, OPEN, FINISHED)`,
+  id-desc), swapped in for `list_all()` inside `_list_payload`. Built test-first in an isolated
+  worktree: `test_list_hides_cancelled_bolaozinhos` asserts the cancelled name/`#id` appear in neither
+  the text nor the buttons. COMPLETION.md §22.3 + the `cmd_list` docstring updated (§11). `/ajuda`
+  unaffected (its line doesn't claim completeness). No DB/migration change. All four gates green.

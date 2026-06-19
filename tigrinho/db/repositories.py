@@ -510,6 +510,12 @@ class TournamentRepository:
         stmt = select(Tournament).order_by(Tournament.id.desc())
         return list(self._session.execute(stmt).scalars())
 
+    def list_visible(self) -> list[Tournament]:
+        """Bolãozinhos shown by ``/bolaozinhos`` — everything except CANCELLED ones (§22.3)."""
+        return self.list_by_status(
+            TournamentStatus.DRAFT, TournamentStatus.OPEN, TournamentStatus.FINISHED
+        )
+
     def list_by_status(self, *statuses: TournamentStatus) -> list[Tournament]:
         stmt = (
             select(Tournament).where(Tournament.status.in_(statuses)).order_by(Tournament.id.desc())
