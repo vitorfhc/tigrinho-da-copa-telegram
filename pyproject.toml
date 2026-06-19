@@ -54,7 +54,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 # The pure domain (scoring + settlement) MUST keep ~100% line+branch coverage (DoD, §0/§2);
 # enforced on every `pytest` run so a regression fails the gate immediately.
-addopts = "-q --cov=tigrinho.domain.scoring --cov=tigrinho.domain.settlement --cov=tigrinho.domain.tournament --cov-branch --cov-report=term-missing --cov-fail-under=100"
+addopts = "-q --cov=tigrinho.domain.scoring --cov=tigrinho.domain.settlement --cov=tigrinho.domain.tournament --cov=tigrinho.domain.splitwise_ledger --cov-branch --cov-report=term-missing --cov-fail-under=100"
 
 [tool.coverage.run]
 source = ["tigrinho"]
