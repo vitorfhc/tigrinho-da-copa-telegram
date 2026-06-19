@@ -30,6 +30,10 @@ from tigrinho.bot.callbacks import (
     MyHistory,
     OverUnderInput,
     PalpiteView,
+    SplitwiseInGroup,
+    SplitwiseMemberPick,
+    SplitwiseNotInGroup,
+    SplitwiseRegisterPick,
     TournamentAction,
     TournamentAddToggle,
     WinnerInput,
@@ -291,3 +295,34 @@ def tournament_entrar_keyboard(tournament_id: int, bot_username: str) -> InlineK
     """A single "Entrar" deep-link button on the announcement → the DM join flow (§22)."""
     url = f"https://t.me/{bot_username}?start=entrar_{tournament_id}"
     return InlineKeyboardMarkup([[InlineKeyboardButton("🏆 Entrar no bolãozinho", url=url)]])
+
+
+def splitwise_intro_keyboard() -> InlineKeyboardMarkup:
+    """The "Você já está no grupo do Splitwise?" gate (Sim → picker / Não → email). §23."""
+    return InlineKeyboardMarkup(
+        [
+            [_button("✅ Sim, já estou no grupo", SplitwiseInGroup())],
+            [_button("➕ Não estou no grupo", SplitwiseNotInGroup())],
+        ]
+    )
+
+
+def splitwise_member_keyboard(members: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """Pick which group member is you. Each item: (splitwise_user_id, display_name). §23."""
+    rows = [[_button(f"Sou eu: {name}", SplitwiseMemberPick(user_id))] for user_id, name in members]
+    rows.append([_button("➕ Não estou nessa lista", SplitwiseNotInGroup())])
+    return InlineKeyboardMarkup(rows)
+
+
+def splitwise_register_keyboard(items: Sequence[tuple[int, str]]) -> InlineKeyboardMarkup:
+    """Admin picker of bolãozinhos ready for manual Splitwise registration. (id, label). §23."""
+    rows = [
+        [_button(label, SplitwiseRegisterPick(tournament_id))] for tournament_id, label in items
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def splitwise_link_button(bot_username: str) -> InlineKeyboardMarkup:
+    """A 🔗 deep-link button into the linking wizard (shown on the AUTO join card / guard)."""
+    url = f"https://t.me/{bot_username}?start=vincular"
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Vincular Splitwise", url=url)]])

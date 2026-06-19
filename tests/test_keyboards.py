@@ -18,6 +18,10 @@ from tigrinho.bot.callbacks import (
     MyGameDetail,
     MyHistory,
     PalpiteView,
+    SplitwiseInGroup,
+    SplitwiseMemberPick,
+    SplitwiseNotInGroup,
+    SplitwiseRegisterPick,
     WinnerInput,
     decode,
 )
@@ -36,6 +40,10 @@ from tigrinho.bot.keyboards import (
     my_history_keyboard,
     over_under_keyboard,
     palpite_games_keyboard,
+    splitwise_intro_keyboard,
+    splitwise_link_button,
+    splitwise_member_keyboard,
+    splitwise_register_keyboard,
     winner_keyboard,
 )
 from tigrinho.domain.bets import FirstTeamSel, WinnerSel
@@ -67,6 +75,31 @@ def test_announcement_keyboard_one_button_per_game() -> None:
 
 def test_games_keyboard() -> None:
     assert _decoded(games_keyboard([(1001, "Brasil x Argentina")])) == [ChooseGame(1001)]
+
+
+def test_splitwise_intro_keyboard() -> None:
+    assert _decoded(splitwise_intro_keyboard()) == [SplitwiseInGroup(), SplitwiseNotInGroup()]
+
+
+def test_splitwise_member_keyboard_has_picks_plus_fallback() -> None:
+    decoded = _decoded(splitwise_member_keyboard([(11, "João"), (22, "Maria")]))
+    assert decoded == [
+        SplitwiseMemberPick(11),
+        SplitwiseMemberPick(22),
+        SplitwiseNotInGroup(),
+    ]
+
+
+def test_splitwise_register_keyboard() -> None:
+    assert _decoded(splitwise_register_keyboard([(7, "Fase de Grupos")])) == [
+        SplitwiseRegisterPick(7)
+    ]
+
+
+def test_splitwise_link_button_is_deep_link() -> None:
+    keyboard = splitwise_link_button("TigrinhoDaCopaBot")
+    button = keyboard.inline_keyboard[0][0]
+    assert button.url == "https://t.me/TigrinhoDaCopaBot?start=vincular"
 
 
 def test_palpite_games_keyboard_one_button_per_game() -> None:

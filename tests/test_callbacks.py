@@ -24,6 +24,10 @@ from tigrinho.bot.callbacks import (
     MyHistory,
     OverUnderInput,
     PalpiteView,
+    SplitwiseInGroup,
+    SplitwiseMemberPick,
+    SplitwiseNotInGroup,
+    SplitwiseRegisterPick,
     TournamentAction,
     TournamentAddToggle,
     WinnerInput,
@@ -77,6 +81,10 @@ _CASES: list[CallbackData] = [
     TournamentAction("bp", 42),
     TournamentAction("bs", 7),
     TournamentAddToggle(999_999_999, 999_999_999),
+    SplitwiseInGroup(),
+    SplitwiseNotInGroup(),
+    SplitwiseMemberPick(123_456_789),
+    SplitwiseRegisterPick(42),
 ]
 
 

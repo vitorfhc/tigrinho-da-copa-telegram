@@ -197,6 +197,30 @@ class TournamentAddToggle:
     fixture_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class SplitwiseInGroup:
+    """Link wizard: "Sim, já estou no grupo" → show the member picker (§23)."""
+
+
+@dataclass(frozen=True, slots=True)
+class SplitwiseNotInGroup:
+    """Link wizard: "Não estou no grupo" → ask for an email to invite (§23)."""
+
+
+@dataclass(frozen=True, slots=True)
+class SplitwiseMemberPick:
+    """Link wizard: the player picked which group member is them (§23)."""
+
+    splitwise_user_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class SplitwiseRegisterPick:
+    """Admin manual-register picker: register this bolãozinho in Splitwise (§23)."""
+
+    tournament_id: int
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -218,6 +242,10 @@ CallbackData = (
     | MyBetsHome
     | TournamentAction
     | TournamentAddToggle
+    | SplitwiseInGroup
+    | SplitwiseNotInGroup
+    | SplitwiseMemberPick
+    | SplitwiseRegisterPick
 )
 
 
@@ -264,6 +292,14 @@ def encode(data: CallbackData) -> str:
             result = f"{op}:{tournament_id}"
         case TournamentAddToggle(tournament_id, fixture_id):
             result = f"bg:{tournament_id}:{fixture_id}"
+        case SplitwiseInGroup():
+            result = "sv"
+        case SplitwiseNotInGroup():
+            result = "sn"
+        case SplitwiseMemberPick(splitwise_user_id):
+            result = f"sp:{splitwise_user_id}"
+        case SplitwiseRegisterPick(tournament_id):
+            result = f"sr:{tournament_id}"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -314,6 +350,14 @@ def decode(data: str) -> CallbackData:
             return MyBetsHome()
         if op == "bg":
             return TournamentAddToggle(int(parts[1]), int(parts[2]))
+        if op == "sv":
+            return SplitwiseInGroup()
+        if op == "sn":
+            return SplitwiseNotInGroup()
+        if op == "sp":
+            return SplitwiseMemberPick(int(parts[1]))
+        if op == "sr":
+            return SplitwiseRegisterPick(int(parts[1]))
         if op in _TOURNAMENT_OPS:
             return TournamentAction(cast(TournamentOp, op), int(parts[1]))
     except (IndexError, KeyError, ValueError) as exc:
