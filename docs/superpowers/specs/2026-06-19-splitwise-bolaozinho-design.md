@@ -1,7 +1,7 @@
 # Splitwise Auto-Registration for Bolãozinho Results — Design Spec
 
 **Date:** 2026-06-19
-**Status:** Draft for user review (Revision 2 — member-picker linking; pre-planning)
+**Status:** Draft for user review (Revision 3 — explicit in-group gate; pre-planning)
 **Feature:** Feature 8 — Splitwise integration (becomes COMPLETION.md §23)
 
 > **Naming.** As with §22, the UI says **"bolãozinho"** (pt-BR) and the internal code keeps English
@@ -22,6 +22,10 @@
 > more keyboard-wizard-aligned. Free-text email survives only as the not-yet-a-member fallback. Affected
 > sections: §2, §4, §5, §6, §8, §9, §13, §15.
 
+> **Revision 3 (2026-06-19) — explicit in-group gate.** The link wizard now first asks **"Você já está
+> no grupo do Splitwise?"**: **Sim** → pick yourself from the members not yet linked to a Telegram player;
+> **Não** → manual email entry (the existing invite path). Affected: §1, §2, §6, §8, §13, §15.
+
 ---
 
 ## 1. Summary
@@ -33,8 +37,8 @@ automatically, with **zero money movement** — fully consistent with §22's phi
 
 When a bolãozinho finishes, the bot creates one Splitwise **expense** that encodes the net settlement:
 each loser owes their entry stake; the winner(s) are credited. Players link their Splitwise **account**
-to the bot once (a wizard that picks them from the group's real roster); a finished bolãozinho is
-registered only when every entrant is linked.
+to the bot once (a wizard: confirm you're in the group, then pick yourself from the roster — or type an
+email if you're not); a finished bolãozinho is registered only when every entrant is linked.
 
 The feature is **optional and dormant** unless both a Splitwise API key (`.env`) and a target group id
 (`config.yaml`) are configured — exactly like the `/palpite` / `GEMINI_API_KEY` gate.
@@ -46,7 +50,7 @@ The feature is **optional and dormant** unless both a Splitwise API key (`.env`)
 | 1 | Player ↔ Splitwise identity | **Splitwise `user_id`, via a member picker.** The wizard lists the group's real members (`get_group`); the player taps themselves → store `players.splitwise_user_id`. Expenses reference `users__N__user_id` (unambiguous). Typing an email is only the fallback for someone **not yet in the group** (`add_user_to_group` → store the returned id). Prevents duplicate identities for members already in the group under a different email. |
 | 2 | Destination | **One shared Splitwise group** (`config.yaml splitwise_group_id`). Existing members are matched from the roster (no add); only a not-yet-member is added (best-effort `add_user_to_group`) at link time. |
 | 3 | Link timing | **Required before joining** — but only for **AUTO-mode** bolãozinhos (feature-era; see §6). `/entrar` blocks until the player has linked. Guarantees every AUTO entrant is registrable, so its expense always balances. |
-| 4 | Linking UX | **Keyboard-wizard first** (CLAUDE.md rule): argless `/vincular_splitwise` (or the 🔗 join-card button) opens a wizard showing the group's members as buttons — the player taps themselves. Free-text email is only the not-yet-a-member fallback. |
+| 4 | Linking UX | **Keyboard-wizard first** (CLAUDE.md rule): argless `/vincular_splitwise` (or the 🔗 join-card button) first asks **"Já está no grupo?"** — **Sim** → pick yourself from the members not linked to any Telegram player; **Não** → type an email (the invite fallback). |
 | 5 | Ledger model | **One expense per bolãozinho**, "losers fund winners": `cost = (n−k)×entry`; each loser `owes entry` / `paid 0`; each winner `paid cost//k` (odd cents to first winners) / `owes 0`. Single winner = exactly the announced prize. Pure, 100%-covered. |
 | 6 | When a bolãozinho registers | **AUTO** (feature-era): auto-registers at settle. **MANUAL** (old/in-flight): the bot **notifies the admin** when it becomes fully linked and the **admin manually triggers** registration. **EXCLUDED**: never touched. |
 | 7 | Corrections (re-grade flips result) | **`update_expense` in place**, capped at 2 (mirrors `CORRECTION_POST_CAP`); beyond the cap → admin DM only. AUTO mode only. |
@@ -110,22 +114,24 @@ Linking maps a Tigrinho player to a **Splitwise `user_id`** (not a raw email) so
 group is matched to their real account — never duplicated under a mistyped email.
 
 - **`/vincular_splitwise`** (player-facing, DM; group → deep-link button into DM, mirroring `/entrar`):
-  **argless**. Opens a wizard:
-  1. fetch `get_group(splitwise_group_id)` and show its members as buttons ("Sou eu: <nome>"), **excluding**
-     the bot's own account (`get_current_user`) and any member already claimed by another `Player`;
-  2. the player taps themselves → store `players.splitwise_user_id` (+ the member's `email` for audit).
-     One link is global (covers every bolãozinho). Picker `callback_data` packs only the numeric
-     Splitwise user id + a short opcode (≤64 bytes), per the codec rule;
-  3. a **"Não estou no grupo"** button is the fallback → bot prompts for an email → validate (RFC-lite) →
-     best-effort `add_user_to_group(group_id, email, first_name=display_name)` → store the **returned
-     user's id** (+ email). If the add fails, the player stays unlinked and is asked to retry;
-  4. confirm in pt-BR. A 🔗 button also lives on the **AUTO** join card when the player isn't linked.
-- **Why a picker, not a typed email:** Splitwise identifies users by `user_id`/email, so a member already
-  in the group under email A who types email B is minted as a **second, distinct** user and the expense
-  splits against the wrong identity (their real balance never moves). Picking from the live roster and
-  keying on `user_id` removes that risk and is more keyboard-wizard-aligned; free text is reserved for the
-  genuine not-yet-a-member case. *(Verified: `get_group` returns each member's `id`/`email`/name.)*
-- **Re-link / update:** running `/vincular_splitwise` again re-opens the picker and overwrites the link
+  **argless**. The wizard **first asks "Você já está no grupo do Splitwise?"** with `[Sim] [Não]` buttons,
+  then branches:
+  - **Sim → member picker.** Fetch `get_group(splitwise_group_id)` and show the members **not yet linked
+    to any Telegram player** as buttons ("Sou eu: <nome>"); the player taps which one is them → store
+    `players.splitwise_user_id` (+ that member's `email` for audit). Picker `callback_data` packs only the
+    numeric Splitwise user id + a short opcode (≤64 bytes), per the codec rule. (If every member is already
+    linked, the branch says so and offers the manual path.)
+  - **Não → manual entry** (exactly as today): bot prompts for an email → validate (RFC-lite) →
+    best-effort `add_user_to_group(group_id, email, first_name=display_name)` → store the **returned
+    user's id** (+ email). If the add fails, the player stays unlinked and is asked to retry.
+  - On success, confirm in pt-BR. One link is global (covers every bolãozinho). A 🔗 button also lives on
+    the **AUTO** join card when the player isn't linked, opening the same wizard.
+- **Why the "Sim" branch picks rather than types:** Splitwise identifies users by `user_id`/email, so a
+  member already in the group under email A who types email B is minted as a **second, distinct** user and
+  the expense splits against the wrong identity (their real balance never moves). Picking keys on
+  `user_id` and removes that risk; typing is reserved for someone genuinely not in the group yet.
+  *(Verified: `get_group` returns each member's `id`/`email`/name.)*
+- **Re-link / update:** running `/vincular_splitwise` again restarts the wizard and overwrites the link
   (no unlink command — out of scope).
 - **Join guard** (`tournament_service.join`): if the bolãozinho's mode is `AUTO` and the player has no
   `splitwise_user_id`, raise `TournamentError("Vincule seu Splitwise antes de entrar")` and surface the 🔗
@@ -173,8 +179,8 @@ A separate pure helper converts cents → the API's decimal string for the confi
 
 Thin, strongly-typed wrapper. Auth: `Authorization: Bearer <SPLITWISE_API_KEY>`. Base URL from config.
 Methods (verify exact params against live docs before coding):
-- `get_current_user() -> SplitwiseUser` — startup validation; also yields the bot's own user id
-  (excluded from the link picker; never an expense participant).
+- `get_current_user() -> SplitwiseUser` — startup validation. The configured account is the expense
+  *creator*, never an entrant participant.
 - `get_group(group_id) -> SplitwiseGroup` — roster for the link picker; each member carries
   `id`/`email`/`first_name`/`last_name` (verified).
 - `add_user_to_group(group_id, *, email, first_name) -> SplitwiseUser` — only for a not-yet-member;
@@ -285,12 +291,13 @@ may carry a one-line "🔗 vincule seu Splitwise" hint (best-effort, no new ping
   sweep/settle; MANUAL stays pending until the admin re-triggers.
 - **Player already in the Splitwise group (the common case):** matched from the roster by `user_id` —
   the happy path, never a duplicate.
-- **Member already claimed by another `Player`:** excluded from the picker (one Splitwise member ↔ one
-  Tigrinho player).
-- **Bot's own account in the roster:** excluded from the picker (via `get_current_user`); never an
-  expense participant.
-- **Player not yet in the group:** the "Não estou no grupo" fallback collects an email, invites them via
-  `add_user_to_group`, then stores the **returned** `user_id`.
+- **Member already claimed by another `Player`:** filtered out of the "Sim" picker (one Splitwise member
+  ↔ one Tigrinho player).
+- **Configured Splitwise account in the roster:** it appears like any unlinked member. If it's a dedicated
+  bot account nobody selects it; if it's the admin's personal account they link it to themselves like
+  anyone else. Either way it's the expense *creator*, never an entrant participant.
+- **Player not yet in the group:** answering **Não** to "Já está no grupo?" collects an email, invites
+  them via `add_user_to_group`, then stores the **returned** `user_id`.
 - **Group membership changes between links:** the picker reads `get_group` live each time, so it always
   reflects the current roster.
 - **Feature toggled off after some AUTO registrations:** further registrations/corrections are skipped;
@@ -312,8 +319,9 @@ run rather than crashing (Splitwise ≠ Telegram token criticality).
   unlinked-present / already-synced; create vs update (signature flip); MANUAL never auto-registers.
 - **`providers/splitwise.py`:** mocked httpx — create/update/add-user/get-current-user happy paths, the
   `errors`-in-200-body failure path, auth header.
-- **Handlers/CLI:** link wizard (member picker → store `user_id`; not-in-group email fallback → invite →
-  store returned id; already-claimed member + bot account excluded), join guard blocks unlinked on AUTO,
+- **Handlers/CLI:** link wizard ("já está no grupo?" Sim → picker of unlinked members → store `user_id`;
+  Não → email entry → invite → store returned id; already-claimed members filtered out; all-linked
+  branch), join guard blocks unlinked on AUTO,
   `/bolaozinho_splitwise` picker + register, CLI `register-splitwise`/`--force`/`exclude`/`nudge`/
   `status`, sweep MANUAL-notify (fire-once) + AUTO-retry, corrections cap.
 - **Migration:** existing FINISHED/CANCELLED → EXCLUDED, OPEN/DRAFT → MANUAL.
