@@ -33,6 +33,11 @@ tournament_currency: "R$"             # currency symbol for entry prices/pots/pr
 tournament_currency_decimals: 2       # decimal places when rendering money (e.g. R$ 10,00)
 reminder_max_mentions: 20             # cap entrant @-mentions per reminder before "… +N"
 bolaozinho_sweep_interval_minutes: 10 # how often the lock/stuck/rescue sweep runs
+# Splitwise integration (Feature 8 / §23): mirror finished bolãozinho results into a shared
+# Splitwise group. Active only when SPLITWISE_API_KEY (.env) AND splitwise_group_id are both set.
+# splitwise_group_id: 12345678        # the shared Splitwise group all bolãozinho expenses post to
+splitwise_base_url: https://secure.splitwise.com/api/v3.0
+splitwise_currency_code: BRL          # ISO-4217 code sent to the Splitwise API (display stays R$)
 api_daily_cap: 100                     # hard ceiling on provider requests per budget day
 api_budget_reset_tz: UTC               # timezone whose midnight resets the request counter
 db_path: /data/tigrinho.db             # SQLite file path (mounted volume)

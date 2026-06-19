@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Optional secret. When set, enables the AI "palpite" feature (/palpite + daily 06h job).
     # When unset, /palpite reports that no Gemini key is configured and the job is skipped.
     gemini_api_key: str | None = None
+    # Optional secret. When set (with ``splitwise_group_id``), enables Splitwise auto-registration
+    # of finished bolãozinho results (Feature 8 / §23). When unset, the feature is fully dormant.
+    splitwise_api_key: str | None = None
 
     # --- Settings: config.yaml (§4.2) -------------------------------------------------------
     group_chat_id: int
@@ -84,6 +87,12 @@ class Settings(BaseSettings):
     tournament_currency_decimals: int = Field(default=2, ge=0)
     reminder_max_mentions: int = Field(default=20, gt=0)
     bolaozinho_sweep_interval_minutes: int = Field(default=10, gt=0)
+    # Splitwise integration (Feature 8 / §23). The shared group all bolãozinho expenses post to,
+    # the API base URL, and the ISO-4217 currency code used in the API call (display currency stays
+    # ``tournament_currency``). Active only when ``splitwise_enabled`` (key + group id both set).
+    splitwise_group_id: int | None = None
+    splitwise_base_url: str = "https://secure.splitwise.com/api/v3.0"
+    splitwise_currency_code: str = "BRL"
     api_daily_cap: int = Field(default=100, gt=0)
     api_budget_reset_tz: str = "UTC"
     db_path: str = "/data/tigrinho.db"
@@ -135,6 +144,11 @@ class Settings(BaseSettings):
     def tzinfo(self) -> ZoneInfo:
         """Display / scheduling timezone."""
         return ZoneInfo(self.timezone)
+
+    @property
+    def splitwise_enabled(self) -> bool:
+        """Whether the Splitwise integration is active (key + target group both configured; §23)."""
+        return self.splitwise_api_key is not None and self.splitwise_group_id is not None
 
     @property
     def budget_tzinfo(self) -> ZoneInfo:

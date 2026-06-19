@@ -41,6 +41,10 @@ _FIELD_ENV_NAMES = [
     "RECONCILE_FIRST_DELAY_MINUTES",
     "RECONCILE_INTERVAL_MINUTES",
     "RECONCILE_BUDGET_RESERVE",
+    "SPLITWISE_API_KEY",
+    "SPLITWISE_GROUP_ID",
+    "SPLITWISE_BASE_URL",
+    "SPLITWISE_CURRENCY_CODE",
 ]
 
 VALID_YAML = """\
@@ -136,6 +140,32 @@ def test_missing_config_file_is_skipped(monkeypatch: pytest.MonkeyPatch, tmp_pat
 def test_environment_wins_over_yaml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     settings = _build(monkeypatch, tmp_path, env={"BOT_USERNAME": "FromEnvBot"})
     assert settings.bot_username == "FromEnvBot"
+
+
+def test_splitwise_disabled_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.splitwise_api_key is None
+    assert settings.splitwise_group_id is None
+    assert settings.splitwise_enabled is False
+    assert settings.splitwise_base_url == "https://secure.splitwise.com/api/v3.0"
+    assert settings.splitwise_currency_code == "BRL"
+
+
+def test_splitwise_enabled_needs_key_and_group(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Only the key set -> still disabled.
+    key_only = _build(monkeypatch, tmp_path, env={"SPLITWISE_API_KEY": "sw-key"})
+    assert key_only.splitwise_enabled is False
+    # Both set -> enabled.
+    both = _build(
+        monkeypatch,
+        tmp_path,
+        env={"SPLITWISE_API_KEY": "sw-key"},
+        yaml_content=VALID_YAML + "splitwise_group_id: 42424242\n",
+    )
+    assert both.splitwise_enabled is True
+    assert both.splitwise_group_id == 42424242
 
 
 def test_bot_username_strips_leading_at(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
