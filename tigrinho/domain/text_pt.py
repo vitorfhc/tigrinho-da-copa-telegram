@@ -635,9 +635,10 @@ def help_text() -> str:
         "<b>entrada</b> (ex.: R$ 10). Qualquer um cria com "
         "<code>/bolaozinho_criar Nome | preço</code> e adiciona jogos que ainda não começaram. "
         "Quem criou (ou o admin) gerencia o bolãozinho.\n"
-        "• Use <b>/entrar</b> (ou o botão <b>🏆 Entrar</b> no anúncio) pra participar — eu mando "
-        "os jogos no <b>privado</b> pra palpitar. As entradas <b>fecham quando o primeiro jogo "
-        "começa</b>, e os palpites valem os mesmos pontos de sempre.\n"
+        "• Quando um bolãozinho abre, eu <b>aviso todo mundo no privado</b> (e marco o grupo). "
+        "Use <b>/entrar</b> (ou o botão <b>🏆 Entrar</b> no anúncio/aviso) pra participar — "
+        "eu mando os jogos no <b>privado</b> pra palpitar. As entradas <b>fecham quando o primeiro "
+        "jogo começa</b>, e os palpites valem os mesmos pontos de sempre.\n"
         "• Quem criou pode cancelar com <b>/bolaozinho_cancelar id [motivo]</b>; aviso todo mundo "
         "que entrou no privado, com o motivo.\n"
         "• <b>Prêmio = pote − uma entrada</b> (você não ganha a sua própria entrada de volta): com "
@@ -863,6 +864,31 @@ def tournament_announcement_text(
     if mentions:
         pings = " ".join(mention(telegram_id, person) for telegram_id, person in mentions)
         lines.append(f"\n📣 {pings}")
+    return "\n".join(lines)
+
+
+def tournament_open_dm_text(
+    *,
+    name: str,
+    entry_price_cents: int,
+    games: Sequence[tuple[str, str, datetime]],
+    currency: str,
+    decimals: int = 2,
+) -> str:
+    """DM broadcast to everyone the bot knows when a bolãozinho opens (§22.3).
+
+    Mirrors the group announcement so each known player also gets a personal ping; the deep-link
+    **Entrar** button is added by the keyboard. Telegram can't message users who never started the
+    bot, so unreachable players are skipped — they still see the @-mention in the group post.
+    """
+    price = format_money_cents(entry_price_cents, currency=currency, decimals=decimals)
+    lines = [
+        f"🏆 Abriu um novo bolãozinho: <b>{escape(name)}</b> — entrada {price}",
+        f"{len(games)} jogo(s):",
+        *[_game_line(home, away, kickoff) for home, away, kickoff in games],
+        "",
+        "Toque em <b>Entrar no bolãozinho</b> aqui embaixo pra participar! 🐯",
+    ]
     return "\n".join(lines)
 
 

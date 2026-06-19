@@ -47,6 +47,7 @@ from tigrinho.domain.text_pt import (
     tournament_card_text,
     tournament_details_text,
     tournament_list_text,
+    tournament_open_dm_text,
     tournament_participants_text,
     tournament_standings_text,
 )
@@ -241,6 +242,38 @@ async def _post_open_announcement(
         )
 
 
+async def _broadcast_open_dm(
+    context: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+    tournament: Tournament,
+    games: list[Game],
+    recipients: list[tuple[int, str]],
+) -> None:
+    """DM everyone the bot knows that a new bolãozinho is open (best-effort, §22.3).
+
+    Same audience as the group @-mentions (``recipients`` = every ``Player`` row). Telegram won't
+    let a bot message users who never started it, so unreachable players are silently skipped — they
+    still see the @-mention in the group post. Never raises; one failed DM doesn't stop the rest.
+    """
+    text = tournament_open_dm_text(
+        name=tournament.name,
+        entry_price_cents=tournament.entry_price_cents,
+        games=_game_triples(games),
+        currency=settings.tournament_currency,
+        decimals=settings.tournament_currency_decimals,
+    )
+    keyboard = tournament_entrar_keyboard(tournament.id, settings.bot_username)
+    reached = sum(
+        [await _send_dm(context, user_id, text, keyboard) for user_id, _name in recipients]
+    )
+    _log.info(
+        "tournament_open_dm_broadcast",
+        tournament_id=tournament.id,
+        reached=reached,
+        known=len(recipients),
+    )
+
+
 # --- command handlers -------------------------------------------------------------------------
 async def cmd_criar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/bolaozinho_criar Nome | preço — create a DRAFT and show its management card."""
@@ -324,6 +357,7 @@ async def cmd_abrir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
     await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
+    await _broadcast_open_dm(context, app_context.settings, tournament, games, mentions)
     await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
@@ -716,6 +750,7 @@ async def _do_open(
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
     await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
+    await _broadcast_open_dm(context, app_context.settings, tournament, games, mentions)
     await query.answer("Bolãozinho aberto! 📣")
     await safe_edit_text(query, text, reply_markup=keyboard)
 

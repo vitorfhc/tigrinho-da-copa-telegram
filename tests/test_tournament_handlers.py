@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from telegram import CallbackQuery, Chat, InlineKeyboardMarkup, Update, User
@@ -351,6 +351,21 @@ async def test_placar_callback_shows_standings(app_context: AppContext) -> None:
     assert "Ana" in text
 
 
+def _group_kwargs(ctx: ContextTypes.DEFAULT_TYPE, app_context: AppContext) -> dict[str, Any]:
+    """The kwargs of the single send_message that targeted the group (vs. the open DMs)."""
+    gid = app_context.settings.group_chat_id
+    calls = [c for c in ctx.bot.send_message.await_args_list if c.kwargs["chat_id"] == gid]  # type: ignore[attr-defined]
+    assert len(calls) == 1
+    return cast(dict[str, Any], calls[0].kwargs)
+
+
+def _dm_kwargs(ctx: ContextTypes.DEFAULT_TYPE, app_context: AppContext) -> list[dict[str, Any]]:
+    """The kwargs of the per-player open-DM sends (everything that isn't the group post)."""
+    gid = app_context.settings.group_chat_id
+    dms = [c.kwargs for c in ctx.bot.send_message.await_args_list if c.kwargs["chat_id"] != gid]  # type: ignore[attr-defined]
+    return cast(list[dict[str, Any]], dms)
+
+
 async def test_open_announcement_mentions_known_players(app_context: AppContext) -> None:
     _seed_game(app_context, 1001)
     tid = _make_tournament(app_context, opened=False)
@@ -360,7 +375,7 @@ async def test_open_announcement_mentions_known_players(app_context: AppContext)
     update, message = _cmd_update(_CREATOR)
     ctx = _context(app_context, args=[str(tid)])
     await cmd_abrir(update, ctx)
-    text = ctx.bot.send_message.await_args.kwargs["text"]  # type: ignore[attr-defined]
+    text = _group_kwargs(ctx, app_context)["text"]
     assert "tg://user?id=555" in text  # the known player is pinged in the announcement
 
 
@@ -370,9 +385,61 @@ async def test_open_announcement_has_entrar_button(app_context: AppContext) -> N
     update, message = _cmd_update(_CREATOR)
     ctx = _context(app_context, args=[str(tid)])
     await cmd_abrir(update, ctx)
-    markup = ctx.bot.send_message.await_args.kwargs["reply_markup"]  # type: ignore[attr-defined]
+    markup = _group_kwargs(ctx, app_context)["reply_markup"]
     # Single Entrar deep-link button (no per-game bet buttons).
     assert markup.inline_keyboard[0][0].url.endswith(f"?start=entrar_{tid}")
+
+
+async def test_abrir_dms_every_known_player(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=False)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(111, "Ana")
+        PlayerRepository(session).get_or_create(222, "Bruno")
+        session.commit()
+    update, message = _cmd_update(_CREATOR)
+    ctx = _context(app_context, args=[str(tid)])
+    await cmd_abrir(update, ctx)
+    dms = _dm_kwargs(ctx, app_context)
+    assert {dm["chat_id"] for dm in dms} == {111, 222}
+    dm = dms[0]
+    assert "bolãozinho" in dm["text"].lower()
+    # The DM carries the same Entrar deep-link button as the group post.
+    assert dm["reply_markup"].inline_keyboard[0][0].url.endswith(f"?start=entrar_{tid}")
+
+
+async def test_open_dm_broadcast_survives_unreachable_player(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=False)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(111, "Ana")
+        PlayerRepository(session).get_or_create(222, "Bruno")
+        session.commit()
+    update, message = _cmd_update(_CREATOR)
+    ctx = _context(app_context, args=[str(tid)])
+    gid = app_context.settings.group_chat_id
+
+    async def _send(*_a: object, chat_id: int, **_k: object) -> None:
+        if chat_id == 111:  # one player never pressed Start
+            raise Forbidden("bot can't initiate")
+
+    ctx.bot.send_message.side_effect = _send  # type: ignore[attr-defined]
+    await cmd_abrir(update, ctx)  # must not raise despite the failed DM
+    targets = {c.kwargs["chat_id"] for c in ctx.bot.send_message.await_args_list}  # type: ignore[attr-defined]
+    assert targets == {gid, 111, 222}  # group + both DMs attempted
+
+
+async def test_open_callback_dms_known_players(app_context: AppContext) -> None:
+    _seed_game(app_context, 1001)
+    tid = _make_tournament(app_context, opened=False)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(333, "Caio")
+        session.commit()
+    update, query = _cb_update(encode(TournamentAction("bo", tid)), _CREATOR)
+    ctx = _context(app_context)
+    await on_tournament_callback(update, ctx)
+    dm_ids = {dm["chat_id"] for dm in _dm_kwargs(ctx, app_context)}
+    assert dm_ids == {333}
 
 
 async def test_entrar_deep_link_shows_join_card(app_context: AppContext) -> None:

@@ -797,3 +797,20 @@ group, and add a `/bolaozinho_placar` command (wizard picker) for the partial re
   repo count+list, text (partial/final/empty), announce group-post, 5 handler paths (id/picker/single/
   none/callback), callbacks `bs` round-trip, `/ajuda` assertion. `/ajuda` + COMPLETION.md (§22.3/§22.4/
   §22.6 + change-log §21.3) + README updated (§11). All four gates green; domain coverage 100%.
+
+### 2026-06-18 — Feature: DM every known player when a bolãozinho opens (§22.3)
+
+User request: when a bolãozinho is created (opened/published), every user in the group should get a
+DM about it — not just the group @-mention.
+- **Behavior:** both bot open paths (`/bolaozinho_abrir` command and the card's `📣 Abrir` button)
+  now also DM **every known player** (every `Player` row — the same audience as the group
+  @-mentions) the new-bolãozinho notice with the **🏆 Entrar** deep-link button. Telegram can't DM
+  users who never pressed Start, so the broadcast is **best-effort**: unreachable players are
+  silently skipped (they still get the group ping) and one failed DM never stops the rest.
+- **Code:** `text_pt.tournament_open_dm_text` (per-player notice, mirrors the group post sans
+  mentions); `tournament_handlers._broadcast_open_dm` (loops known players via the existing
+  `_send_dm`, logs `reached`/`known`), wired after `_post_open_announcement` in `cmd_abrir` + `_do_open`.
+- **Tests (+3, 2 updated):** `_group_call`/`_dm_calls` split the group post from the open DMs; the two
+  existing open-announcement tests now inspect the group call explicitly. New: DMs every known player
+  (ids + Entrar button), broadcast survives an unreachable (`Forbidden`) player, and the `📣 Abrir`
+  callback path DMs too. `/ajuda` + COMPLETION.md §22.3 updated (§11 maintenance rule).

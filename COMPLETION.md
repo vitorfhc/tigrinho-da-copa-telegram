@@ -1105,7 +1105,10 @@ entrants, computes the pot/prize, and announces the winner(s).
   and **@-mentions every known player** (anyone with a `Player` row) in the same message so they're
   all pinged about the new bolãozinho (a bot can't enumerate group members). The announcement carries a
   single **🏆 Entrar** deep-link button (`?start=entrar_<id>`) into the DM join card — no per-game bet
-  buttons (the games-to-bet links arrive in the DM after joining).
+  buttons (the games-to-bet links arrive in the DM after joining). **In addition, the bot DMs every
+  known player** the new-bolãozinho notice (same Entrar button) — best-effort, so players who never
+  pressed Start are silently skipped (they still get the group @-mention). Both bot open paths
+  (`/bolaozinho_abrir` and the card's `📣 Abrir` button) broadcast; the CLI has no `open`.
 - `/bolaozinho_cancelar <id> [motivo]` (creator/admin) — cancels the bolãozinho and **DMs every entrant**
   that it was cancelled, with the optional `motivo` reason (stored in `cancel_reason`). The card's
   `❌ Cancelar` button does the same with a generic notice (no reason).
