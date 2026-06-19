@@ -11,8 +11,9 @@ from telegram.ext import ContextTypes
 from tigrinho import tournament_service as svc
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.bot.sweep_job import sweep_job
-from tigrinho.db.models import Game, GameStatus, Stage, TournamentStatus
-from tigrinho.db.repositories import BetRepository, TournamentRepository
+from tigrinho.db.models import Game, GameStatus, SplitwiseMode, Stage, TournamentStatus
+from tigrinho.db.repositories import BetRepository, PlayerRepository, TournamentRepository
+from tigrinho.providers.splitwise import SplitwiseClient
 
 
 def _now() -> datetime:
@@ -115,3 +116,87 @@ async def test_sweep_alerts_stranded_once(app_context: AppContext) -> None:
     await sweep_job(ctx)
     assert ctx.bot.send_message.await_count == 1  # type: ignore[attr-defined]
     assert tid in app_context.tournament_stuck_alerted
+
+
+# --- Splitwise sweep (§23) ------------------------------------------------------------------------
+def _enabled(app_context: AppContext, client: object) -> AppContext:
+    return AppContext(
+        settings=app_context.settings.model_copy(
+            update={"splitwise_api_key": "k", "splitwise_group_id": 55}
+        ),
+        provider=app_context.provider,
+        session_factory=app_context.session_factory,
+        budget=app_context.budget,
+        splitwise_client=cast(SplitwiseClient, client),
+    )
+
+
+def _seed_finished_linked(app_context: AppContext, *, mode: SplitwiseMode) -> int:
+    kickoff = _now() - timedelta(hours=5)
+    with app_context.session_factory() as session:
+        PlayerRepository(session).get_or_create(100, "Ana")
+        PlayerRepository(session).get_or_create(200, "Bruno")
+        session.add(
+            Game(
+                fixture_id=1,
+                match_hash="h1",
+                stage=Stage.GROUP,
+                home_team_id=10,
+                home_team_name="Brasil",
+                away_team_id=20,
+                away_team_name="Argentina",
+                kickoff_utc=kickoff,
+                kickoff_local=kickoff,
+                status=GameStatus.SCHEDULED,
+            )
+        )
+        session.flush()
+        t = svc.create_tournament(session, name="Fase", entry_price_cents=1000, created_by=1)
+        svc.add_game(session, t, 1, now=kickoff - timedelta(hours=1))
+        svc.open_tournament(session, t, now=kickoff - timedelta(hours=1))
+        for tid_, uid in ((100, 1001), (200, 1002)):
+            p = PlayerRepository(session).get(tid_)
+            assert p is not None
+            p.splitwise_user_id = uid
+        svc.join(session, t, telegram_id=100, display_name="Ana", now=kickoff - timedelta(hours=1))
+        svc.join(
+            session, t, telegram_id=200, display_name="Bruno", now=kickoff - timedelta(hours=1)
+        )
+        for player, points in ((100, 5), (200, 2)):
+            bet = BetRepository(session).upsert(
+                fixture_id=1, player_telegram_id=player, category="WINNER", payload_json="{}"
+            )
+            bet.is_correct = points > 0
+            bet.points_awarded = points
+            bet.settled_at = _now()
+        game = session.get(Game, 1)
+        assert game is not None
+        game.status = GameStatus.FINISHED
+        game.settled_at = _now()
+        t.status = TournamentStatus.FINISHED
+        t.splitwise_mode = mode
+        session.commit()
+        return t.id
+
+
+async def test_sweep_notifies_admin_for_ready_manual_once(app_context: AppContext) -> None:
+    tid = _seed_finished_linked(app_context, mode=SplitwiseMode.MANUAL)
+    enabled = _enabled(app_context, AsyncMock(spec=SplitwiseClient))
+    ctx = _context(enabled)
+    await sweep_job(ctx)
+    assert ctx.bot.send_message.await_count == 1  # type: ignore[attr-defined]
+    with app_context.session_factory() as session:
+        t = TournamentRepository(session).get(tid)
+        assert t is not None and t.splitwise_admin_notified_at is not None
+    # Second sweep: already notified → no new DM.
+    await sweep_job(ctx)
+    assert ctx.bot.send_message.await_count == 1  # type: ignore[attr-defined]
+
+
+async def test_sweep_retries_auto_registration(app_context: AppContext) -> None:
+    _seed_finished_linked(app_context, mode=SplitwiseMode.AUTO)
+    client = AsyncMock(spec=SplitwiseClient)
+    client.create_expense.return_value = 777
+    enabled = _enabled(app_context, client)
+    await sweep_job(_context(enabled))
+    client.create_expense.assert_awaited_once()

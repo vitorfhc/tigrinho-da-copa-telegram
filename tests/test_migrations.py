@@ -84,7 +84,8 @@ def test_splitwise_transition_data_fix(tmp_path: Path) -> None:
     engine = create_engine(db_url)
     try:
         with engine.connect() as conn:
-            modes = dict(conn.execute(text("SELECT id, splitwise_mode FROM tournaments")).all())
+            rows = conn.execute(text("SELECT id, splitwise_mode FROM tournaments")).all()
+        modes = {row[0]: row[1] for row in rows}
         assert modes == {1: "MANUAL", 2: "MANUAL", 3: "EXCLUDED", 4: "EXCLUDED"}
     finally:
         engine.dispose()
