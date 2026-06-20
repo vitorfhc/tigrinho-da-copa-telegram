@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from tigrinho.ai.base import PalpiteGenerator
-from tigrinho.ai.gemini import GeminiPalpiteGenerator
+from tigrinho.ai.gemini import GeminiGameScorer, GeminiPalpiteGenerator
 
 
 class _FakeResponse:
@@ -69,3 +69,29 @@ async def test_generate_raises_on_empty_response(monkeypatch: pytest.MonkeyPatch
     gen = GeminiPalpiteGenerator(api_key="k", model="gemini-3.1-pro-preview")
     with pytest.raises(ValueError, match="empty"):
         await gen.generate(system_instruction="s", user_content="u")
+
+
+async def test_score_games_passes_grounding_and_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    _install_fake_client(monkeypatch, captured, text='{"name": "X", "scores": []}')
+    scorer = GeminiGameScorer(api_key="secret", model="gemini-3.1-pro-preview")
+
+    out = await scorer.score_games(system_instruction="SYS", user_content="USER")
+
+    assert out == '{"name": "X", "scores": []}'
+    assert captured["model"] == "gemini-3.1-pro-preview"
+    assert captured["contents"] == "USER"
+    config = captured["config"]
+    assert config.system_instruction == "SYS"
+    assert config.thinking_config.thinking_level.value == "HIGH"
+    assert config.tools[0].google_search is not None
+
+
+async def test_score_games_empty_text_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    _install_fake_client(monkeypatch, captured, text=None)
+    scorer = GeminiGameScorer(api_key="secret", model="gemini-3.1-pro-preview")
+    with pytest.raises(ValueError):
+        await scorer.score_games(system_instruction="SYS", user_content="USER")

@@ -53,3 +53,32 @@ class GeminiPalpiteGenerator:
             raise ValueError("Gemini returned an empty response")
         _log.info("palpite_generated", model=self._model, chars=len(text))
         return text
+
+
+class GeminiGameScorer:
+    """Daily-bolãozinho game-interest scorer — a separate Gemini flow from /palpite (§24).
+
+    Same grounded-call conventions as :class:`GeminiPalpiteGenerator` (Google Search + high
+    thinking), but a distinct method/schema so the two flows never share state.
+    """
+
+    def __init__(self, *, api_key: str, model: str) -> None:
+        self._client = genai.Client(api_key=api_key)
+        self._model = model
+
+    async def score_games(self, *, system_instruction: str, user_content: str) -> str:
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.HIGH),
+        )
+        response = await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=user_content,
+            config=config,
+        )
+        text = response.text
+        if not text:
+            raise ValueError("Gemini returned an empty game-scoring response")
+        _log.info("game_scoring_generated", model=self._model, chars=len(text))
+        return text
