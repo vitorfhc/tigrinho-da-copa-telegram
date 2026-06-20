@@ -18,6 +18,12 @@ timezone: America/Sao_Paulo            # drives sync time, displayed kickoffs, w
 sync_time: "06:00"                     # daily fixtures sync (local time)
 palpite_time: "06:00"                  # daily AI palpite generation (local; needs GEMINI_API_KEY)
 gemini_model: gemini-3.1-pro-preview   # Gemini model for /palpite
+# Daily AI-curated bolãozinho (§24). When daily_bolao_enabled is true, an evening job at
+# daily_bolao_time grades the next day's fixtures with Gemini and auto-opens a bolãozinho over
+# the best up-to-2 games. Requires GEMINI_API_KEY. Price is in integer cents (1000 = R$ 10,00).
+daily_bolao_enabled: false
+daily_bolao_time: "18:00"
+daily_bolao_entry_price_cents: 1000
 poll_interval_seconds: 600             # live-poll cadence during match windows (seconds)
 reminder_lead_minutes: 60              # post a betting reminder this long before kickoff
 reminder_interval_minutes: 10          # how often the reminder sweep runs

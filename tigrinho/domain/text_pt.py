@@ -620,7 +620,9 @@ def help_text() -> str:
         "dinheiro é por fora — o bot só faz a conta.\n"
         "• <b>Splitwise:</b> se o grupo usa Splitwise, vincule sua conta com "
         "<b>/vincular_splitwise</b> (uma vez só). Quando um bolãozinho termina, eu registro o "
-        "acerto lá automaticamente — quem perdeu deve a entrada, quem ganhou recebe.\n\n"
+        "acerto lá automaticamente — quem perdeu deve a entrada, quem ganhou recebe.\n"
+        "🤖 <b>Bolãozinho do dia:</b> todo dia, à noite, eu escolho os melhores jogos do dia "
+        "seguinte e abro um bolãozinho automático aqui no grupo.\n\n"
         "Boa sorte! 🍀"
     )
 

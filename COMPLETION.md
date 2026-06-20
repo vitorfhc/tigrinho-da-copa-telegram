@@ -1315,3 +1315,91 @@ a failure logs + DMs the admin and never crashes the bot; the winner announcemen
 ### 23.7 Out of scope (YAGNI)
 OAuth (API key suffices); per-bolãozinho Splitwise groups; Splitwise→bot sync; expense deletion/undo on
 cancel; categories/receipts/currency conversion; an unlink command.
+
+## 24. Daily AI-curated bolãozinho
+
+Each evening the bot picks the **top 2** (or 1 on a 1-game day) of tomorrow's World Cup fixtures,
+asks a dedicated Gemini flow to grade every candidate on six binary criteria, ranks by count of
+`true` criteria, and auto-opens a bolãozinho over the selected games — identical to a manual
+`/bolaozinho_abrir`. This is **opt-in and dormant** unless `daily_bolao_enabled: true` in
+`config.yaml` **and** `GEMINI_API_KEY` is set.
+
+Design spec: `docs/superpowers/specs/2026-06-20-daily-ai-bolaozinho-design.md`.
+
+### 24.1 Product decisions
+
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | What runs | New `run_daily` job at `daily_bolao_time` (default `18:00` local) in `post_init`; only scheduled when `daily_bolao_enabled`. |
+| 2 | Day selected | **Tomorrow** in the configured timezone (`America/Sao_Paulo`). Window is the **DST-safe** half-open interval `[tomorrow 00:00 local, day-after 00:00 local)` in naive UTC. |
+| 3 | Candidate games | `SCHEDULED` games whose `kickoff_utc` falls in tomorrow's local-day window; the 06:00 sync populates them by 18:00. Zero candidates → silent skip (no post, no DM). |
+| 4 | Selection engine | **A new, independent Gemini flow** (`GameScorer` protocol + `GeminiGameScorer` client). **Not** the `/palpite` `PalpiteGenerator`. |
+| 5 | Scoring | **Binary only.** Gemini returns 6 boolean criteria per game; the interest score is `sum(criteria)` (0–6), **computed in pure code — the model never emits a number**. |
+| 6 | How many games | **Up to 2.** Rank by `(interest desc, kickoff asc)`, take top 2; on a one-game day use that game; skip only when 0 candidates. Partial Gemini coverage (scored subset < all candidates) produces a ≤2-game pool. |
+| 7 | Activation | **Auto-open**, fully automatic — reuses the exact post-open path of a manual `/bolaozinho_abrir` via the shared `announce_open()` helper: group post + @-mentions + DM broadcast + Splitwise `AUTO` when enabled. |
+| 8 | Creator | `created_by = settings.admin_user_id` so the admin can `/bolaozinho_cancelar` or manage the pool. |
+| 9 | Entry price | **Fixed** `daily_bolao_entry_price_cents` in `config.yaml` (default `1000` = R$ 10,00). |
+| 10 | Name | Gemini-proposed (short, fun pt-BR), passed through `sanitize_name()`; deterministic fallback `Bolãozinho do dia DD/MM` when the sanitized name is empty. `name` is optional in the schema — a missing name never fails hard. |
+| 11 | Failure policy | **No selection fallback.** Gemini error / unparseable scores / zero usable scores on a non-empty day → create nothing, DM admin. |
+| 12 | Idempotency | New nullable `tournaments.auto_created_for` (Date) with a **UNIQUE** constraint. The job pre-checks for an existing daily pool and the `session.commit()` is guarded by `IntegrityError` → rollback → skip, so concurrent fires cannot create two pools. |
+| 13 | Feature gate | Active iff `daily_bolao_enabled` is `true`. Startup fails fast via `@model_validator` if enabled without `GEMINI_API_KEY` or with a non-positive price. When disabled, the job is not scheduled at all. |
+
+### 24.2 The six binary interest criteria
+
+| criterion | `true` when… |
+|---|---|
+| `decisive` | knockout, or the result decides group qualification / seeding |
+| `quality_matchup` | both sides are strong / notable national teams |
+| `rivalry_or_storyline` | historic rivalry or a compelling narrative |
+| `star_power` | a globally famous player is likely to feature |
+| `competitive_balance` | closely matched, genuinely hard to call |
+| `goal_potential` | likely open / entertaining / high-scoring |
+
+`interest(criteria)` = `sum((decisive, quality_matchup, rivalry_or_storyline, star_power, competitive_balance, goal_potential))` — computed in **pure code** (`tigrinho/domain/daily_bolao.py`); on the 100% coverage gate. The model never emits a number; this sum is the **only** numeric score.
+
+### 24.3 Module layout
+
+```
+tigrinho/ai/base.py            (+) GameScorer Protocol (score_games method)
+tigrinho/ai/gemini.py          (+) GeminiGameScorer (new flow, parallel to GeminiPalpiteGenerator)
+tigrinho/ai/daily_bolao.py     (NEW) GameInterestCriteria / GameInterestScore / DailyBolaoScoring,
+                                     build_scoring_prompt(), parse_scoring(), sanitize_name()
+tigrinho/domain/daily_bolao.py (NEW) PURE: Candidate, InterestCriteria, interest(), rank_and_select()
+tigrinho/daily_bolao_service.py (NEW) async create_daily_bolao() orchestrator
+tigrinho/bot/daily_bolao_job.py (NEW) daily_bolao_job + schedule_daily_bolao_job + failure DM
+tigrinho/bot/tournament_announce.py (NEW) shared announce_open() helper (extracted from both
+                                          cmd_abrir and _do_open in tournament_handlers)
+tigrinho/bot/tournament_handlers.py (~) both cmd_abrir and _do_open call announce_open()
+tigrinho/bot/app.py            (~) schedule_daily_bolao_job (guarded by daily_bolao_enabled)
+tigrinho/bot/runtime.py        (~) AppContext.game_scorer: GameScorer | None
+tigrinho/__main__.py           (~) make_game_scorer() factory + wiring
+tigrinho/config.py             (~) daily_bolao_enabled / _time / _entry_price_cents + @model_validator
+tigrinho/db/models.py          (~) Tournament.auto_created_for + UniqueConstraint
+tigrinho/db/repositories.py    (~) GameRepository.list_scheduled_in_window(); TournamentRepository.daily_auto_for()
+tigrinho/db/migrations/versions/<rev>_add_tournament_auto_created_for.py  (NEW)
+```
+
+### 24.4 Config additions
+
+| field | type | default | notes |
+|---|---|---|---|
+| `daily_bolao_enabled` | `bool` | `False` | master gate; when off the job is not scheduled |
+| `daily_bolao_time` | `str` | `"18:00"` | local `HH:MM`; `daily_bolao_time_obj` property |
+| `daily_bolao_entry_price_cents` | `int` | `1000` | R$ 10,00; must be `> 0` when enabled |
+
+`GEMINI_API_KEY` (already in `.env`) stays the only secret — no new env key.
+
+### 24.5 Data model
+
+`Tournament.auto_created_for` (nullable `Date`, default `None`). `UniqueConstraint("auto_created_for", name="uq_tournament_auto_created_for")`. In SQLite, NULLs are distinct so all non-daily tournaments coexist; only **one** row may carry a given date. Append-only migration `down_revision = "d4e5f6a7b8c9"`.
+
+### 24.6 /ajuda
+
+One line added to the Bolãozinhos section:
+> 🤖 **Bolãozinho do dia:** todo dia, à noite, eu escolho os melhores jogos do dia seguinte e abro um bolãozinho automático aqui no grupo.
+
+No new command; the daily pool is managed with the existing `/bolaozinho_*` commands by the admin.
+
+### 24.7 Out of scope (YAGNI)
+
+No new command, wizard, or admin-review step (activation is fully automatic). No minimum-interest threshold / "boring day, skip" behaviour. No per-day price or model overrides. No change to `/palpite` or its generator. No special announcement template (the standard open announcement carries the AI name + games).

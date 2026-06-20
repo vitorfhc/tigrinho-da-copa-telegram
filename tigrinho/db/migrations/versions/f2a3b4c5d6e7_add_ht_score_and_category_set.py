@@ -7,7 +7,7 @@ rendering and a single game never mixes regimes; every game with no bets yet —
 games (the column default) — uses the new two-market set (``V2`` = EXACT_SCORE + HALF_TIME_RESULT).
 
 Revision ID: f2a3b4c5d6e7
-Revises: d4e5f6a7b8c9
+Revises: f7a8b9c0d1e2
 Create Date: 2026-06-20 00:00:00.000000
 """
 
@@ -20,7 +20,9 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "f2a3b4c5d6e7"
-down_revision: str | None = "d4e5f6a7b8c9"
+# Chained after the §24 tournaments.auto_created_for migration (merged from main) so the history
+# stays a single linear head — both originally branched off d4e5f6a7b8c9.
+down_revision: str | None = "f7a8b9c0d1e2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

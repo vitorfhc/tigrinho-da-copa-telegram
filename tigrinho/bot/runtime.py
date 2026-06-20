@@ -15,7 +15,7 @@ from typing import Any, Final
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application
 
-from tigrinho.ai.base import PalpiteGenerator
+from tigrinho.ai.base import GameScorer, PalpiteGenerator
 from tigrinho.config import Settings
 from tigrinho.providers.base import FootballProvider
 from tigrinho.providers.budget import RequestBudget
@@ -38,6 +38,8 @@ class AppContext:
     budget: RequestBudget
     # AI palpite generator (§20); None when no GEMINI_API_KEY is configured (feature disabled).
     palpite_generator: PalpiteGenerator | None = None
+    # Daily-bolãozinho game-interest scorer (§24); None when the feature is disabled.
+    game_scorer: GameScorer | None = None
     # Serializes AI palpite generation so concurrent /palpite calls don't fire duplicate Gemini
     # requests when the cache is cold (§20).
     palpite_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

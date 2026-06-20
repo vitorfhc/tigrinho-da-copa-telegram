@@ -22,6 +22,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 from tigrinho.bot.alerts import error_handler
 from tigrinho.bot.bets_handlers import register_bet_handlers, start_handler
 from tigrinho.bot.board_handlers import register_board_handlers
+from tigrinho.bot.daily_bolao_job import schedule_daily_bolao_job
 from tigrinho.bot.help_handlers import cmd_ajuda
 from tigrinho.bot.palpite_handlers import register_palpite_handlers
 from tigrinho.bot.palpite_job import schedule_palpite_job
@@ -134,6 +135,8 @@ async def post_init(application: AnyApplication) -> None:
         schedule_reminder_job(application.job_queue, app_context.settings)
         schedule_palpite_job(application.job_queue, app_context.settings)
         schedule_sweep_job(application.job_queue, app_context.settings)
+        if app_context.settings.daily_bolao_enabled:
+            schedule_daily_bolao_job(application.job_queue, app_context.settings)
 
 
 def build_application(app_context: AppContext) -> AnyApplication:

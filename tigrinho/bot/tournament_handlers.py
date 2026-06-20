@@ -311,6 +311,23 @@ async def _broadcast_open_dm(
     )
 
 
+async def announce_open(
+    context: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+    tournament: Tournament,
+    games: list[Game],
+    mentions: list[tuple[int, str]],
+) -> None:
+    """Post the open announcement to the group and DM every known player (§22).
+
+    Shared by ``/bolaozinho_abrir`` (``cmd_abrir``), the inline "Abrir" callback (``_do_open``),
+    and the daily AI job (``daily_bolao_job``) so an auto-opened bolãozinho is byte-identical to a
+    manually-opened one.
+    """
+    await _post_open_announcement(context, settings, tournament, games, mentions)
+    await _broadcast_open_dm(context, settings, tournament, games, mentions)
+
+
 # --- command handlers -------------------------------------------------------------------------
 def _clear_criar(context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.user_data is not None:
@@ -505,8 +522,7 @@ async def cmd_abrir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         mentions = _all_player_mentions(session)
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
-    await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
-    await _broadcast_open_dm(context, app_context.settings, tournament, games, mentions)
+    await announce_open(context, app_context.settings, tournament, games, mentions)
     await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
@@ -912,8 +928,7 @@ async def _do_open(
         mentions = _all_player_mentions(session)
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
-    await _post_open_announcement(context, app_context.settings, tournament, games, mentions)
-    await _broadcast_open_dm(context, app_context.settings, tournament, games, mentions)
+    await announce_open(context, app_context.settings, tournament, games, mentions)
     await query.answer("Bolãozinho aberto! 📣")
     await safe_edit_text(query, text, reply_markup=keyboard)
 

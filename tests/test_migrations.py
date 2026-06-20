@@ -96,7 +96,7 @@ def test_category_set_backfill(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'mig.db'}"
     cfg = _alembic_config(db_url)
     # Bring the DB up to the revision *just before* this migration, then seed games + a bet.
-    command.upgrade(cfg, "d4e5f6a7b8c9")
+    command.upgrade(cfg, "f7a8b9c0d1e2")
     engine = create_engine(db_url)
     try:
         with engine.begin() as conn:
@@ -135,6 +135,21 @@ def test_category_set_backfill(tmp_path: Path) -> None:
             rows = conn.execute(text("SELECT fixture_id, category_set FROM games")).all()
         regimes = {row[0]: row[1] for row in rows}
         assert regimes == {100: "LEGACY", 200: "V2"}
+    finally:
+        engine.dispose()
+
+
+def test_tournaments_auto_created_for_unique_after_upgrade(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'mig.db'}"
+    command.upgrade(_alembic_config(db_url), "head")
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        cols = {c["name"] for c in inspector.get_columns("tournaments")}
+        assert "auto_created_for" in cols
+        uniques = inspector.get_unique_constraints("tournaments")
+        names = {uc["name"] for uc in uniques}
+        assert "uq_tournament_auto_created_for" in names
     finally:
         engine.dispose()
 

@@ -103,6 +103,19 @@ class GameRepository:
         )
         return list(self._session.execute(stmt).scalars())
 
+    def list_scheduled_in_window(self, start_utc: datetime, end_utc: datetime) -> list[Game]:
+        """SCHEDULED games kicking off in ``[start_utc, end_utc)`` — tomorrow's slate (§24)."""
+        stmt = (
+            select(Game)
+            .where(
+                Game.status == GameStatus.SCHEDULED,
+                Game.kickoff_utc >= start_utc,
+                Game.kickoff_utc < end_utc,
+            )
+            .order_by(Game.kickoff_utc)
+        )
+        return list(self._session.execute(stmt).scalars())
+
     def list_palpite_games(
         self, now: datetime, horizon: timedelta, live_window_hours: int
     ) -> list[Game]:
@@ -505,6 +518,11 @@ class TournamentRepository:
 
     def get(self, tournament_id: int) -> Tournament | None:
         return self._session.get(Tournament, tournament_id)
+
+    def daily_auto_for(self, target_date: date) -> Tournament | None:
+        """The daily AI bolãozinho already created for ``target_date``, if any (§24)."""
+        stmt = select(Tournament).where(Tournament.auto_created_for == target_date)
+        return self._session.execute(stmt).scalars().first()
 
     def list_all(self) -> list[Tournament]:
         stmt = select(Tournament).order_by(Tournament.id.desc())
