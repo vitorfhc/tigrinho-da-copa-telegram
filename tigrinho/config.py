@@ -22,7 +22,7 @@ from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # AI palpite settings (the feature is gated on ``gemini_api_key`` being present).
     palpite_time: str = "06:00"
     gemini_model: str = "gemini-3.1-pro-preview"
+    # Daily AI-curated bolãozinho (§24): an evening job grades tomorrow's fixtures on binary
+    # interest criteria and auto-opens a bolãozinho over the best ≤2 games. Opt-in (off by
+    # default); when enabled it requires GEMINI_API_KEY (validated below) and a positive price.
+    daily_bolao_enabled: bool = False
+    daily_bolao_time: str = "18:00"
+    daily_bolao_entry_price_cents: int = 1000
     poll_interval_seconds: int = Field(default=600, gt=0)
     reminder_lead_minutes: int = Field(default=60, gt=0)
     reminder_interval_minutes: int = Field(default=10, gt=0)
@@ -113,7 +119,7 @@ class Settings(BaseSettings):
             raise ValueError(f"invalid timezone: {value!r}") from exc
         return value
 
-    @field_validator("sync_time", "palpite_time")
+    @field_validator("sync_time", "palpite_time", "daily_bolao_time")
     @classmethod
     def _valid_clock_time(cls, value: str) -> str:
         try:
@@ -122,6 +128,17 @@ class Settings(BaseSettings):
         except (ValueError, TypeError) as exc:
             raise ValueError(f"invalid time, expected HH:MM: {value!r}") from exc
         return value
+
+    @model_validator(mode="after")
+    def _validate_daily_bolao(self) -> Settings:
+        if self.daily_bolao_enabled:
+            if not self.gemini_api_key:
+                raise ValueError("daily_bolao_enabled requires GEMINI_API_KEY to be set")
+            if self.daily_bolao_entry_price_cents <= 0:
+                raise ValueError(
+                    "daily_bolao_entry_price_cents must be > 0 when daily_bolao_enabled"
+                )
+        return self
 
     @property
     def sync_time_obj(self) -> time:
@@ -133,6 +150,12 @@ class Settings(BaseSettings):
     def palpite_time_obj(self) -> time:
         """The configured daily AI-palpite generation time (local to ``timezone``)."""
         hours, minutes = self.palpite_time.split(":")
+        return time(int(hours), int(minutes))
+
+    @property
+    def daily_bolao_time_obj(self) -> time:
+        """The configured daily-bolãozinho creation time (local to ``timezone``; §24)."""
+        hours, minutes = self.daily_bolao_time.split(":")
         return time(int(hours), int(minutes))
 
     @property

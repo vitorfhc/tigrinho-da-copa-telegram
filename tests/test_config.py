@@ -45,6 +45,9 @@ _FIELD_ENV_NAMES = [
     "SPLITWISE_GROUP_ID",
     "SPLITWISE_BASE_URL",
     "SPLITWISE_CURRENCY_CODE",
+    "DAILY_BOLAO_ENABLED",
+    "DAILY_BOLAO_TIME",
+    "DAILY_BOLAO_ENTRY_PRICE_CENTS",
 ]
 
 VALID_YAML = """\
@@ -298,3 +301,47 @@ def test_invalid_palpite_time_fails_fast(monkeypatch: pytest.MonkeyPatch, tmp_pa
     yaml_content = VALID_YAML + 'palpite_time: "nope"\n'
     with pytest.raises(ValidationError):
         _build(monkeypatch, tmp_path, yaml_content=yaml_content)
+
+
+def test_daily_bolao_defaults_and_time_property(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = _build(monkeypatch, tmp_path)
+    assert settings.daily_bolao_enabled is False
+    assert settings.daily_bolao_time == "18:00"
+    assert settings.daily_bolao_entry_price_cents == 1000
+    assert settings.daily_bolao_time_obj == time(18, 0)
+
+
+def test_daily_bolao_enabled_without_key_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ValidationError):
+        _build(monkeypatch, tmp_path, env={"DAILY_BOLAO_ENABLED": "true"})
+
+
+def test_daily_bolao_enabled_with_zero_price_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ValidationError):
+        _build(
+            monkeypatch,
+            tmp_path,
+            env={
+                "DAILY_BOLAO_ENABLED": "true",
+                "GEMINI_API_KEY": "k-123",
+                "DAILY_BOLAO_ENTRY_PRICE_CENTS": "0",
+            },
+        )
+
+
+def test_daily_bolao_enabled_with_key_and_price_ok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = _build(
+        monkeypatch,
+        tmp_path,
+        env={"DAILY_BOLAO_ENABLED": "true", "GEMINI_API_KEY": "k-123"},
+    )
+    assert settings.daily_bolao_enabled is True
+    assert settings.daily_bolao_entry_price_cents == 1000
