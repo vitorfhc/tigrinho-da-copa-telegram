@@ -893,6 +893,21 @@ from the live score split — **no second API call**.
 - Grading/settlement untouched. `/ajuda` unaffected (no command/category/scoring/grading change).
   COMPLETION.md §9.4 rewritten + dated decision recorded. All four gates green (686 tests).
 
+### 2026-06-20 — Feature 9: Daily AI-curated bolãozinho (§24)
+
+Daily job picks the top 2 of tomorrow's World Cup fixtures via Gemini binary scoring (6 criteria)
+and auto-opens a bolãozinho. Feature is opt-in (`daily_bolao_enabled` + `GEMINI_API_KEY`).
+
+- [x] Task 1: Config (`daily_bolao_enabled`, `daily_bolao_time`, `daily_bolao_entry_price_cents`) + `@model_validator` fail-fast; `config.example.yaml` updated.
+- [x] Task 2: Pure domain (`tigrinho/domain/daily_bolao.py`): `Candidate`, `InterestCriteria`, `interest()`, `rank_and_select()`, `local_day_window_utc()` — on the 100%-coverage gate.
+- [x] Task 3: AI wire format (`tigrinho/ai/daily_bolao.py`): `GameInterestCriteria`, `GameInterestScore`, `DailyBolaoScoring`, `build_scoring_prompt()`, `parse_scoring()`, `sanitize_name()`.
+- [x] Task 4: `GameScorer` protocol (`tigrinho/ai/base.py`) + `GeminiGameScorer` client (`tigrinho/ai/gemini.py`).
+- [x] Task 5: DB model (`Tournament.auto_created_for` + UNIQUE constraint) + append-only migration + `GameRepository.list_scheduled_in_window()` + `TournamentRepository.daily_auto_for()`.
+- [x] Task 6: Shared `announce_open()` helper (`tigrinho/bot/tournament_announce.py`) extracted from both `cmd_abrir` and `_do_open` in `tournament_handlers.py`.
+- [x] Task 7: `create_daily_bolao()` service (`tigrinho/daily_bolao_service.py`) — orchestrate query → score → create+open+announce with IntegrityError idempotency guard.
+- [x] Task 8: Job + wiring (`tigrinho/bot/daily_bolao_job.py`, `app.py`, `runtime.py`, `__main__.py`) — `run_daily` at 18:00 local; failure DM to admin; `AppContext.game_scorer`.
+- [x] Task 9: Docs — COMPLETION.md §24 + `/ajuda` daily-bolão line + PROGRESS.md (this entry). TDD: `test_help_mentions_daily_bolao` written first (failed), then the help line added (passes). All four gates green (§11 maintenance rule).
+
 ### 2026-06-20 — Change: `/bolaozinho_criar` is now a keyboard wizard (§22.3)
 - **What:** replaced the `/bolaozinho_criar <nome> | <preço>` free-text syntax with an **argless,
   DM-only keyboard wizard** (§8.2 wizard-first). It asks for the **name** (free text — names can't be

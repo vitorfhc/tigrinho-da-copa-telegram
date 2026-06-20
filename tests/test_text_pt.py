@@ -221,6 +221,11 @@ def test_help_text_covers_required_content() -> None:
     assert "Splitwise" in text  # splitwise section
 
 
+def test_help_mentions_daily_bolao() -> None:
+    text = help_text()
+    assert "todo dia" in text.lower() or "bolãozinho do dia" in text.lower()
+
+
 def test_welcome_text_points_to_help() -> None:
     assert "/ajuda" in welcome_text()
 
