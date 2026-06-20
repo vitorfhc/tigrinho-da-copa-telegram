@@ -641,8 +641,11 @@ fetches):
   `live_away_goals` from `goals.{home,away}`). When a *started* game's running total exceeds
   `games.goals_announced`, one budgeted `get_goal_events(fixture_id)` call fetches the **uncapped**
   goal timeline (incl. extra time; penalty shootout excluded). Each new goal is posted with the
-  running score, scorer, and minute (`(pênalti)` / `(gol contra)` tags; own goals credited to the
-  opposing side). The cursor `goals_announced` then advances to the timeline length. The events
+  running score, scorer, and minute (`(pênalti)` / `(gol contra)` tags). **Own goals:** the
+  provider already attributes the event's `team` to the *benefiting* side (the own-goaler is the
+  event's `player`), so the running score uses `team_id` as-is — **no flip** (grounded against
+  API-Football live events: e.g. an own goal in USA 2–0 Australia is reported with
+  `team.id = USA`). The cursor `goals_announced` then advances to the timeline length. The events
   endpoint is hit only when a game actually scores (~1 call per goal); cycles with no goal cost
   nothing extra.
 - **VAR-disallowed goals.** When the running total *drops* below `goals_announced` (a counted goal

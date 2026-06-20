@@ -856,3 +856,17 @@ stays bookkeeping-only). Implemented end to end and merged to `main` for deploym
   `docs/superpowers/plans/2026-06-19-splitwise-bolaozinho.md`.
 - **Deploy note:** prod `.env` needs a 4th secret `SPLITWISE_API_KEY` + `splitwise_group_id` in
   `config.yaml` (scp'd, not carried by `git pull`) to activate; otherwise ships dormant.
+
+### 2026-06-20 — Bugfix: own-goal score swapped in live notification (§9.4)
+- **Symptom:** for an own goal the live goal post showed the score reversed (e.g. own goal in
+  USA 2–0 Australia notified as `USA 0 x 1 Australia`), while the full-time results post was correct.
+- **Root cause:** `domain/live.goal_progression` applied an own-goal *flip*, assuming the events
+  feed attributes an own goal to the conceding (own-goaler's) team. **Grounded against the live
+  API** (fixture 1489391: own goal min 11 reports `team.id = USA`, `player = Cameron Burgess`):
+  API-Football already credits the own goal to the **benefiting** team, so the flip double-corrected
+  it. The full-time post was unaffected because it reads `score.fulltime`, not the event timeline;
+  settlement/first-team grading was unaffected because it *skips* own goals.
+- **Fix:** removed the flip — `team_id` is used as-is (it's the scoring side for normal and own
+  goals alike). Documented the contract on `GoalEvent.team_id` and updated COMPLETION.md §9.4.
+- **Tests:** rewrote `test_goal_progression_own_goal_credited_to_event_team` to assert the grounded
+  semantics (watched it fail first). All four gates green (690 tests, domain coverage 100%).

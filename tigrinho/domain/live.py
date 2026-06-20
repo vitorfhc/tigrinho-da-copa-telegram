@@ -1,7 +1,9 @@
 """Pure live-goal helpers for in-match group notifications (COMPLETION.md §9.4).
 
-Walks a goal timeline and reconstructs the running score, applying the **own-goal flip** (an own
-goal counts for the *opposing* side). No I/O, clock, or DB — deterministic and testable.
+Walks a goal timeline and reconstructs the running score. ``GoalEvent.team_id`` is the side the
+goal counts *for* — API-Football already attributes an own goal to the benefiting team (the
+own-goaler is the event's ``player``), so **no flip** is applied. No I/O, clock, or DB —
+deterministic and testable.
 """
 
 from __future__ import annotations
@@ -33,14 +35,16 @@ class GoalProgress:
 def goal_progression(
     home_team_id: int, away_team_id: int, goals: Sequence[GoalEvent]
 ) -> list[GoalProgress]:
-    """Reconstruct the running score for ``goals`` (chronological), own-goal flip applied."""
+    """Reconstruct the running score for ``goals`` (chronological).
+
+    ``GoalEvent.team_id`` is the side the goal counts *for* (own goals included — the provider
+    credits them to the benefiting team), so it is used as-is with no flip.
+    """
     home = 0
     away = 0
     out: list[GoalProgress] = []
     for goal in goals:
         scored_for_home = goal.team_id == home_team_id
-        if goal.is_own_goal:
-            scored_for_home = not scored_for_home
         if scored_for_home:
             home += 1
             side = Side.HOME

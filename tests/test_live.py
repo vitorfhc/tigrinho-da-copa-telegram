@@ -29,9 +29,12 @@ def test_goal_progression_running_score() -> None:
     ]
 
 
-def test_goal_progression_own_goal_credits_opponent() -> None:
-    # Away team (20) puts it in their own net -> credited to home (10).
-    prog = goal_progression(10, 20, [_g(30, 20, own=True)])
+def test_goal_progression_own_goal_credited_to_event_team() -> None:
+    # API-Football attributes an own-goal event to the *benefiting* team (the side the goal counts
+    # for), with the own-goaler as ``player`` — so ``team_id`` is already the scoring side and must
+    # NOT be flipped. An away (20) player nets into their own goal -> the event's team is home (10),
+    # which scores: 1 x 0, credited to HOME.
+    prog = goal_progression(10, 20, [_g(30, 10, own=True)])
     assert (prog[0].home_score, prog[0].away_score) == (1, 0)
     assert prog[0].scoring_side is Side.HOME
 

@@ -34,7 +34,9 @@ class GoalEvent:
     """A single goal event within a fixture's timeline (§7.2)."""
 
     minute: int
-    team_id: int
+    team_id: int  # the team the goal counts FOR — for own goals this is the *benefiting* side
+    # (API-Football credits own goals to the opponent; ``player`` is the own-goaler), so callers
+    # must NOT flip it. See ``domain/live.goal_progression``.
     player_id: int | None
     player_name: str | None
     is_own_goal: bool
