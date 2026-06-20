@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from tigrinho.db.models import Base, Game, GameStatus, Stage
@@ -59,3 +61,18 @@ def test_daily_auto_for_finds_only_matching_date() -> None:
         repo = TournamentRepository(s)
         assert repo.daily_auto_for(date(2026, 6, 21)) is not None
         assert repo.daily_auto_for(date(2026, 6, 22)) is None
+
+
+def test_auto_created_for_unique_constraint_enforced() -> None:
+    sf = _session_factory()
+    with sf() as s:
+        repo = TournamentRepository(s)
+        t1 = repo.create(name="Dia 21 A", entry_price_cents=1000, created_by=1)
+        t1.auto_created_for = date(2026, 6, 21)
+        s.commit()
+    with sf() as s:
+        repo = TournamentRepository(s)
+        t2 = repo.create(name="Dia 21 B", entry_price_cents=1000, created_by=1)
+        t2.auto_created_for = date(2026, 6, 21)
+        with pytest.raises(IntegrityError):
+            s.commit()
