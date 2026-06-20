@@ -91,6 +91,21 @@ def test_splitwise_transition_data_fix(tmp_path: Path) -> None:
         engine.dispose()
 
 
+def test_tournaments_auto_created_for_unique_after_upgrade(tmp_path: Path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'mig.db'}"
+    command.upgrade(_alembic_config(db_url), "head")
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        cols = {c["name"] for c in inspector.get_columns("tournaments")}
+        assert "auto_created_for" in cols
+        uniques = inspector.get_unique_constraints("tournaments")
+        names = {uc["name"] for uc in uniques}
+        assert "uq_tournament_auto_created_for" in names
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_base_drops_model_tables(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'mig.db'}"
     cfg = _alembic_config(db_url)

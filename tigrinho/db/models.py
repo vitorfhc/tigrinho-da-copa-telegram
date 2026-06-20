@@ -207,6 +207,9 @@ class Tournament(Base):
     splitwise_expense_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     splitwise_synced_signature: Mapped[str | None] = mapped_column(String, default=None)
     splitwise_admin_notified_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    # The local calendar date a daily AI-curated bolãozinho covers (§24). NULL for every manually
+    # created bolãozinho; UNIQUE so concurrent daily-job fires can't create two pots for one day.
+    auto_created_for: Mapped[date | None] = mapped_column(Date, default=None)
 
     games: Mapped[list[TournamentGame]] = relationship(
         back_populates="tournament", cascade="all, delete-orphan"
@@ -214,6 +217,8 @@ class Tournament(Base):
     entries: Mapped[list[TournamentEntry]] = relationship(
         back_populates="tournament", cascade="all, delete-orphan"
     )
+
+    __table_args__ = (UniqueConstraint("auto_created_for", name="uq_tournament_auto_created_for"),)
 
 
 class TournamentGame(Base):
