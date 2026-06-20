@@ -36,6 +36,8 @@ from tigrinho.bot.callbacks import (
     SplitwiseRegisterPick,
     TournamentAction,
     TournamentAddToggle,
+    TournamentCreateCancel,
+    TournamentCreatePrice,
     WinnerInput,
     encode,
 )
@@ -45,10 +47,15 @@ from tigrinho.domain.text_pt import (
     OVER_UNDER_LABELS,
     btts_labels,
     category_button_label,
+    format_money_cents,
 )
 from tigrinho.enums import Stage, TournamentStatus
 
 MAX_SCORE_PER_SIDE = 10
+
+# Preset entry prices offered by the /bolaozinho_criar wizard (§22); "Outro valor" types any
+# other value. Whole-real amounts in cents: R$ 5 / 10 / 20 / 25 / 50.
+PRICE_PRESET_CENTS: tuple[int, ...] = (500, 1000, 2000, 2500, 5000)
 
 
 def _button(text: str, data: CallbackData) -> InlineKeyboardButton:
@@ -288,6 +295,25 @@ def tournament_placar_keyboard(items: Sequence[tuple[int, str]]) -> InlineKeyboa
     rows = [
         [_button(label, TournamentAction("bs", tournament_id))] for tournament_id, label in items
     ]
+    return InlineKeyboardMarkup(rows)
+
+
+def tournament_price_keyboard(*, currency: str, decimals: int) -> InlineKeyboardMarkup:
+    """Create wizard: preset entry-price buttons (§22) + "Outro valor" (type it) + cancel."""
+    presets = [
+        _button(
+            format_money_cents(cents, currency=currency, decimals=decimals),
+            TournamentCreatePrice(cents),
+        )
+        for cents in PRICE_PRESET_CENTS
+    ]
+    rows = [presets[i : i + 3] for i in range(0, len(presets), 3)]
+    rows.append(
+        [
+            _button("✏️ Outro valor", TournamentCreatePrice(None)),
+            _button("❌ Cancelar", TournamentCreateCancel()),
+        ]
+    )
     return InlineKeyboardMarkup(rows)
 
 

@@ -74,6 +74,7 @@ def _context(
     ctx = MagicMock()
     ctx.application.bot_data = {APP_CONTEXT_KEY: app_context}
     ctx.args = args
+    ctx.user_data = {}
     return cast(ContextTypes.DEFAULT_TYPE, ctx)
 
 
@@ -149,6 +150,15 @@ async def test_apostar_group_redirects_to_private(app_context: AppContext) -> No
     assert isinstance(markup, InlineKeyboardMarkup)
     url = markup.inline_keyboard[0][0].url
     assert url is not None and "start=apostar" in url
+
+
+async def test_start_criar_payload_opens_create_wizard(app_context: AppContext) -> None:
+    # The group "Criar no privado" deep link (?start=criar) must open the bolãozinho create wizard.
+    update, message = _cmd_update()
+    ctx = _context(app_context, args=["criar"])
+    await start_handler(update, ctx)
+    message.reply_text.assert_awaited_once()
+    assert ctx.user_data is not None and ctx.user_data["criar_step"] == "name"
 
 
 async def test_start_apostar_payload_opens_games_picker(app_context: AppContext) -> None:

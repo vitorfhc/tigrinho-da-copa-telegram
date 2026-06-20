@@ -1113,7 +1113,17 @@ entrants, computes the pot/prize, and announces the winner(s).
 - A game is addable only while `SCHEDULED` + future + unlocked.
 
 ### 22.3 Commands (pt-BR)
-- `/bolaozinho_criar <nome> | <preço>` (exactly one `|`; name may not contain `|`) — DRAFT + card.
+- `/bolaozinho_criar` — **argless keyboard wizard** (§8.2 wizard-first), **DM-only**: it asks for the
+  **name** (free text — a name can't be buttons), then the **entry price** via preset buttons
+  (`R$ 5 / 10 / 20 / 25 / 50`, from `PRICE_PRESET_CENTS`) plus **`✏️ Outro valor`** (falls back to
+  typing any amount) and **`❌ Cancelar`**; on a chosen price it creates the DRAFT and shows the
+  management card. In a **group** it replies with a deep-link button to the private chat
+  (`?start=criar`) — the whole flow happens in DM. Short-lived wizard state lives in
+  `context.user_data` (flat `criar_step`/`criar_name` keys, like the Splitwise email step); the
+  typed-name/`Outro valor` capture is a guarded `MessageHandler` registered in its **own handler
+  group** so it never collides with the Splitwise group-0 email handler. Callback codec: `bc:<cents>`
+  (preset) / `bc:o` (Outro valor) / `bc:x` (cancel). The old `<nome> | <preço>` free-text syntax is
+  **removed** (wizard-only).
 - Management card buttons (creator/admin): `➕ Adicionar jogos` (identity-based multi-select picker —
   a toggle writes membership immediately, **no position drift**), `📣 Abrir`, `❌ Cancelar`.
 - `/bolaozinho_preco <id> <preço>`, `/bolaozinho_abrir <id>` — publish: posts the group announcement

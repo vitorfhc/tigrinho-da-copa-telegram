@@ -892,3 +892,21 @@ from the live score split — **no second API call**.
   already credits own goals correctly, so the score-split approach is own-goal-safe by construction.
 - Grading/settlement untouched. `/ajuda` unaffected (no command/category/scoring/grading change).
   COMPLETION.md §9.4 rewritten + dated decision recorded. All four gates green (686 tests).
+
+### 2026-06-20 — Change: `/bolaozinho_criar` is now a keyboard wizard (§22.3)
+- **What:** replaced the `/bolaozinho_criar <nome> | <preço>` free-text syntax with an **argless,
+  DM-only keyboard wizard** (§8.2 wizard-first). It asks for the **name** (free text — names can't be
+  buttons), then the **entry price** via preset buttons (`R$ 5/10/20/25/50` from `PRICE_PRESET_CENTS`)
+  + `✏️ Outro valor` (type any amount) + `❌ Cancelar`; a chosen price creates the DRAFT and shows the
+  management card. In a **group** the command replies with a `?start=criar` deep-link into DM
+  (mirrors `/apostar`).
+- **How:** new `bc:<cents>|bc:o|bc:x` callback codec (`TournamentCreatePrice`/`TournamentCreateCancel`);
+  `tournament_price_keyboard`; wizard state in `context.user_data` (`criar_step`/`criar_name`, like the
+  Splitwise email flag). The typed-name/`Outro valor` capture is a guarded `MessageHandler` in its
+  **own handler group** so it never collides with the Splitwise group-0 email handler. `start_handler`
+  gained a `criar` payload branch. Removed the now-dead `parse_create_args` domain helper.
+- **§11 maintenance:** `/ajuda` text, `BotCommand` menu (DM + group), COMPLETION.md §22.3 all updated.
+- **Tests:** rewrote the `cmd_criar` tests for the wizard (group redirect, DM prompt, name capture,
+  preset create, Outro-valor→typed price, invalid price re-prompt, cancel, stale/expired, text ignored
+  when idle) + codec/keyboard round-trips + `?start=criar` routing. All four gates green (704 tests,
+  domain coverage 100%).

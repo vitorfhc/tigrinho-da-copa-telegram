@@ -8,7 +8,6 @@ from tigrinho.domain.tournament import (
     PrizeSplit,
     compute_outcome,
     determine_winners,
-    parse_create_args,
     parse_price_to_cents,
     pot_cents,
     prize_cents,
@@ -127,13 +126,3 @@ def test_parse_price_ok(raw: str, cents: int) -> None:
 def test_parse_price_bad(raw: str) -> None:
     with pytest.raises(ValueError):
         parse_price_to_cents(raw)
-
-
-def test_parse_create_args_ok() -> None:
-    assert parse_create_args("Oitavas de final | 10,50") == ("Oitavas de final", 1050)
-
-
-@pytest.mark.parametrize("arg", ["semprice", "a | b | c", "| 10", "Nome |", "  | 10", "Nome | abc"])
-def test_parse_create_args_bad(arg: str) -> None:
-    with pytest.raises(ValueError):
-        parse_create_args(arg)

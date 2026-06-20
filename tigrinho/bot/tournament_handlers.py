@@ -12,14 +12,32 @@ import contextlib
 from datetime import datetime
 
 from sqlalchemy.orm import Session
-from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    Update,
+)
 from telegram.constants import ChatType, ParseMode
 from telegram.error import TelegramError
-from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from tigrinho import tournament_service as svc
 from tigrinho.bot.alerts import notify_admin
-from tigrinho.bot.callbacks import TournamentAction, TournamentAddToggle, decode
+from tigrinho.bot.callbacks import (
+    TournamentAction,
+    TournamentAddToggle,
+    TournamentCreateCancel,
+    TournamentCreatePrice,
+    decode,
+)
 from tigrinho.bot.keyboards import (
     announcement_keyboard,
     splitwise_link_button,
@@ -31,6 +49,7 @@ from tigrinho.bot.keyboards import (
     tournament_list_keyboard,
     tournament_participants_keyboard,
     tournament_placar_keyboard,
+    tournament_price_keyboard,
 )
 from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
@@ -54,7 +73,6 @@ from tigrinho.domain.text_pt import (
     tournament_standings_text,
 )
 from tigrinho.domain.tournament import (
-    parse_create_args,
     parse_price_to_cents,
     pot_cents,
     prize_cents,
@@ -63,10 +81,27 @@ from tigrinho.logging import get_logger
 
 _log = get_logger("tigrinho.tournament_handlers")
 
-_CRIAR_USAGE = (
-    "Uso: <code>/bolaozinho_criar Nome do bolão | preço</code>\n"
-    "Exemplo: <code>/bolaozinho_criar Oitavas de final | 10</code>"
+# --- /bolaozinho_criar keyboard wizard (§22) --------------------------------------------------
+# Creation is DM-only (free-text name capture is private-chat-only, like the Splitwise email
+# step); a group invocation deep-links into the private chat. Short-lived state lives in
+# ``context.user_data`` under these flat keys (mirrors the Splitwise ``awaiting_*`` flag style).
+_CRIAR_STEP_KEY = "criar_step"  # "name" (awaiting typed name) | "price" (awaiting a button) |
+_CRIAR_NAME_KEY = "criar_name"  # "price_text" (awaiting a typed "Outro valor")
+_CRIAR_NAME_PROMPT = "🎲 Bora criar um bolãozinho! Como ele vai se chamar? Manda o nome aqui. 🐯"
+_CRIAR_NAME_EMPTY = "Preciso de um nome pro bolãozinho. Manda de novo? 🐯"
+_CRIAR_PRICE_PROMPT = "💰 Quanto custa pra entrar? Escolhe um valor ou toca em ✏️ Outro valor:"
+_CRIAR_PRICE_TEXT_PROMPT = (
+    "💰 Manda o valor da entrada (ex: <code>10</code> ou <code>10,50</code>):"
 )
+_CRIAR_PRICE_INVALID = (
+    "Não entendi esse valor. Manda um número (ex: <code>10</code> ou <code>10,50</code>):"
+)
+_CRIAR_EXPIRED = "Esse assistente expirou. Manda /bolaozinho_criar de novo. 🐯"
+_CRIAR_CANCELLED = "Beleza, cancelei a criação. 🐯"
+_CRIAR_GROUP_PROMPT = "🎲 Criar bolãozinho é no meu privado 👇"
+# Dedicated handler group for the wizard's text capture (group 0 holds the Splitwise email step).
+_CRIAR_TEXT_GROUP = 1
+
 _PRECO_USAGE = "Uso: <code>/bolaozinho_preco &lt;id&gt; &lt;preço&gt;</code>"
 _NOT_FOUND = "Não encontrei esse bolãozinho. 🤔"
 _PICKER_PROMPT = "🎮 Toque para adicionar/remover jogos do bolãozinho:"
@@ -277,25 +312,132 @@ async def _broadcast_open_dm(
 
 
 # --- command handlers -------------------------------------------------------------------------
+def _clear_criar(context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.user_data is not None:
+        context.user_data.pop(_CRIAR_STEP_KEY, None)
+        context.user_data.pop(_CRIAR_NAME_KEY, None)
+
+
+async def _ask_criar_name(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Open the create wizard: stash the 'awaiting name' flag and prompt for the name."""
+    if context.user_data is not None:
+        context.user_data[_CRIAR_STEP_KEY] = "name"
+        context.user_data.pop(_CRIAR_NAME_KEY, None)
+    await message.reply_text(_CRIAR_NAME_PROMPT)
+
+
 async def cmd_criar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/bolaozinho_criar Nome | preço — create a DRAFT and show its management card."""
+    """/bolaozinho_criar — open the keyboard wizard (DM-only) to set name + entry price (§22)."""
     message = update.effective_message
     user = update.effective_user
-    if message is None or user is None:
+    chat = update.effective_chat
+    if message is None or user is None or chat is None:
         return
-    try:
-        name, price = parse_create_args(" ".join(context.args or []))
-    except ValueError:
-        await message.reply_text(_CRIAR_USAGE, parse_mode=ParseMode.HTML)
+    if chat.type != ChatType.PRIVATE:
+        app_context = get_app_context(context.application)
+        url = f"https://t.me/{app_context.settings.bot_username}?start=criar"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("👉 Criar no privado", url=url)]])
+        await message.reply_text(_CRIAR_GROUP_PROMPT, reply_markup=keyboard)
         return
-    app_context = get_app_context(context.application)
+    await _ask_criar_name(message, context)
+
+
+async def start_create_wizard_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Deep-link entry (``?start=criar``) from the group → open the create wizard in DM (§22)."""
+    message = update.effective_message
+    if message is None:
+        return
+    await _ask_criar_name(message, context)
+
+
+def _create_and_render(
+    app_context: AppContext, *, name: str, price_cents: int, created_by: int
+) -> tuple[str, InlineKeyboardMarkup | None]:
     with app_context.session_factory() as session:
         tournament = svc.create_tournament(
-            session, name=name, entry_price_cents=price, created_by=user.id
+            session, name=name, entry_price_cents=price_cents, created_by=created_by
         )
         text, keyboard = _render_card(session, tournament, app_context.settings)
         session.commit()
-    await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    return text, keyboard
+
+
+async def _finish_create_callback(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    app_context: AppContext,
+    price_cents: int,
+    user_id: int,
+) -> None:
+    """A preset price was tapped: create the bolãozinho and replace the message with its card."""
+    name = context.user_data.get(_CRIAR_NAME_KEY) if context.user_data is not None else None
+    await query.answer()
+    if not name:
+        _clear_criar(context)
+        await safe_edit_text(query, _CRIAR_EXPIRED)
+        return
+    text, keyboard = _create_and_render(
+        app_context, name=name, price_cents=price_cents, created_by=user_id
+    )
+    _clear_criar(context)
+    await safe_edit_text(query, text, reply_markup=keyboard)
+
+
+async def _ask_criar_price_text(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ "Outro valor" tapped: switch the wizard to free-text price entry."""
+    if context.user_data is not None:
+        context.user_data[_CRIAR_STEP_KEY] = "price_text"
+    await query.answer()
+    await safe_edit_text(query, _CRIAR_PRICE_TEXT_PROMPT)
+
+
+async def on_criar_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Capture the typed name / "Outro valor" price for the create wizard (guarded; §22).
+
+    Registered in its own handler group so it runs independently of the Splitwise email
+    MessageHandler; both are private-chat-only and each ignores text unless its own flag is set.
+    """
+    step = context.user_data.get(_CRIAR_STEP_KEY) if context.user_data is not None else None
+    if step not in {"name", "price_text"}:
+        return
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or message.text is None or user is None or context.user_data is None:
+        return
+    text = message.text.strip()
+    if step == "name":
+        if not text:
+            await message.reply_text(_CRIAR_NAME_EMPTY)
+            return
+        context.user_data[_CRIAR_NAME_KEY] = text
+        context.user_data[_CRIAR_STEP_KEY] = "price"
+        app_context = get_app_context(context.application)
+        await message.reply_text(
+            _CRIAR_PRICE_PROMPT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=tournament_price_keyboard(
+                currency=app_context.settings.tournament_currency,
+                decimals=app_context.settings.tournament_currency_decimals,
+            ),
+        )
+        return
+    # step == "price_text": a typed "Outro valor" amount.
+    try:
+        price_cents = parse_price_to_cents(text)
+    except ValueError:
+        await message.reply_text(_CRIAR_PRICE_INVALID, parse_mode=ParseMode.HTML)
+        return
+    name = context.user_data.get(_CRIAR_NAME_KEY)
+    if not name:
+        _clear_criar(context)
+        await message.reply_text(_CRIAR_EXPIRED)
+        return
+    app_context = get_app_context(context.application)
+    text_out, keyboard = _create_and_render(
+        app_context, name=name, price_cents=price_cents, created_by=user.id
+    )
+    _clear_criar(context)
+    await message.reply_text(text_out, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 async def cmd_preco(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -670,6 +812,15 @@ async def on_tournament_callback(update: Update, context: ContextTypes.DEFAULT_T
             await _show_participants(query, app_context, tournament_id)
         case TournamentAction("bs", tournament_id):
             await _show_placar(query, app_context, tournament_id)
+        case TournamentCreatePrice(price_cents):
+            if price_cents is None:
+                await _ask_criar_price_text(query, context)
+            else:
+                await _finish_create_callback(query, context, app_context, price_cents, user.id)
+        case TournamentCreateCancel():
+            _clear_criar(context)
+            await query.answer()
+            await safe_edit_text(query, _CRIAR_CANCELLED)
         case _:  # pragma: no cover - pattern guarantees a tournament op
             await query.answer()
 
@@ -956,5 +1107,11 @@ def register_tournament_handlers(application: AnyApplication) -> None:
     application.add_handler(CommandHandler("bolaozinho_placar", cmd_placar))
     application.add_handler(CommandHandler("entrar", cmd_entrar))
     application.add_handler(
-        CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg|bp|bs):")
+        CallbackQueryHandler(on_tournament_callback, pattern="^(ba|bd|bo|bx|bj|bk|bi|bg|bp|bs|bc):")
+    )
+    # The create-wizard text capture lives in its own handler group so it runs independently of
+    # the group-0 Splitwise email MessageHandler; each ignores text unless its own flag is set.
+    application.add_handler(
+        MessageHandler(filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND, on_criar_text),
+        group=_CRIAR_TEXT_GROUP,
     )

@@ -52,7 +52,7 @@ PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand("bolaozinho_placar", "Placar parcial de um bolãozinho"),
     BotCommand("bolaozinho_participantes", "Ver quem entrou num bolãozinho"),
     BotCommand("entrar", "Entrar num bolãozinho"),
-    BotCommand("bolaozinho_criar", "Criar um bolãozinho: Nome | preço"),
+    BotCommand("bolaozinho_criar", "Criar um bolãozinho (te pergunto nome e valor)"),
     BotCommand("bolaozinho_cancelar", "Cancelar um bolãozinho: id [motivo]"),
     BotCommand("vincular_splitwise", "Vincular sua conta do Splitwise"),
     BotCommand("ajuda", "Como funciona o bolão"),
@@ -67,7 +67,7 @@ GROUP_COMMANDS: list[BotCommand] = [
     BotCommand("bolaozinho_placar", "Placar parcial de um bolãozinho"),
     BotCommand("bolaozinho_participantes", "Ver quem entrou num bolãozinho"),
     BotCommand("entrar", "Entrar num bolãozinho"),
-    BotCommand("bolaozinho_criar", "Criar um bolãozinho: Nome | preço"),
+    BotCommand("bolaozinho_criar", "Criar um bolãozinho (te pergunto nome e valor)"),
     BotCommand("bolaozinho_cancelar", "Cancelar um bolãozinho: id [motivo]"),
     BotCommand("ajuda", "Como funciona o bolão"),
 ]

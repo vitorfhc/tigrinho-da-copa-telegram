@@ -12,7 +12,13 @@ from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from tigrinho import tournament_service as svc
-from tigrinho.bot.callbacks import TournamentAction, TournamentAddToggle, encode
+from tigrinho.bot.callbacks import (
+    TournamentAction,
+    TournamentAddToggle,
+    TournamentCreateCancel,
+    TournamentCreatePrice,
+    encode,
+)
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.bot.tournament_handlers import (
     cmd_abrir,
@@ -22,8 +28,10 @@ from tigrinho.bot.tournament_handlers import (
     cmd_list,
     cmd_participantes,
     cmd_placar,
+    on_criar_text,
     on_tournament_callback,
     show_join_card_dm,
+    start_create_wizard_dm,
 )
 from tigrinho.db.models import Game, GameStatus, Stage, TournamentStatus
 from tigrinho.db.repositories import BetRepository, PlayerRepository, TournamentRepository
@@ -73,13 +81,27 @@ def _cb_update(data: str, user: User) -> tuple[Update, AsyncMock]:
 
 
 def _context(
-    app_context: AppContext, *, args: list[str] | None = None
+    app_context: AppContext,
+    *,
+    args: list[str] | None = None,
+    user_data: dict[str, Any] | None = None,
 ) -> ContextTypes.DEFAULT_TYPE:
     ctx = MagicMock()
     ctx.application.bot_data = {APP_CONTEXT_KEY: app_context}
     ctx.args = args
     ctx.bot = AsyncMock()
+    ctx.user_data = {} if user_data is None else user_data
     return cast(ContextTypes.DEFAULT_TYPE, ctx)
+
+
+def _text_update(user: User, text: str) -> tuple[Update, AsyncMock]:
+    message = AsyncMock()
+    message.text = text
+    update = MagicMock()
+    update.effective_message = message
+    update.effective_user = user
+    update.effective_chat = Chat(id=user.id, type=ChatType.PRIVATE)
+    return cast(Update, update), message
 
 
 def _make_tournament(app_context: AppContext, *, created_by: int = 7, opened: bool = False) -> int:
@@ -94,25 +116,119 @@ def _make_tournament(app_context: AppContext, *, created_by: int = 7, opened: bo
         return tournament.id
 
 
-async def test_criar_creates_draft_with_card(app_context: AppContext) -> None:
-    update, message = _cmd_update(_CREATOR)
-    await cmd_criar(update, _context(app_context, args=["Oitavas", "de", "final", "|", "10"]))
+def _tournaments(app_context: AppContext) -> list[Any]:
+    with app_context.session_factory() as session:
+        return TournamentRepository(session).list_all()
+
+
+async def test_criar_in_group_redirects_to_private(app_context: AppContext) -> None:
+    update, message = _cmd_update(_CREATOR, chat_type=ChatType.GROUP)
+    await cmd_criar(update, _context(app_context))
+    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    url = markup.inline_keyboard[0][0].url
+    assert url is not None and "start=criar" in url
+    assert _tournaments(app_context) == []
+
+
+async def test_criar_in_dm_prompts_for_name(app_context: AppContext) -> None:
+    update, message = _cmd_update(_CREATOR, chat_type=ChatType.PRIVATE)
+    ctx = _context(app_context)
+    await cmd_criar(update, ctx)
     message.reply_text.assert_awaited_once()
+    assert ctx.user_data is not None and ctx.user_data["criar_step"] == "name"
+    assert _tournaments(app_context) == []
+
+
+async def test_start_create_wizard_dm_prompts_for_name(app_context: AppContext) -> None:
+    update, message = _text_update(_CREATOR, "/start criar")
+    ctx = _context(app_context)
+    await start_create_wizard_dm(update, ctx)
+    message.reply_text.assert_awaited_once()
+    assert ctx.user_data is not None and ctx.user_data["criar_step"] == "name"
+
+
+async def test_criar_name_capture_shows_price_keyboard(app_context: AppContext) -> None:
+    update, message = _text_update(_CREATOR, "Oitavas de final")
+    ctx = _context(app_context, user_data={"criar_step": "name"})
+    await on_criar_text(update, ctx)
+    assert ctx.user_data is not None
+    assert ctx.user_data["criar_name"] == "Oitavas de final"
+    assert ctx.user_data["criar_step"] == "price"
     assert isinstance(message.reply_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup)
-    with app_context.session_factory() as session:
-        tournaments = TournamentRepository(session).list_all()
+    assert _tournaments(app_context) == []
+
+
+async def test_criar_empty_name_reprompts(app_context: AppContext) -> None:
+    update, message = _text_update(_CREATOR, "   ")
+    ctx = _context(app_context, user_data={"criar_step": "name"})
+    await on_criar_text(update, ctx)
+    assert ctx.user_data is not None and ctx.user_data["criar_step"] == "name"
+    assert "criar_name" not in ctx.user_data
+    message.reply_text.assert_awaited_once()
+
+
+async def test_criar_preset_price_creates_tournament(app_context: AppContext) -> None:
+    update, query = _cb_update(encode(TournamentCreatePrice(1000)), _CREATOR)
+    ctx = _context(app_context, user_data={"criar_step": "price", "criar_name": "Oitavas"})
+    await on_tournament_callback(update, ctx)
+    query.edit_message_text.assert_awaited_once()
+    tournaments = _tournaments(app_context)
     assert len(tournaments) == 1
-    assert tournaments[0].name == "Oitavas de final"
+    assert tournaments[0].name == "Oitavas"
     assert tournaments[0].entry_price_cents == 1000
-    assert tournaments[0].created_by == 7
+    assert tournaments[0].created_by == _CREATOR.id
+    assert ctx.user_data == {}
 
 
-async def test_criar_bad_usage(app_context: AppContext) -> None:
-    update, message = _cmd_update(_CREATOR)
-    await cmd_criar(update, _context(app_context, args=["semprice"]))
-    assert "Uso" in message.reply_text.await_args.args[0]
-    with app_context.session_factory() as session:
-        assert TournamentRepository(session).list_all() == []
+async def test_criar_outro_valor_then_typed_price_creates(app_context: AppContext) -> None:
+    update, query = _cb_update(encode(TournamentCreatePrice(None)), _CREATOR)
+    ctx = _context(app_context, user_data={"criar_step": "price", "criar_name": "Oitavas"})
+    await on_tournament_callback(update, ctx)
+    assert ctx.user_data is not None and ctx.user_data["criar_step"] == "price_text"
+    assert _tournaments(app_context) == []
+
+    text_update, message = _text_update(_CREATOR, "10,50")
+    await on_criar_text(text_update, ctx)
+    tournaments = _tournaments(app_context)
+    assert len(tournaments) == 1
+    assert tournaments[0].entry_price_cents == 1050
+    assert isinstance(message.reply_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup)
+    assert ctx.user_data == {}
+
+
+async def test_criar_invalid_typed_price_reprompts(app_context: AppContext) -> None:
+    update, message = _text_update(_CREATOR, "não é número")
+    ctx = _context(app_context, user_data={"criar_step": "price_text", "criar_name": "Oitavas"})
+    await on_criar_text(update, ctx)
+    assert ctx.user_data is not None and ctx.user_data["criar_step"] == "price_text"
+    assert _tournaments(app_context) == []
+    message.reply_text.assert_awaited_once()
+
+
+async def test_criar_cancel_clears_state(app_context: AppContext) -> None:
+    update, query = _cb_update(encode(TournamentCreateCancel()), _CREATOR)
+    ctx = _context(app_context, user_data={"criar_step": "price", "criar_name": "Oitavas"})
+    await on_tournament_callback(update, ctx)
+    query.edit_message_text.assert_awaited_once()
+    assert ctx.user_data == {}
+    assert _tournaments(app_context) == []
+
+
+async def test_criar_preset_without_name_is_expired(app_context: AppContext) -> None:
+    update, query = _cb_update(encode(TournamentCreatePrice(1000)), _CREATOR)
+    ctx = _context(app_context, user_data={"criar_step": "price"})
+    await on_tournament_callback(update, ctx)
+    assert _tournaments(app_context) == []
+    assert ctx.user_data == {}
+
+
+async def test_criar_text_ignored_when_not_in_wizard(app_context: AppContext) -> None:
+    update, message = _text_update(_CREATOR, "mensagem qualquer")
+    ctx = _context(app_context)
+    await on_criar_text(update, ctx)
+    message.reply_text.assert_not_awaited()
+    assert _tournaments(app_context) == []
 
 
 async def test_toggle_adds_game_for_creator(app_context: AppContext) -> None:

@@ -55,7 +55,11 @@ from tigrinho.bot.keyboards import (
 from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, AppContext, get_app_context
 from tigrinho.bot.splitwise_handlers import start_link_wizard_dm
-from tigrinho.bot.tournament_handlers import show_entrar_dm, show_join_card_dm
+from tigrinho.bot.tournament_handlers import (
+    show_entrar_dm,
+    show_join_card_dm,
+    start_create_wizard_dm,
+)
 from tigrinho.db.models import Bet, Game, GameStatus, utcnow
 from tigrinho.db.repositories import (
     BetRepository,
@@ -169,6 +173,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if payload == "vincular":
         # Deep link from the 🔗 Vincular Splitwise button → open the linking wizard (§23).
         await start_link_wizard_dm(update, get_app_context(context.application))
+        return
+    if payload == "criar":
+        # Deep link from the group "Criar no privado" button → open the create wizard (§22).
+        await start_create_wizard_dm(update, context)
         return
     await message.reply_text(welcome_text(), parse_mode=ParseMode.HTML)
 

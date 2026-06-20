@@ -27,6 +27,7 @@ Opcodes:
   ``ba|bd|bo|bx|bj|bk|bi|bp|bs:<tid>``
       bolãozinho actions: add-picker / done / open / cancel / join-pick / join-confirm /
       details / participants / placar (§22)
+  ``bc:<cents>|bc:o|bc:x``            create wizard: preset price / "Outro valor" / cancel (§22)
 """
 
 from __future__ import annotations
@@ -221,6 +222,18 @@ class SplitwiseRegisterPick:
     tournament_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class TournamentCreatePrice:
+    """Create wizard: entry price in cents, or ``None`` for "Outro valor" (type it). §22."""
+
+    price_cents: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class TournamentCreateCancel:
+    """Create wizard: abort the new-bolãozinho wizard. §22."""
+
+
 CallbackData = (
     ChooseGame
     | ChooseCategory
@@ -246,6 +259,8 @@ CallbackData = (
     | SplitwiseNotInGroup
     | SplitwiseMemberPick
     | SplitwiseRegisterPick
+    | TournamentCreatePrice
+    | TournamentCreateCancel
 )
 
 
@@ -300,6 +315,10 @@ def encode(data: CallbackData) -> str:
             result = f"sp:{splitwise_user_id}"
         case SplitwiseRegisterPick(tournament_id):
             result = f"sr:{tournament_id}"
+        case TournamentCreatePrice(price_cents):
+            result = "bc:o" if price_cents is None else f"bc:{price_cents}"
+        case TournamentCreateCancel():
+            result = "bc:x"
         case _:  # pragma: no cover - exhaustiveness guard
             assert_never(data)
     if len(result.encode("utf-8")) > MAX_CALLBACK_BYTES:
@@ -358,6 +377,13 @@ def decode(data: str) -> CallbackData:
             return SplitwiseMemberPick(int(parts[1]))
         if op == "sr":
             return SplitwiseRegisterPick(int(parts[1]))
+        if op == "bc":
+            selector = parts[1]
+            if selector == "o":
+                return TournamentCreatePrice(None)
+            if selector == "x":
+                return TournamentCreateCancel()
+            return TournamentCreatePrice(int(selector))
         if op in _TOURNAMENT_OPS:
             return TournamentAction(cast(TournamentOp, op), int(parts[1]))
     except (IndexError, KeyError, ValueError) as exc:

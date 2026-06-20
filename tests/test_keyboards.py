@@ -22,10 +22,13 @@ from tigrinho.bot.callbacks import (
     SplitwiseMemberPick,
     SplitwiseNotInGroup,
     SplitwiseRegisterPick,
+    TournamentCreateCancel,
+    TournamentCreatePrice,
     WinnerInput,
     decode,
 )
 from tigrinho.bot.keyboards import (
+    PRICE_PRESET_CENTS,
     announcement_keyboard,
     away_score_keyboard,
     btts_keyboard,
@@ -44,6 +47,7 @@ from tigrinho.bot.keyboards import (
     splitwise_link_button,
     splitwise_member_keyboard,
     splitwise_register_keyboard,
+    tournament_price_keyboard,
     winner_keyboard,
 )
 from tigrinho.domain.bets import FirstTeamSel, WinnerSel
@@ -214,3 +218,25 @@ def test_my_history_keyboard_nav_at_last_page() -> None:
 
 def test_my_game_detail_keyboard_back_carries_page() -> None:
     assert MyHistory(2) in _decoded(my_game_detail_keyboard(2))
+
+
+def test_tournament_price_keyboard_presets_then_outro_and_cancel() -> None:
+    decoded = _decoded(tournament_price_keyboard(currency="R$", decimals=2))
+    assert decoded == [
+        *[TournamentCreatePrice(cents) for cents in PRICE_PRESET_CENTS],
+        TournamentCreatePrice(None),
+        TournamentCreateCancel(),
+    ]
+
+
+def test_tournament_price_keyboard_labels_use_currency() -> None:
+    keyboard = tournament_price_keyboard(currency="R$", decimals=2)
+    labels = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert "R$ 5,00" in labels
+    assert "R$ 50,00" in labels
+    assert any("Outro valor" in label for label in labels)
+    assert any("Cancelar" in label for label in labels)
+
+
+def test_price_presets_are_ascending_whole_reais() -> None:
+    assert PRICE_PRESET_CENTS == (500, 1000, 2000, 2500, 5000)

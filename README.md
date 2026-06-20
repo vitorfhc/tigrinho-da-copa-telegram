@@ -135,7 +135,8 @@ All commands are in pt-BR (the players' language):
 - **`/bolaozinhos`** — list the bolãozinhos (real-money side-competitions with a prize).
 - **`/bolaozinho_placar`** — a bolãozinho's running standings (pick from a list, or pass an id).
 - **`/entrar`** — enter a bolãozinho.
-- **`/bolaozinho_criar Nome | preço`** — create one (anyone can; you then manage it).
+- **`/bolaozinho_criar`** — create one via a DM keyboard wizard (it asks the name, then the entry
+  price with preset buttons + "Outro valor"); anyone can, you then manage it.
 - **`/ajuda`** — how the bolão works, categories, points, rules.
 - **`/start`** — welcome (a `bet_<id>` deep link jumps straight into the wizard).
 
@@ -143,7 +144,8 @@ To bet: tap **🎯 Apostar** under a group announcement (opens the private chat)
 category → your prediction. Bets are editable until kickoff; one bet per category per game.
 
 **Bolãozinhos (real-money side-pot):** a *bolãozinho* is a competition over a set of games with an
-entry price (e.g. R$ 10). Anyone creates one with `/bolaozinho_criar Nome | preço`, adds not-yet-started
+entry price (e.g. R$ 10). Anyone creates one with `/bolaozinho_criar` (a DM wizard prompts for the
+name and price), adds not-yet-started
 games (creator/admin only), and opens it; players `/entrar` until the first game kicks off. The
 **prize = pot − one entry** (10 × R$ 10 → pot R$ 100, prize R$ 90), and tied winners split it. Each
 time a member game finishes the group gets the **running placar** (standings so far); `/bolaozinho_placar`

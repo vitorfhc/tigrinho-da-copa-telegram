@@ -101,14 +101,3 @@ def parse_price_to_cents(raw: str) -> int:
     if cents <= 0:
         raise ValueError("price must be > 0")
     return cents
-
-
-def parse_create_args(arg: str) -> tuple[str, int]:
-    """Split ``<name> | <price>`` — exactly one ``|``, non-empty name. Raises ValueError if not."""
-    if arg.count("|") != 1:
-        raise ValueError("expected exactly one '|'")
-    name_raw, _, price_raw = arg.partition("|")
-    name = name_raw.strip()
-    if not name:
-        raise ValueError("empty name")
-    return name, parse_price_to_cents(price_raw)
