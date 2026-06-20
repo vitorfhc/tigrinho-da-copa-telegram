@@ -7,8 +7,8 @@ before this module starts.
 
 from __future__ import annotations
 
-from tigrinho.ai.base import PalpiteGenerator
-from tigrinho.ai.gemini import GeminiPalpiteGenerator
+from tigrinho.ai.base import GameScorer, PalpiteGenerator
+from tigrinho.ai.gemini import GeminiGameScorer, GeminiPalpiteGenerator
 from tigrinho.bot.app import build_application
 from tigrinho.bot.runtime import AnyApplication, AppContext
 from tigrinho.config import Settings, get_settings
@@ -26,6 +26,13 @@ def make_palpite_generator(settings: Settings) -> PalpiteGenerator | None:
     if not settings.gemini_api_key:
         return None
     return GeminiPalpiteGenerator(api_key=settings.gemini_api_key, model=settings.gemini_model)
+
+
+def make_game_scorer(settings: Settings) -> GameScorer | None:
+    """Build the daily-bolãozinho Gemini scorer, or None when no key is configured (§24)."""
+    if not settings.gemini_api_key:
+        return None
+    return GeminiGameScorer(api_key=settings.gemini_api_key, model=settings.gemini_model)
 
 
 def make_splitwise_client(settings: Settings) -> SplitwiseClient | None:
@@ -49,6 +56,7 @@ def create_application_from_settings(settings: Settings) -> AnyApplication:
             reset_tz=settings.budget_tzinfo,
         ),
         palpite_generator=make_palpite_generator(settings),
+        game_scorer=make_game_scorer(settings),
         splitwise_client=make_splitwise_client(settings),
     )
     return build_application(app_context)
