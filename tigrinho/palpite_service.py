@@ -23,6 +23,7 @@ from tigrinho.ai.base import PalpiteGenerator
 from tigrinho.ai.prompt import GameInfo, build_palpite_prompt
 from tigrinho.ai.schemas import GamePalpite, parse_batch
 from tigrinho.db.repositories import GameRepository, PalpiteRepository
+from tigrinho.enums import CategorySet
 
 # The AI analyzes the games kicking off in the next 24h (the same horizon as the morning announce).
 PALPITE_HORIZON = timedelta(hours=24)
@@ -37,6 +38,8 @@ class RenderablePalpite:
     away_team: str
     kickoff_local: datetime
     palpite: GamePalpite
+    # The game's bet-category regime, so the renderer shows only the categories it offers (§8.1).
+    category_set: CategorySet
 
 
 async def generate_palpites(
@@ -122,6 +125,7 @@ def load_today_palpites(
                     away_team=game.away_team_name,
                     kickoff_local=game.kickoff_local,
                     palpite=GamePalpite.model_validate_json(row.payload_json),
+                    category_set=game.category_set,
                 )
             )
     return rendered

@@ -178,10 +178,11 @@ def test_closed_bets_text_escapes_player_and_team_names() -> None:
 
 
 def test_points_table_reflects_scoring() -> None:
+    # The points table shows only the offered (new) two-market set.
     text = points_table_text()
     assert "Placar exato: <b>5</b> pts" in text
-    assert "Primeira equipe a marcar: <b>2</b> pts" in text
-    assert "Mais/Menos 2.5 gols: <b>1</b> pts" in text
+    assert "Quem está na frente no 1º tempo: <b>2</b> pts" in text
+    assert "Mais/Menos 2.5 gols" not in text  # removed-from-offer category absent
 
 
 def test_category_button_label_includes_points() -> None:
@@ -206,11 +207,11 @@ def test_help_text_covers_required_content() -> None:
     for command in commands:
         assert command in text
     assert "90 minutos" in text  # 90' rule
-    assert "mata-mata" in text.lower()  # knockout rule
+    assert "intervalo" in text.lower()  # half-time-result rule
     assert "fecham no apito" in text  # close-at-kickoff
     assert "privado" in text  # DM betting
     assert "Placar exato" in text  # categories present
-    assert "Primeira equipe a marcar" in text  # team-based first-scorer category
+    assert "Quem está na frente no 1º tempo" in text  # new half-time-result category
     assert "/palpite" in text  # AI palpite command
     assert "/entrar" in text  # bolãozinho join command
     assert "/bolaozinho_criar" in text  # bolãozinho create command
@@ -449,8 +450,8 @@ def test_game_board_text_no_bettors() -> None:
 def test_reminder_text_lists_games_with_weekday() -> None:
     text = reminder_text(
         [
-            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 3)]),
-            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0), []),
+            ("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 1)], 2),
+            ("França", "Alemanha", datetime(2026, 6, 13, 16, 0), [], 2),
         ]
     )
     assert "Falta ~1h" in text
@@ -460,7 +461,7 @@ def test_reminder_text_lists_games_with_weekday() -> None:
 
 
 def test_reminder_text_escapes_team_names() -> None:
-    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0), [])])
+    text = reminder_text([("A & B", "C > D", datetime(2026, 6, 13, 16, 0), [], 2)])
     assert "A &amp; B" in text
     assert "C &gt; D" in text
 
@@ -492,20 +493,20 @@ def test_games_board_text_no_bettors() -> None:
 
 def test_reminder_text_lists_bettors_with_counts() -> None:
     text = reminder_text(
-        [("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 3), ("Ana", 5)])]
+        [("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("Felipe", 1), ("Ana", 2)], 2)]
     )
-    # "/5" is the total number of bet categories (one bet per category).
-    assert "👥 Já palpitaram: Felipe (3/5), Ana (5/5)" in text
+    # The denominator is the game's offered category count (2 for the new set).
+    assert "👥 Já palpitaram: Felipe (1/2), Ana (2/2)" in text
 
 
 def test_reminder_text_no_bettors_shows_nudge() -> None:
-    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [])])
+    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [], 2)])
     assert "Ninguém palpitou ainda" in text
 
 
 def test_reminder_text_escapes_bettor_names() -> None:
-    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("A & B", 2)])])
-    assert "A &amp; B (2/5)" in text
+    text = reminder_text([("Brasil", "Argentina", datetime(2026, 6, 13, 16, 0), [("A & B", 1)], 2)])
+    assert "A &amp; B (1/2)" in text
 
 
 def test_kickoff_text() -> None:

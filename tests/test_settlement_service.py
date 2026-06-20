@@ -77,6 +77,8 @@ def _result() -> MatchResult:
             ),
         ),
         advancing_team_id=None,
+        home_goals_ht=1,
+        away_goals_ht=0,
     )
 
 
@@ -86,6 +88,8 @@ def test_settle_fixture_writes_grades_and_result(session: Session) -> None:
 
     assert game.status is GameStatus.FINISHED
     assert game.home_goals_90 == 2
+    assert game.home_goals_ht == 1  # half-time score persisted for re-settle
+    assert game.away_goals_ht == 0
     assert game.settled_at is not None
     assert game.first_scorer_player_id == 100
 

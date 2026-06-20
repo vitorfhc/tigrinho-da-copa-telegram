@@ -22,6 +22,7 @@ from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.config import Settings
 from tigrinho.db.models import Game, utcnow
 from tigrinho.db.repositories import BetRepository, GameRepository, TournamentRepository
+from tigrinho.domain.bets import offerable_for
 from tigrinho.domain.text_pt import escape, mention, reminder_text
 from tigrinho.logging import get_logger
 
@@ -42,10 +43,11 @@ class _GameView:
     away_team_name: str
     kickoff_local: datetime
     bettors: tuple[tuple[str, int], ...]
+    total_categories: int
 
 
 def _bettors_for_game(bets: BetRepository, fixture_id: int) -> tuple[tuple[str, int], ...]:
-    """Players who bet on this game and how many of the 5 categories each filled (§9.3).
+    """Players who bet on this game and how many categories each filled (§9.3).
 
     Ordered most-complete first (count desc, then name) so the keenest bettors lead the list.
     """
@@ -64,6 +66,7 @@ def _view(game: Game, bettors: tuple[tuple[str, int], ...]) -> _GameView:
         away_team_name=game.away_team_name,
         kickoff_local=game.kickoff_local,
         bettors=bettors,
+        total_categories=len(offerable_for(game.category_set)),
     )
 
 
@@ -168,7 +171,10 @@ async def _run_reminder(app_context: AppContext, context: ContextTypes.DEFAULT_T
         return
 
     text = reminder_text(
-        [(v.home_team_name, v.away_team_name, v.kickoff_local, v.bettors) for v in views],
+        [
+            (v.home_team_name, v.away_team_name, v.kickoff_local, v.bettors, v.total_categories)
+            for v in views
+        ],
         tournament_blocks=blocks,
     )
     keyboard = announcement_keyboard(

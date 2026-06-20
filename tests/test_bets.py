@@ -12,14 +12,18 @@ from tigrinho.domain.bets import (
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
     WinnerPayload,
     WinnerSel,
+    offerable_for,
     parse_payload,
     serialize_payload,
 )
+from tigrinho.enums import CategorySet
 
 
 @pytest.mark.parametrize(
@@ -30,12 +34,35 @@ from tigrinho.domain.bets import (
         (BetCategory.BTTS, BttsPayload(sel=BttsSel.ONLY_AWAY)),
         (BetCategory.WINNER, WinnerPayload(sel=WinnerSel.DRAW)),
         (BetCategory.OVER_UNDER, OverUnderPayload(sel=OverUnderSel.OVER)),
+        (BetCategory.HALF_TIME_RESULT, HalfTimeResultPayload(sel=HalfTimeSel.DRAW)),
     ],
 )
 def test_serialize_parse_round_trip(category: BetCategory, payload: Payload) -> None:
     restored = parse_payload(category, serialize_payload(payload))
     assert restored == payload
     assert restored.CATEGORY is category
+
+
+def test_offerable_v2_is_the_two_market_set() -> None:
+    assert offerable_for(CategorySet.V2) == (
+        BetCategory.EXACT_SCORE,
+        BetCategory.HALF_TIME_RESULT,
+    )
+
+
+def test_offerable_legacy_keeps_the_original_five() -> None:
+    assert offerable_for(CategorySet.LEGACY) == (
+        BetCategory.EXACT_SCORE,
+        BetCategory.FIRST_TEAM,
+        BetCategory.BTTS,
+        BetCategory.WINNER,
+        BetCategory.OVER_UNDER,
+    )
+
+
+def test_half_time_rejects_unknown_selection() -> None:
+    with pytest.raises(ValidationError):
+        HalfTimeResultPayload.model_validate({"sel": "MAYBE"})
 
 
 def test_exact_score_rejects_negative_and_too_large() -> None:

@@ -14,7 +14,7 @@ from tigrinho import tournament_service as svc
 from tigrinho.bot.reminder_job import REMINDER_JOB_NAME, reminder_job, schedule_reminder_job
 from tigrinho.bot.runtime import APP_CONTEXT_KEY, AppContext
 from tigrinho.config import Settings
-from tigrinho.db.models import Bet, Game, GameStatus, Player, Stage
+from tigrinho.db.models import Bet, CategorySet, Game, GameStatus, Player, Stage
 from tigrinho.db.repositories import GameRepository
 from tigrinho.providers.budget import RequestBudget
 from tigrinho.providers.fake import FakeProvider
@@ -30,6 +30,7 @@ def _seed(
     fixture_id: int,
     kickoff: datetime,
     announced: bool = True,
+    category_set: CategorySet = CategorySet.V2,
 ) -> None:
     with session_factory() as session:
         session.add(
@@ -45,6 +46,7 @@ def _seed(
                 kickoff_local=kickoff,
                 status=GameStatus.SCHEDULED,
                 announced_at=_now() if announced else None,
+                category_set=category_set,
             )
         )
         session.commit()
@@ -175,7 +177,13 @@ async def test_send_failure_leaves_unflagged_and_alerts_admin(
 async def test_reminder_lists_bettors_ordered_by_count(
     settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:
-    _seed(session_factory, fixture_id=1, kickoff=_now() + timedelta(minutes=30))
+    # A legacy-regime game (pre-existing bets) offers 5 categories, so the /5 denominator applies.
+    _seed(
+        session_factory,
+        fixture_id=1,
+        kickoff=_now() + timedelta(minutes=30),
+        category_set=CategorySet.LEGACY,
+    )
     # Felipe bet 3 categories; Ana bet all 5 -> Ana (5/5) sorts ahead of Felipe (3/5).
     for category in ("EXACT_SCORE", "FIRST_TEAM", "BTTS"):
         _seed_bet(session_factory, fixture_id=1, telegram_id=10, name="Felipe", category=category)

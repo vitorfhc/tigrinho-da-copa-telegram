@@ -12,15 +12,24 @@ from typing import ClassVar, assert_never
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tigrinho.enums import CategorySet
+
 
 class BetCategory(enum.StrEnum):
-    """The five bet categories (§8.1)."""
+    """The bet categories (§8.1).
+
+    **Append-only.** ``HALF_TIME_RESULT`` is the current orthogonal market (with ``EXACT_SCORE``);
+    ``FIRST_TEAM``/``BTTS``/``WINNER``/``OVER_UNDER`` are the original markets, kept so bets placed
+    before the new set still grade and render — they are merely no longer *offered* (see
+    :data:`OFFERABLE`). Never remove a member: stored bets reference it by value.
+    """
 
     EXACT_SCORE = "EXACT_SCORE"
     FIRST_TEAM = "FIRST_TEAM"
     BTTS = "BTTS"
     WINNER = "WINNER"
     OVER_UNDER = "OVER_UNDER"
+    HALF_TIME_RESULT = "HALF_TIME_RESULT"
 
 
 class WinnerSel(enum.StrEnum):
@@ -46,6 +55,14 @@ class BttsSel(enum.StrEnum):
 class OverUnderSel(enum.StrEnum):
     OVER = "OVER"
     UNDER = "UNDER"
+
+
+class HalfTimeSel(enum.StrEnum):
+    """Who leads at the half-time break — DRAW is always valid (a half can be level)."""
+
+    HOME = "HOME"
+    DRAW = "DRAW"
+    AWAY = "AWAY"
 
 
 class _Payload(BaseModel):
@@ -78,7 +95,42 @@ class OverUnderPayload(_Payload):
     sel: OverUnderSel
 
 
-Payload = ExactScorePayload | FirstTeamPayload | BttsPayload | WinnerPayload | OverUnderPayload
+class HalfTimeResultPayload(_Payload):
+    CATEGORY: ClassVar[BetCategory] = BetCategory.HALF_TIME_RESULT
+    sel: HalfTimeSel
+
+
+Payload = (
+    ExactScorePayload
+    | FirstTeamPayload
+    | BttsPayload
+    | WinnerPayload
+    | OverUnderPayload
+    | HalfTimeResultPayload
+)
+
+
+# Which categories are *offered* per game regime (§8.1 rollout). Distinct from gradeable: every
+# BetCategory still grades (append-only), but only these are presented in the wizard / palpite /
+# bettor-count denominator. ``EXACT_SCORE`` is shared; the rest are the regime's orthogonal markets.
+OFFERABLE: dict[CategorySet, tuple[BetCategory, ...]] = {
+    CategorySet.LEGACY: (
+        BetCategory.EXACT_SCORE,
+        BetCategory.FIRST_TEAM,
+        BetCategory.BTTS,
+        BetCategory.WINNER,
+        BetCategory.OVER_UNDER,
+    ),
+    CategorySet.V2: (
+        BetCategory.EXACT_SCORE,
+        BetCategory.HALF_TIME_RESULT,
+    ),
+}
+
+
+def offerable_for(category_set: CategorySet) -> tuple[BetCategory, ...]:
+    """The bet categories a game in ``category_set`` offers (wizard / palpite / denominator)."""
+    return OFFERABLE[category_set]
 
 
 def parse_payload(category: BetCategory, payload_json: str) -> Payload:
@@ -94,6 +146,8 @@ def parse_payload(category: BetCategory, payload_json: str) -> Payload:
             return WinnerPayload.model_validate_json(payload_json)
         case BetCategory.OVER_UNDER:
             return OverUnderPayload.model_validate_json(payload_json)
+        case BetCategory.HALF_TIME_RESULT:
+            return HalfTimeResultPayload.model_validate_json(payload_json)
     assert_never(category)  # pragma: no cover
 
 

@@ -91,6 +91,54 @@ def test_splitwise_transition_data_fix(tmp_path: Path) -> None:
         engine.dispose()
 
 
+def test_category_set_backfill(tmp_path: Path) -> None:
+    """Games with ≥1 bet become LEGACY; games with no bets stay V2 (the new-set rollout, §8.1)."""
+    db_url = f"sqlite:///{tmp_path / 'mig.db'}"
+    cfg = _alembic_config(db_url)
+    # Bring the DB up to the revision *just before* this migration, then seed games + a bet.
+    command.upgrade(cfg, "d4e5f6a7b8c9")
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            for fid in (100, 200):
+                conn.execute(
+                    text(
+                        "INSERT INTO games (fixture_id, match_hash, stage, home_team_id, "
+                        "home_team_name, away_team_id, away_team_name, kickoff_utc, kickoff_local, "
+                        "status) VALUES (:fid, 'h', 'GROUP', 1, 'A', 2, 'B', "
+                        "'2026-06-25 00:00:00', '2026-06-25 00:00:00', 'SCHEDULED')"
+                    ),
+                    {"fid": fid},
+                )
+            conn.execute(
+                text(
+                    "INSERT INTO players (telegram_id, display_name, created_at) "
+                    "VALUES (1, 'P', '2026-06-01 00:00:00')"
+                )
+            )
+            # Only game 100 has a bet.
+            conn.execute(
+                text(
+                    "INSERT INTO bets (fixture_id, player_telegram_id, category, payload_json, "
+                    "created_at, updated_at) VALUES (100, 1, 'WINNER', '{\"sel\": \"HOME\"}', "
+                    "'2026-06-01 00:00:00', '2026-06-01 00:00:00')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("SELECT fixture_id, category_set FROM games")).all()
+        regimes = {row[0]: row[1] for row in rows}
+        assert regimes == {100: "LEGACY", 200: "V2"}
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_base_drops_model_tables(tmp_path: Path) -> None:
     db_url = f"sqlite:///{tmp_path / 'mig.db'}"
     cfg = _alembic_config(db_url)

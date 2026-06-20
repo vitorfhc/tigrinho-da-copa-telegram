@@ -78,6 +78,10 @@ class MatchResult:
     advancing_team_id: int | None
     live_home_goals: int | None = None  # current running score (incl. ET); from item.goals
     live_away_goals: int | None = None
+    # Half-time (regulation) score from ``score.halftime``; ``None`` when the provider omits it
+    # (walkovers, backfill gaps) or on the live feed. Drives HALF_TIME_RESULT grading.
+    home_goals_ht: int | None = None
+    away_goals_ht: int | None = None
 
 
 @runtime_checkable

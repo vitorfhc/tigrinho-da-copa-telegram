@@ -11,6 +11,8 @@ from tigrinho.domain.bets import (
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     WinnerPayload,
@@ -34,6 +36,8 @@ def _result(
     stage: Stage = Stage.GROUP,
     advancing: int | None = None,
     goals: tuple[GoalEvent, ...] = (),
+    home_ht: int | None = None,
+    away_ht: int | None = None,
 ) -> MatchResult:
     return MatchResult(
         fixture_id=1001,
@@ -43,6 +47,8 @@ def _result(
         away_goals_90=away,
         goals=goals,
         advancing_team_id=advancing,
+        home_goals_ht=home_ht,
+        away_goals_ht=away_ht,
     )
 
 
@@ -126,3 +132,56 @@ def test_build_context_requires_home_score() -> None:
 def test_build_context_requires_away_score() -> None:
     with pytest.raises(ValueError, match="90"):
         build_context(_result(1, None), home_team_id=10, away_team_id=20)
+
+
+def test_build_context_threads_half_time_score() -> None:
+    ctx = build_context(_result(2, 1, home_ht=1, away_ht=0), home_team_id=10, away_team_id=20)
+    assert (ctx.home_goals_ht, ctx.away_goals_ht) == (1, 0)
+
+
+def test_build_context_rejects_corrupt_half_time_home() -> None:
+    with pytest.raises(ValueError, match="half-time"):
+        build_context(_result(1, 1, home_ht=3, away_ht=0), home_team_id=10, away_team_id=20)
+
+
+def test_build_context_rejects_corrupt_half_time_away() -> None:
+    with pytest.raises(ValueError, match="half-time"):
+        build_context(_result(1, 1, home_ht=0, away_ht=3), home_team_id=10, away_team_id=20)
+
+
+def test_settle_half_time_result() -> None:
+    bets = [
+        PendingBet(
+            1,
+            BetCategory.HALF_TIME_RESULT,
+            serialize_payload(HalfTimeResultPayload(sel=HalfTimeSel.AWAY)),
+        ),
+    ]
+    # 2-1 full time but the away team led 0-1 at the break.
+    graded = settle_game(
+        bets, _result(2, 1, home_ht=0, away_ht=1), home_team_id=10, away_team_id=20
+    )
+    assert graded[0] == GradedBet(1, True, 2)
+
+
+def test_settle_half_time_voids_when_score_missing() -> None:
+    bets = [
+        PendingBet(
+            1,
+            BetCategory.HALF_TIME_RESULT,
+            serialize_payload(HalfTimeResultPayload(sel=HalfTimeSel.HOME)),
+        ),
+    ]
+    # No HT score on the result (e.g. CLI override without --ht): the bet voids, never crashes.
+    graded = settle_game(bets, _result(1, 0), home_team_id=10, away_team_id=20)
+    assert graded[0] == GradedBet(1, False, 0)
+
+
+def test_settle_legacy_winner_bet_still_grades() -> None:
+    # Append-only invariant: a bet stored under a removed-from-offer category still settles.
+    bets = [
+        PendingBet(1, BetCategory.WINNER, serialize_payload(WinnerPayload(sel=WinnerSel.HOME))),
+        PendingBet(2, BetCategory.BTTS, serialize_payload(BttsPayload(sel=BttsSel.ONLY_HOME))),
+    ]
+    graded = settle_game(bets, _result(2, 0), home_team_id=10, away_team_id=20)
+    assert graded == [GradedBet(1, True, 2), GradedBet(2, True, 2)]

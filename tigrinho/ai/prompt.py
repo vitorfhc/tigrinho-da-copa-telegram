@@ -46,6 +46,8 @@ conta; em 0 a 0 ninguém acerta — ainda assim escolha a equipe mais provável 
 - winner (vencedor): HOME, DRAW ou AWAY nos jogos de fase de grupos. Em jogos de MATA-MATA \
 NÃO existe empate — escolha HOME ou AWAY (a equipe que avança); nunca use DRAW no mata-mata.
 - over_under: OVER se você prevê 3 ou mais gols no total; UNDER se prevê 2 ou menos.
+- half_time_result (quem está na frente no intervalo): HOME, DRAW ou AWAY pelo placar do FIM DO \
+1º TEMPO. Aqui o EMPATE é válido em qualquer jogo (inclusive mata-mata).
 
 Para "curiosity", traga UMA curiosidade interessante e VERÍDICA sobre este confronto (o histórico \
 entre as duas seleções, um recorde, um marco etc.), confirmada pela Pesquisa Google. Você NÃO PODE \
@@ -63,6 +65,7 @@ Responda com APENAS UM objeto JSON (sem texto fora do JSON, sem markdown), neste
       "btts": "BOTH" | "ONLY_HOME" | "ONLY_AWAY" | "NEITHER",
       "winner": "HOME" | "DRAW" | "AWAY",
       "over_under": "OVER" | "UNDER",
+      "half_time_result": "HOME" | "DRAW" | "AWAY",
       "curiosity": "<curiosidade real e verificada sobre o confronto, ou \\"\\" se não houver>"
     }
   ]

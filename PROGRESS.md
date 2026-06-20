@@ -910,3 +910,28 @@ from the live score split — **no second API call**.
   preset create, Outro-valor→typed price, invalid price re-prompt, cancel, stale/expired, text ignored
   when idle) + codec/keyboard round-trips + `?start=criar` routing. All four gates green (704 tests,
   domain coverage 100%).
+
+### 2026-06-20 — Feature: orthogonal bet set (`EXACT_SCORE` + `HALF_TIME_RESULT`), per-game rollout (§8.1)
+- **Why:** the old five markets were too coupled — `WINNER`/`BTTS`/`OVER_UNDER` are coarsenings of
+  `EXACT_SCORE` and `FIRST_TEAM` is largely score-correlated, so one scoreline opinion answered four
+  of five markets. Replaced the satellites with one **orthogonal** market, `HALF_TIME_RESULT`
+  (`{HOME|DRAW|AWAY}` by the break score), which the final score does not pin down. A "which half"
+  third market was rejected (blindly farmable `SECOND` ~45%). Design + adversarial review in
+  `docs/superpowers/specs/2026-06-20-orthogonal-bet-categories-design.md`; plan in
+  `docs/superpowers/plans/2026-06-20-orthogonal-bet-categories.md`.
+- **Append-only:** `BetCategory` keeps every member (payloads/grading/codecs intact) so bets already
+  placed under the legacy five still grade and render. New `HALF_TIME_RESULT` + `HalfTimeSel`,
+  `POINTS[HALF_TIME_RESULT]=2`, grading reads the regulation half-time score (missing HT voids that
+  market only; HT>90′ is corrupt → `ValueError`). HT plumbed `score.halftime` → `MatchResult` →
+  `GradingContext`, persisted on `games.home_goals_ht/away_goals_ht`.
+- **Rollout (per-game, not a time cutoff):** new `games.category_set` (`CategorySet.{LEGACY,V2}`,
+  default `V2`) + `offerable_for(category_set)`. Additive migration `f2a3b4c5d6e7` backfills
+  `LEGACY` for any game that already has ≥1 bet, leaving every game with no bets (and all future
+  games) on the new set — so live in-flight games are untouched and a game never mixes regimes.
+- **Surfaces:** wizard category picker + `_step_payload` (now an exhaustive `match`, fixing the
+  `else:#FIRST_TEAM` fallthrough) + half-time selector keyboard + `HalfTimeResultInput` codec
+  (`h:<fix>:<H|D|A>`, category code `HT`); per-game bettor-count denominator (reminder); `/palpite`
+  predicts + renders `half_time_result` per regime (optional field → old cache still loads);
+  `set-result --ht-home/--ht-away`; `/ajuda` + COMPLETION.md §8.1/§8.2/§9.3/§20 + README.
+- **Gates:** all four green (ruff, ruff format, mypy --strict, pytest); domain coverage 100%.
+  Append-only invariant covered by a settlement test (legacy `WINNER`/`BTTS` bet still grades).

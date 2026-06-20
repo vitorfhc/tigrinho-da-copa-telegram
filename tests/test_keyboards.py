@@ -13,6 +13,7 @@ from tigrinho.bot.callbacks import (
     FirstTeamInput,
     GamesBoardCompute,
     GamesBoardToggle,
+    HalfTimeResultInput,
     HomeScore,
     MyBetsHome,
     MyGameDetail,
@@ -37,6 +38,7 @@ from tigrinho.bot.keyboards import (
     deep_link_url,
     first_team_keyboard,
     games_keyboard,
+    half_time_keyboard,
     home_score_keyboard,
     my_bets_keyboard,
     my_game_detail_keyboard,
@@ -50,8 +52,14 @@ from tigrinho.bot.keyboards import (
     tournament_price_keyboard,
     winner_keyboard,
 )
-from tigrinho.domain.bets import FirstTeamSel, WinnerSel
-from tigrinho.enums import Stage
+from tigrinho.domain.bets import (
+    BetCategory,
+    FirstTeamSel,
+    HalfTimeSel,
+    WinnerSel,
+    offerable_for,
+)
+from tigrinho.enums import CategorySet, Stage
 
 
 def _decoded(markup: InlineKeyboardMarkup) -> list[CallbackData]:
@@ -115,17 +123,33 @@ def test_palpite_games_keyboard_one_button_per_game() -> None:
     assert labels == ["Brasil x Argentina · 16/06 16:00", "França x Alemanha · 16/06 19:00"]
 
 
-def test_category_keyboard_has_five_categories() -> None:
-    categories = [d for d in _decoded(category_keyboard(1001)) if isinstance(d, ChooseCategory)]
-    assert len(categories) == 5
+def test_category_keyboard_v2_offers_two_categories() -> None:
+    decoded = category_keyboard(1001, offerable_for(CategorySet.V2))
+    categories = [d for d in _decoded(decoded) if isinstance(d, ChooseCategory)]
+    assert [c.category for c in categories] == [
+        BetCategory.EXACT_SCORE,
+        BetCategory.HALF_TIME_RESULT,
+    ]
     assert all(c.fixture_id == 1001 for c in categories)
 
 
+def test_category_keyboard_legacy_offers_five_categories() -> None:
+    decoded = category_keyboard(1001, offerable_for(CategorySet.LEGACY))
+    categories = [d for d in _decoded(decoded) if isinstance(d, ChooseCategory)]
+    assert len(categories) == 5
+
+
 def test_category_keyboard_buttons_show_points() -> None:
-    labels = [button.text for row in category_keyboard(1001).inline_keyboard for button in row]
+    keyboard = category_keyboard(1001, offerable_for(CategorySet.V2))
+    labels = [button.text for row in keyboard.inline_keyboard for button in row]
     assert "Placar exato · 5 pts" in labels
-    assert "Primeira equipe a marcar · 2 pts" in labels
-    assert "Mais/Menos 2.5 gols · 1 pt" in labels  # singular for 1
+    assert "Quem está na frente no 1º tempo · 2 pts" in labels
+
+
+def test_half_time_keyboard_shows_draw() -> None:
+    decoded = _decoded(half_time_keyboard(1001, "Brasil", "Argentina"))
+    sels = [d.sel for d in decoded if isinstance(d, HalfTimeResultInput)]
+    assert sels == [HalfTimeSel.HOME, HalfTimeSel.DRAW, HalfTimeSel.AWAY]
 
 
 def test_home_score_pad_has_zero_to_ten() -> None:

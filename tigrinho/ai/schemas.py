@@ -11,15 +11,19 @@ PURE: no I/O, no clock, no DB.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tigrinho.domain.bets import (
+    BetCategory,
     BttsPayload,
     BttsSel,
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -59,6 +63,9 @@ class GamePalpite(_AiModel):
     btts: BttsSel
     winner: WinnerSel
     over_under: OverUnderSel
+    # Who leads at the break (the new orthogonal market). Optional so palpites cached *before* this
+    # field existed still validate on load; new generations always include it (the prompt asks).
+    half_time_result: HalfTimeSel | None = None
     # A real, web-grounded curiosity about this head-to-head; empty when none was found (the model
     # is told never to invent one).
     curiosity: str = ""
@@ -68,15 +75,39 @@ class GamePalpite(_AiModel):
     def _clean_text(cls, value: str) -> str:
         return strip_citation_tags(value)
 
-    def payloads(self) -> list[Payload]:
-        """Convert to the domain's typed bet payloads (in :data:`CATEGORY_ORDER` order)."""
-        return [
-            ExactScorePayload(home=self.exact_score.home, away=self.exact_score.away),
-            FirstTeamPayload(sel=self.first_team),
-            BttsPayload(sel=self.btts),
-            WinnerPayload(sel=self.winner),
-            OverUnderPayload(sel=self.over_under),
-        ]
+    def payloads(self, categories: Sequence[BetCategory] | None = None) -> list[Payload]:
+        """The predicted bet payloads, filtered to ``categories`` (a game's offered set) when given.
+
+        With no filter, returns every prediction the model supplied (legacy callers). Predictions
+        for categories the game does not offer — or a half-time result absent on an old cached row —
+        are simply skipped.
+        """
+        available: dict[BetCategory, Payload] = {
+            BetCategory.EXACT_SCORE: ExactScorePayload(
+                home=self.exact_score.home, away=self.exact_score.away
+            ),
+            BetCategory.FIRST_TEAM: FirstTeamPayload(sel=self.first_team),
+            BetCategory.BTTS: BttsPayload(sel=self.btts),
+            BetCategory.WINNER: WinnerPayload(sel=self.winner),
+            BetCategory.OVER_UNDER: OverUnderPayload(sel=self.over_under),
+        }
+        if self.half_time_result is not None:
+            available[BetCategory.HALF_TIME_RESULT] = HalfTimeResultPayload(
+                sel=self.half_time_result
+            )
+        order = (
+            tuple(categories)
+            if categories is not None
+            else (
+                BetCategory.EXACT_SCORE,
+                BetCategory.HALF_TIME_RESULT,
+                BetCategory.FIRST_TEAM,
+                BetCategory.BTTS,
+                BetCategory.WINNER,
+                BetCategory.OVER_UNDER,
+            )
+        )
+        return [available[c] for c in order if c in available]
 
 
 class PalpiteBatch(_AiModel):

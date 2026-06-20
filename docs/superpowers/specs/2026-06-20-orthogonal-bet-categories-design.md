@@ -277,10 +277,19 @@ that start after this deploys use the new set.** Mechanism:
 - `EXACT_SCORE` — "Placar exato"
 - `HALF_TIME_RESULT` — "Quem está na frente no 1º tempo" (botões: nomes reais dos times + "Empate")
 
-## Open questions (resolve in the plan, not blocking the design)
+## Open questions (resolved during implementation, 2026-06-20)
 
-1. **Cutoff value.** Confirm `config.new_categories_from_utc` is set after the current competition's
-   last fixture (so the live WC stays entirely on the old set). A per-`Game` regime column is an
-   alternative if finer-grained control is ever needed, but it would add a (non-additive) backfill.
-2. **Points calibration.** Confirm 5/2 against a quick WC base-rate check and write the numbers into
-   §8.1; no change is expected (5/2 already passes the §8.1 methodology per review).
+1. **Rollout mechanism — RESOLVED: per-game column, not a config cutoff.** Per the user's
+   instruction ("games with no bets yet → the new types"), rollout is a per-game `games.category_set`
+   (`CategorySet.{LEGACY,V2}`, default `V2`) selected by `offerable_for(category_set)`. The additive
+   migration `f2a3b4c5d6e7` backfills `LEGACY` for any game that already has ≥1 bet and leaves every
+   other game (and all future games) on `V2`. This **supersedes** the `config.new_categories_from_utc`
+   cutoff in the body above (the cutoff was never implemented). No time config; finer-grained; a game
+   never mixes regimes.
+2. **Points calibration — RESOLVED: 5/2.** `HALF_TIME_RESULT` mirrors the 3-way `WINNER` (§8.1), so
+   2 pts; recorded in the §8.1 2026-06-20 decision record. No change from review.
+
+## Implementation status (2026-06-20)
+
+Implemented end-to-end; all four gates green (ruff, ruff format, mypy --strict, pytest; domain
+coverage 100%). Plan: `docs/superpowers/plans/2026-06-20-orthogonal-bet-categories.md`.

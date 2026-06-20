@@ -134,6 +134,58 @@ def test_set_result_settles(
         assert bet.points_awarded == 2  # home win
 
 
+def test_set_result_grades_half_time_with_ht_flags(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _patch_context(monkeypatch, settings, session_factory)
+    _seed_game(session_factory)
+    with session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Alice")
+        BetRepository(session).upsert(
+            fixture_id=1001,
+            player_telegram_id=42,
+            category="HALF_TIME_RESULT",
+            payload_json='{"sel":"HOME"}',
+        )
+        session.commit()
+
+    # 2-1 full time, home led 1-0 at the break -> HALF_TIME_RESULT:HOME correct, 2 pts.
+    result = runner.invoke(
+        app, ["set-result", "1001", "2", "1", "--ht-home", "1", "--ht-away", "0"]
+    )
+    assert result.exit_code == 0
+    with session_factory() as session:
+        game = GameRepository(session).get(1001)
+        assert game is not None and game.home_goals_ht == 1
+        bet = BetRepository(session).list_for_game(1001)[0]
+        assert bet.points_awarded == 2
+        assert bet.is_correct is True
+
+
+def test_set_result_voids_half_time_without_ht_flags(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
+) -> None:
+    _patch_context(monkeypatch, settings, session_factory)
+    _seed_game(session_factory)
+    with session_factory() as session:
+        PlayerRepository(session).get_or_create(42, "Alice")
+        BetRepository(session).upsert(
+            fixture_id=1001,
+            player_telegram_id=42,
+            category="HALF_TIME_RESULT",
+            payload_json='{"sel":"HOME"}',
+        )
+        session.commit()
+
+    # No --ht-* -> the half-time bet voids (0 pts), and the user is told.
+    result = runner.invoke(app, ["set-result", "1001", "2", "1"])
+    assert result.exit_code == 0
+    assert "voided" in result.stdout
+    with session_factory() as session:
+        bet = BetRepository(session).list_for_game(1001)[0]
+        assert bet.points_awarded == 0
+
+
 def test_set_result_re_grades_on_correction(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, session_factory: sessionmaker[Session]
 ) -> None:

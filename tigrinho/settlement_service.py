@@ -86,6 +86,8 @@ def settle_fixture(session: Session, game: Game, result: MatchResult) -> Settlem
             first_team_name = game.away_team_name
     game.home_goals_90 = result.home_goals_90
     game.away_goals_90 = result.away_goals_90
+    game.home_goals_ht = result.home_goals_ht
+    game.away_goals_ht = result.away_goals_ht
     game.advancing_team_id = result.advancing_team_id
     game.first_scorer_player_id = first.player_id if first is not None else None
     game.status = GameStatus.FINISHED

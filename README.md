@@ -18,9 +18,11 @@ scoreboard.
   messages). Players reach the wizard by tapping **🎯 Apostar** on an announcement (a deep link) or
   by sending `/apostar` to the bot in private.
 - **No roles, no subscriptions:** everyone in the group already receives the bot's posts.
-- **Bet categories:** exact score (5 pts), first team to score (3), both teams to score (2), winner (2),
-  over/under 2.5 (1). All graded on the **90-minute** regulation result; knockout "winner" is the
-  team that advances (no draw).
+- **Bet categories:** two orthogonal markets — exact score (5 pts) and half-time result (2 pts:
+  who leads at the break — home / draw / away). Graded on the **90-minute** / regulation result.
+  (Games that already had bets under the previous five markets — first team, both teams to score,
+  winner, over/under — keep grading those; the new set applies to games with no bets yet and all
+  future games.)
 - **Self-hosted** with Docker; uses long polling (no public URL needed).
 
 ## 2. Prerequisites

@@ -34,9 +34,19 @@ class GradedBet:
 
 
 def build_context(result: MatchResult, *, home_team_id: int, away_team_id: int) -> GradingContext:
-    """Build a grading context from a finished MatchResult (requires a 90′ score)."""
+    """Build a grading context from a finished MatchResult (requires a 90′ score).
+
+    The 90′ score is required (every category needs it). The half-time score is **optional** —
+    it is threaded through when present and validated lazily at grade time (a missing HT only voids
+    HALF_TIME_RESULT). A present HT that exceeds its 90′ counterpart is corrupt data and fails fast,
+    mirroring the missing-90′-score guard.
+    """
     if result.home_goals_90 is None or result.away_goals_90 is None:
         raise ValueError(f"cannot settle fixture {result.fixture_id}: missing 90′ score")
+    if result.home_goals_ht is not None and result.home_goals_ht > result.home_goals_90:
+        raise ValueError(f"corrupt half-time score for fixture {result.fixture_id}: home HT > 90′")
+    if result.away_goals_ht is not None and result.away_goals_ht > result.away_goals_90:
+        raise ValueError(f"corrupt half-time score for fixture {result.fixture_id}: away HT > 90′")
     return GradingContext(
         home_goals_90=result.home_goals_90,
         away_goals_90=result.away_goals_90,
@@ -45,6 +55,8 @@ def build_context(result: MatchResult, *, home_team_id: int, away_team_id: int) 
         home_team_id=home_team_id,
         away_team_id=away_team_id,
         goals=result.goals,
+        home_goals_ht=result.home_goals_ht,
+        away_goals_ht=result.away_goals_ht,
     )
 
 

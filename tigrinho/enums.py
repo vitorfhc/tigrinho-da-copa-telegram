@@ -28,6 +28,19 @@ class GameStatus(enum.StrEnum):
     VOID = "VOID"
 
 
+class CategorySet(enum.StrEnum):
+    """Which bet-category set a game *offers* (§8.1 rollout).
+
+    Append-only rollout: a game with bets placed under the original five markets stays ``LEGACY``
+    (so those bets keep grading and rendering); games with no bets yet, plus every game created
+    after the new-set deploy, use ``V2`` (the orthogonal two-market set). The decision is stored
+    per game (``games.category_set``) so it never flips once a game has been offered.
+    """
+
+    LEGACY = "LEGACY"
+    V2 = "V2"
+
+
 class TournamentStatus(enum.StrEnum):
     """Lifecycle of a bolãozinho (Feature 7 / §22)."""
 

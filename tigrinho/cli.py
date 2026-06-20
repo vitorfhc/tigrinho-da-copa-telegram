@@ -37,6 +37,7 @@ from tigrinho.db.repositories import (
     PlayerRepository,
     TournamentRepository,
 )
+from tigrinho.domain.bets import BetCategory
 from tigrinho.domain.text_pt import format_money_cents
 from tigrinho.domain.tournament import compute_outcome, parse_price_to_cents
 from tigrinho.providers.base import FootballProvider, GoalEvent, MatchResult
@@ -242,8 +243,18 @@ def set_result(
         str | None, typer.Option(help="First team to score: 'home' or 'away'")
     ] = None,
     advancing: Annotated[int | None, typer.Option(help="Advancing team id (knockout)")] = None,
+    ht_home: Annotated[
+        int | None, typer.Option(help="Half-time home goals (for HALF_TIME_RESULT)")
+    ] = None,
+    ht_away: Annotated[
+        int | None, typer.Option(help="Half-time away goals (for HALF_TIME_RESULT)")
+    ] = None,
 ) -> None:
-    """Set/override a game's 90′ score (+ optional first team / advancing) and re-settle."""
+    """Set/override a game's 90′ score (+ optional first team / advancing / HT) and re-settle.
+
+    Pass ``--ht-home``/``--ht-away`` to grade HALF_TIME_RESULT bets; without them, any such bet on
+    the game voids (scores 0) rather than crashing the re-settle.
+    """
     ctx = build_cli_context()
     with ctx.session_factory() as session:
         game = GameRepository(session).get(fixture_id)
@@ -275,13 +286,24 @@ def set_result(
             away_goals_90=away,
             goals=goals,
             advancing_team_id=advancing,
+            home_goals_ht=ht_home,
+            away_goals_ht=ht_away,
         )
         summary = settle_fixture(session, game, result)
+        has_ht_bets = any(
+            b.category == BetCategory.HALF_TIME_RESULT.value
+            for b in BetRepository(session).list_for_game(fixture_id)
+        )
         session.commit()
     typer.echo(
         f"Settled #{fixture_id}: {summary.home_team_name} {home} x {away} "
         f"{summary.away_team_name}; {len(summary.players)} player(s) graded."
     )
+    if has_ht_bets and (ht_home is None or ht_away is None):
+        typer.echo(
+            "Note: HALF_TIME_RESULT bets exist but no half-time score was given "
+            "(--ht-home/--ht-away) — those bets voided (0 pts)."
+        )
 
 
 # --- group 3: force sync & cache ops --------------------------------------------------------

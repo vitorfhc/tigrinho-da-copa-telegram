@@ -24,6 +24,7 @@ from tigrinho.bot.callbacks import (
     GameBoard,
     GamesBoardCompute,
     GamesBoardToggle,
+    HalfTimeResultInput,
     HomeScore,
     MyBetsHome,
     MyGameDetail,
@@ -41,9 +42,15 @@ from tigrinho.bot.callbacks import (
     WinnerInput,
     encode,
 )
-from tigrinho.domain.bets import BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
+from tigrinho.domain.bets import (
+    BetCategory,
+    BttsSel,
+    FirstTeamSel,
+    HalfTimeSel,
+    OverUnderSel,
+    WinnerSel,
+)
 from tigrinho.domain.text_pt import (
-    CATEGORY_ORDER,
     OVER_UNDER_LABELS,
     btts_labels,
     category_button_label,
@@ -98,11 +105,11 @@ def palpite_games_keyboard(games: Sequence[tuple[int, str]]) -> InlineKeyboardMa
     return InlineKeyboardMarkup(rows)
 
 
-def category_keyboard(fixture_id: int) -> InlineKeyboardMarkup:
-    """The five bet categories for a fixture."""
+def category_keyboard(fixture_id: int, categories: Sequence[BetCategory]) -> InlineKeyboardMarkup:
+    """The offerable bet categories for a fixture (regime-dependent — see ``offerable_for``)."""
     rows = [
         [_button(category_button_label(category), ChooseCategory(fixture_id, category))]
-        for category in CATEGORY_ORDER
+        for category in categories
     ]
     rows.append([_button("✖️ Cancelar", Cancel())])
     return InlineKeyboardMarkup(rows)
@@ -137,6 +144,17 @@ def winner_keyboard(
         rows.append([_button("Empate", WinnerInput(fixture_id, WinnerSel.DRAW))])
     rows.append([_button(away_team, WinnerInput(fixture_id, WinnerSel.AWAY))])
     return InlineKeyboardMarkup(rows)
+
+
+def half_time_keyboard(fixture_id: int, home_team: str, away_team: str) -> InlineKeyboardMarkup:
+    """Who leads at the break: HOME / Empate / AWAY — DRAW always shown (a half can be level)."""
+    return InlineKeyboardMarkup(
+        [
+            [_button(home_team, HalfTimeResultInput(fixture_id, HalfTimeSel.HOME))],
+            [_button("Empate", HalfTimeResultInput(fixture_id, HalfTimeSel.DRAW))],
+            [_button(away_team, HalfTimeResultInput(fixture_id, HalfTimeSel.AWAY))],
+        ]
+    )
 
 
 def btts_keyboard(fixture_id: int, home_team: str, away_team: str) -> InlineKeyboardMarkup:

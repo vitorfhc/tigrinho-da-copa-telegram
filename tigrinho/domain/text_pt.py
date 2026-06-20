@@ -22,14 +22,17 @@ from tigrinho.domain.bets import (
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
     WinnerPayload,
     WinnerSel,
+    offerable_for,
 )
 from tigrinho.domain.scoring import POINTS
-from tigrinho.enums import TournamentStatus
+from tigrinho.enums import CategorySet, TournamentStatus
 
 CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.EXACT_SCORE: "Placar exato",
@@ -37,10 +40,8 @@ CATEGORY_LABELS: dict[BetCategory, str] = {
     BetCategory.BTTS: "Ambas marcam",
     BetCategory.WINNER: "Vencedor",
     BetCategory.OVER_UNDER: "Mais/Menos 2.5 gols",
+    BetCategory.HALF_TIME_RESULT: "Quem está na frente no 1º tempo",
 }
-
-# Total number of bet categories — the "5" in "3/5" (one bet per category per game).
-TOTAL_CATEGORIES = len(BetCategory)
 
 
 def btts_labels(home_team: str, away_team: str) -> dict[BttsSel, str]:
@@ -58,9 +59,12 @@ OVER_UNDER_LABELS: dict[OverUnderSel, str] = {
     OverUnderSel.UNDER: "Menos de 2.5 (até 2 gols)",
 }
 
-# Display order for category listings (highest points first).
+# Full render/reveal order across BOTH regimes (the kickoff reveal + results posts may carry bets
+# from either the new or the legacy set, so this lists every category; readers filter to the ones
+# actually present). EXACT_SCORE then the new HALF_TIME_RESULT, then the legacy markets.
 CATEGORY_ORDER: tuple[BetCategory, ...] = (
     BetCategory.EXACT_SCORE,
+    BetCategory.HALF_TIME_RESULT,
     BetCategory.FIRST_TEAM,
     BetCategory.BTTS,
     BetCategory.WINNER,
@@ -110,36 +114,38 @@ def announcement_text(games: Sequence[tuple[str, str, datetime]]) -> str:
     )
 
 
-def _bettors_line(bettors: Sequence[tuple[str, int]]) -> str:
+def _bettors_line(bettors: Sequence[tuple[str, int]], total_categories: int) -> str:
     """Inline 'who already bet' line for one game (§9.3).
 
     ``bettors``: ``(display_name, bets_placed)`` in display order. Shows each bettor's count out
-    of :data:`TOTAL_CATEGORIES`, e.g. ``Felipe (3/5)``; nudges when nobody has bet yet.
+    of ``total_categories`` (the game's offered category count — 2 for the new set, 5 for legacy),
+    e.g. ``Felipe (1/2)``; nudges when nobody has bet yet.
     """
     if not bettors:
         return "👥 Ninguém palpitou ainda 👀"
-    listing = ", ".join(f"{escape(name)} ({count}/{TOTAL_CATEGORIES})" for name, count in bettors)
+    listing = ", ".join(f"{escape(name)} ({count}/{total_categories})" for name, count in bettors)
     return f"👥 Já palpitaram: {listing}"
 
 
 def reminder_text(
-    games: Sequence[tuple[str, str, datetime, Sequence[tuple[str, int]]]],
+    games: Sequence[tuple[str, str, datetime, Sequence[tuple[str, int]], int]],
     *,
     tournament_blocks: Sequence[str] | None = None,
 ) -> str:
     """~1h pre-kickoff betting reminder for one kickoff slot (§9.3).
 
-    Each item: ``(home, away, kickoff_local, bettors)`` where ``bettors`` is an ordered
-    ``(display_name, bets_placed)`` list. Combined into a single message when several games share
-    the slot; each game line is followed by a ``👥`` line naming who already bet and how many of
-    the 5 categories. When ``tournament_blocks`` is given (aligned by index, §22), a non-empty
-    entry adds a ``🏆`` line under the game mentioning entrants who still need to bet. Followed by
-    one ``🎯 Apostar`` button per game (built separately).
+    Each item: ``(home, away, kickoff_local, bettors, total_categories)`` where ``bettors`` is an
+    ordered ``(display_name, bets_placed)`` list and ``total_categories`` is how many categories
+    that game offers (2 for the new set, 5 for legacy). Combined into a single message when several
+    games share the slot; each game line is followed by a ``👥`` line naming who already bet and how
+    many of the game's categories. When ``tournament_blocks`` is given (aligned by index, §22), a
+    non-empty entry adds a ``🏆`` line under the game mentioning entrants who still need to bet.
+    Followed by one ``🎯 Apostar`` button per game (built separately).
     """
     lines: list[str] = []
-    for index, (home, away, kickoff, bettors) in enumerate(games):
+    for index, (home, away, kickoff, bettors, total_categories) in enumerate(games):
         lines.append(f"• {escape(home)} x {escape(away)} — {format_kickoff_local(kickoff)}")
-        lines.append(f"  {_bettors_line(bettors)}")
+        lines.append(f"  {_bettors_line(bettors, total_categories)}")
         if tournament_blocks is not None and tournament_blocks[index]:
             lines.append(f"  {tournament_blocks[index]}")
     body = "\n".join(lines)
@@ -393,6 +399,13 @@ def describe_bet_value(
         return OVER_UNDER_LABELS[payload.sel]
     if isinstance(payload, FirstTeamPayload):
         return escape(home_team) if payload.sel is FirstTeamSel.HOME else escape(away_team)
+    if isinstance(payload, HalfTimeResultPayload):
+        ht_labels = {
+            HalfTimeSel.HOME: escape(home_team),
+            HalfTimeSel.DRAW: "Empate",
+            HalfTimeSel.AWAY: escape(away_team),
+        }
+        return ht_labels[payload.sel]
     assert_never(payload)  # pragma: no cover
 
 
@@ -412,6 +425,8 @@ def describe_bet(
         prefix = "Ambas marcam"
     elif isinstance(payload, OverUnderPayload):
         prefix = "Gols"
+    elif isinstance(payload, HalfTimeResultPayload):
+        prefix = "1º tempo"
     else:  # FirstTeamPayload
         prefix = "Primeira equipe a marcar"
     return f"{prefix}: {value}"
@@ -511,10 +526,14 @@ def my_game_detail_text(
 
 
 def points_table_text() -> str:
-    """The points table, derived from the single source of truth (scoring.POINTS)."""
+    """The points table for the **offered** (new) categories, from scoring.POINTS (§8.1).
+
+    Shows only the currently-offered two-market set so /ajuda matches what new games present;
+    legacy in-progress games still grade their old categories at their stored point values.
+    """
     lines = [
         f"• {CATEGORY_LABELS[category]}: <b>{POINTS[category]}</b> pts"
-        for category in CATEGORY_ORDER
+        for category in offerable_for(CategorySet.V2)
     ]
     return "\n".join(lines)
 
@@ -569,18 +588,16 @@ def help_text() -> str:
         "• /start — boas-vindas\n\n"
         "<b>Categorias de aposta</b> (uma por categoria por jogo, editável até o apito):\n"
         "• <b>Placar exato</b> — ex.: 2x1\n"
-        "• <b>Primeira equipe a marcar</b> — uma das duas seleções do jogo\n"
-        "• <b>Ambas marcam</b> — Ambas / Só a 1ª seleção / Só a 2ª seleção / Nenhuma\n"
-        "• <b>Vencedor</b> — uma das seleções ou Empate\n"
-        "• <b>Mais/Menos 2.5 gols</b> — Mais (3+) ou Menos (até 2)\n\n"
+        "• <b>Quem está na frente no 1º tempo</b> — Mandante / Empate / Visitante (pelo placar do "
+        "intervalo)\n\n"
         "<b>Pontuação</b>\n"
         f"{points_table_text()}\n\n"
         "<b>Regras importantes</b>\n"
         "• Tudo é avaliado pelo resultado dos <b>90 minutos</b> (sem prorrogação/pênaltis).\n"
-        "• <b>Mata-mata:</b> o vencedor é quem <b>avança</b> (quem passou de fase). Não existe "
-        "empate no mata-mata — a opção <i>Empate</i> nem aparece.\n"
-        "• <b>Primeira equipe a marcar:</b> gol contra não conta; em 0 a 0 (ou só gol contra), "
-        "todos que apostaram nessa categoria perdem.\n"
+        "• <b>Quem está na frente no 1º tempo</b> vale pelo <b>placar do intervalo</b> "
+        "(pode dar empate).\n"
+        "• Jogos que já tinham palpites antes da mudança continuam com as categorias antigas "
+        "(Vencedor, Ambas marcam, etc.) até terminarem.\n"
         "• As apostas <b>fecham no apito inicial</b> de cada jogo.\n\n"
         "<b>Bolãozinhos</b> (com prêmio em dinheiro 💰)\n"
         "• Um <b>bolãozinho</b> é uma competição sobre um conjunto de jogos, com uma "

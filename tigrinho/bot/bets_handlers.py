@@ -30,6 +30,7 @@ from tigrinho.bot.callbacks import (
     DeleteBet,
     ExactScore,
     FirstTeamInput,
+    HalfTimeResultInput,
     HomeScore,
     MyBetsHome,
     MyGameDetail,
@@ -45,6 +46,7 @@ from tigrinho.bot.keyboards import (
     category_keyboard,
     first_team_keyboard,
     games_keyboard,
+    half_time_keyboard,
     home_score_keyboard,
     my_bets_keyboard,
     my_game_detail_keyboard,
@@ -71,9 +73,11 @@ from tigrinho.domain.bets import (
     BttsPayload,
     ExactScorePayload,
     FirstTeamPayload,
+    HalfTimeResultPayload,
     OverUnderPayload,
     Payload,
     WinnerPayload,
+    offerable_for,
     parse_payload,
     serialize_payload,
 )
@@ -107,6 +111,11 @@ def _is_open(game: Game) -> bool:
 
 def _game_label(game: Game) -> str:
     return f"{game.home_team_name} x {game.away_team_name}"
+
+
+def _offerable(game: Game) -> tuple[BetCategory, ...]:
+    """The bet categories this game offers (its rollout regime — §8.1)."""
+    return offerable_for(game.category_set)
 
 
 def _describe_stored(bet: Bet, game: Game) -> str:
@@ -233,9 +242,10 @@ async def _enter_wizard(
             await message.reply_text(_CLOSED_MESSAGE)
             return
         text = _category_prompt(session, user.id, game)
+        offerable = _offerable(game)
         session.commit()
     await message.reply_text(
-        text, parse_mode=ParseMode.HTML, reply_markup=category_keyboard(fixture_id)
+        text, parse_mode=ParseMode.HTML, reply_markup=category_keyboard(fixture_id, offerable)
     )
 
 
@@ -277,6 +287,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _finalize(query, app_context, update, fixture_id, OverUnderPayload(sel=sel))
         case FirstTeamInput(fixture_id, sel):
             await _finalize(query, app_context, update, fixture_id, FirstTeamPayload(sel=sel))
+        case HalfTimeResultInput(fixture_id, sel):
+            await _finalize(query, app_context, update, fixture_id, HalfTimeResultPayload(sel=sel))
         case DeleteBet(bet_id):
             await _delete_bet(query, app_context, user.id, bet_id)
         case MyHistory(page):
@@ -309,7 +321,8 @@ async def _step_category(
         if game is None:
             return
         text = _category_prompt(session, telegram_id, game)
-    await _edit(query, text, keyboard=category_keyboard(fixture_id))
+        offerable = _offerable(game)
+    await _edit(query, text, keyboard=category_keyboard(fixture_id, offerable))
 
 
 async def _step_payload(
@@ -319,34 +332,47 @@ async def _step_payload(
         game = await _guard_open(query, session, fixture_id)
         if game is None:
             return
-        if category is BetCategory.EXACT_SCORE:
-            await _edit(
-                query,
-                f"⚽ Quantos gols o <b>{escape(game.home_team_name)}</b> faz?",
-                keyboard=home_score_keyboard(fixture_id),
-            )
-        elif category is BetCategory.WINNER:
-            await _edit(
-                query,
-                "🏆 Quem vence?",
-                keyboard=winner_keyboard(
-                    fixture_id, game.stage, game.home_team_name, game.away_team_name
-                ),
-            )
-        elif category is BetCategory.BTTS:
-            await _edit(
-                query,
-                "🥅 Ambas as equipes marcam?",
-                keyboard=btts_keyboard(fixture_id, game.home_team_name, game.away_team_name),
-            )
-        elif category is BetCategory.OVER_UNDER:
-            await _edit(query, "🔢 Total de gols (2.5)?", keyboard=over_under_keyboard(fixture_id))
-        else:  # FIRST_TEAM
-            await _edit(
-                query,
-                "👟 Qual equipe marca o primeiro gol?",
-                keyboard=first_team_keyboard(fixture_id, game.home_team_name, game.away_team_name),
-            )
+        match category:
+            case BetCategory.EXACT_SCORE:
+                await _edit(
+                    query,
+                    f"⚽ Quantos gols o <b>{escape(game.home_team_name)}</b> faz?",
+                    keyboard=home_score_keyboard(fixture_id),
+                )
+            case BetCategory.HALF_TIME_RESULT:
+                await _edit(
+                    query,
+                    "⏱ Quem está na frente no intervalo (1º tempo)?",
+                    keyboard=half_time_keyboard(
+                        fixture_id, game.home_team_name, game.away_team_name
+                    ),
+                )
+            case BetCategory.WINNER:
+                await _edit(
+                    query,
+                    "🏆 Quem vence?",
+                    keyboard=winner_keyboard(
+                        fixture_id, game.stage, game.home_team_name, game.away_team_name
+                    ),
+                )
+            case BetCategory.BTTS:
+                await _edit(
+                    query,
+                    "🥅 Ambas as equipes marcam?",
+                    keyboard=btts_keyboard(fixture_id, game.home_team_name, game.away_team_name),
+                )
+            case BetCategory.OVER_UNDER:
+                await _edit(
+                    query, "🔢 Total de gols (2.5)?", keyboard=over_under_keyboard(fixture_id)
+                )
+            case BetCategory.FIRST_TEAM:
+                await _edit(
+                    query,
+                    "👟 Qual equipe marca o primeiro gol?",
+                    keyboard=first_team_keyboard(
+                        fixture_id, game.home_team_name, game.away_team_name
+                    ),
+                )
 
 
 async def _step_away_score(
@@ -387,11 +413,12 @@ async def _finalize(
         description = describe_bet(
             payload, home_team=game.home_team_name, away_team=game.away_team_name
         )
+        offerable = _offerable(game)
         session.commit()
     await _edit(
         query,
         f"✅ Palpite salvo!\n<b>{escape(description)}</b>\n\nQuer palpitar em outra categoria?",
-        keyboard=category_keyboard(fixture_id),
+        keyboard=category_keyboard(fixture_id, offerable),
     )
 
 

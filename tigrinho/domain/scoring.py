@@ -17,6 +17,8 @@ from tigrinho.domain.bets import (
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -26,13 +28,16 @@ from tigrinho.domain.bets import (
 from tigrinho.enums import Stage
 from tigrinho.providers.base import GoalEvent
 
-# Single source of truth for the points table (§8.1) — trivially tunable.
+# Single source of truth for the points table (§8.1) — trivially tunable. ``HALF_TIME_RESULT`` is
+# priced like the old 3-way ``WINNER`` (modal ~45% → 2). The original four markets keep their
+# prices so historical (legacy-regime) bets still award correctly (append-only).
 POINTS: dict[BetCategory, int] = {
     BetCategory.EXACT_SCORE: 5,
     BetCategory.FIRST_TEAM: 2,
     BetCategory.BTTS: 2,
     BetCategory.WINNER: 2,
     BetCategory.OVER_UNDER: 1,
+    BetCategory.HALF_TIME_RESULT: 2,
 }
 
 
@@ -47,6 +52,11 @@ class GradingContext:
     home_team_id: int
     away_team_id: int
     goals: tuple[GoalEvent, ...]
+    # Half-time (regulation) score, for HALF_TIME_RESULT. Optional: not every result carries it
+    # (walkovers, legacy CLI overrides), so it is validated lazily — a missing HT only voids a
+    # HALF_TIME_RESULT bet, never the rest of the settlement.
+    home_goals_ht: int | None = None
+    away_goals_ht: int | None = None
 
     @property
     def total_goals_90(self) -> int:
@@ -101,6 +111,17 @@ def _first_team_outcome(ctx: GradingContext) -> FirstTeamSel | None:
     return None
 
 
+def _half_time_outcome(ctx: GradingContext) -> HalfTimeSel | None:
+    """Who led at the break from the regulation half-time score; None if HT is unavailable."""
+    if ctx.home_goals_ht is None or ctx.away_goals_ht is None:
+        return None
+    if ctx.home_goals_ht > ctx.away_goals_ht:
+        return HalfTimeSel.HOME
+    if ctx.away_goals_ht > ctx.home_goals_ht:
+        return HalfTimeSel.AWAY
+    return HalfTimeSel.DRAW
+
+
 def _btts_outcome(ctx: GradingContext) -> BttsSel:
     home_scored = ctx.home_goals_90 > 0
     away_scored = ctx.away_goals_90 > 0
@@ -129,6 +150,10 @@ def is_correct(payload: Payload, ctx: GradingContext) -> bool:
         if payload.sel is OverUnderSel.OVER:
             return ctx.total_goals_90 >= 3
         return ctx.total_goals_90 <= 2
+    if isinstance(payload, HalfTimeResultPayload):
+        half_time = _half_time_outcome(ctx)
+        # Missing half-time score (walkover / no HT data) voids this market only.
+        return half_time is not None and payload.sel is half_time
     assert_never(payload)  # pragma: no cover
 
 

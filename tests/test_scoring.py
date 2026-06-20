@@ -11,6 +11,8 @@ from tigrinho.domain.bets import (
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     Payload,
@@ -48,6 +50,8 @@ def _ctx(
     home_id: int = 10,
     away_id: int = 20,
     goals: tuple[GoalEvent, ...] = (),
+    home_ht: int | None = None,
+    away_ht: int | None = None,
 ) -> GradingContext:
     return GradingContext(
         home_goals_90=home,
@@ -57,6 +61,8 @@ def _ctx(
         home_team_id=home_id,
         away_team_id=away_id,
         goals=goals,
+        home_goals_ht=home_ht,
+        away_goals_ht=away_ht,
     )
 
 
@@ -70,6 +76,7 @@ def test_points_table() -> None:
         BetCategory.BTTS: 2,
         BetCategory.WINNER: 2,
         BetCategory.OVER_UNDER: 1,
+        BetCategory.HALF_TIME_RESULT: 2,
     }
 
 
@@ -203,6 +210,35 @@ def test_first_team_loses_when_scorer_team_unknown() -> None:
     assert is_correct(FirstTeamPayload(sel=FirstTeamSel.AWAY), _ctx(1, 0, goals=goals)) is False
 
 
+# --- half-time result -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("home_ht", "away_ht", "sel", "expected"),
+    [
+        (1, 0, HalfTimeSel.HOME, True),
+        (1, 0, HalfTimeSel.DRAW, False),
+        (1, 0, HalfTimeSel.AWAY, False),
+        (0, 2, HalfTimeSel.AWAY, True),
+        (0, 2, HalfTimeSel.HOME, False),
+        (0, 0, HalfTimeSel.DRAW, True),
+        (1, 1, HalfTimeSel.DRAW, True),
+        (1, 1, HalfTimeSel.HOME, False),
+    ],
+)
+def test_half_time_result(home_ht: int, away_ht: int, sel: HalfTimeSel, expected: bool) -> None:
+    # 90′ score is decoupled from the break; use 3-3 so HT never exceeds full time.
+    ctx = _ctx(3, 3, home_ht=home_ht, away_ht=away_ht)
+    assert is_correct(HalfTimeResultPayload(sel=sel), ctx) is expected
+
+
+@pytest.mark.parametrize("sel", list(HalfTimeSel))
+def test_half_time_voids_when_score_missing(sel: HalfTimeSel) -> None:
+    # No half-time score (walkover / backfill gap) -> the market voids: nobody is correct.
+    assert is_correct(HalfTimeResultPayload(sel=sel), _ctx(1, 0, home_ht=None, away_ht=0)) is False
+    assert is_correct(HalfTimeResultPayload(sel=sel), _ctx(1, 0, home_ht=1, away_ht=None)) is False
+
+
 # --- grade() points awarding ----------------------------------------------------------------
 
 
@@ -216,6 +252,8 @@ def test_first_team_loses_when_scorer_team_unknown() -> None:
         (WinnerPayload(sel=WinnerSel.HOME), _ctx(3, 0), True, 2),
         (OverUnderPayload(sel=OverUnderSel.OVER), _ctx(2, 1), True, 1),
         (OverUnderPayload(sel=OverUnderSel.OVER), _ctx(1, 1), False, 0),
+        (HalfTimeResultPayload(sel=HalfTimeSel.HOME), _ctx(2, 1, home_ht=1, away_ht=0), True, 2),
+        (HalfTimeResultPayload(sel=HalfTimeSel.DRAW), _ctx(2, 1, home_ht=1, away_ht=0), False, 0),
     ],
 )
 def test_grade_awards_points(

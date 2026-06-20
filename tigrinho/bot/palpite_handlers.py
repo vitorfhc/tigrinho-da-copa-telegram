@@ -23,6 +23,7 @@ from tigrinho.bot.messaging import safe_edit_text
 from tigrinho.bot.runtime import AnyApplication, get_app_context
 from tigrinho.db.models import Game, GameStatus, utcnow
 from tigrinho.db.repositories import GameRepository
+from tigrinho.domain.bets import offerable_for
 from tigrinho.domain.text_pt import (
     format_kickoff_short,
     palpite_error_text,
@@ -61,7 +62,7 @@ def _render(item: RenderablePalpite) -> str:
         away=item.away_team,
         kickoff_local=item.kickoff_local,
         analysis=item.palpite.analysis,
-        payloads=item.palpite.payloads(),
+        payloads=item.palpite.payloads(offerable_for(item.category_set)),
         curiosity=item.palpite.curiosity,
     )
 

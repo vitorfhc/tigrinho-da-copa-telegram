@@ -145,6 +145,23 @@ def test_map_match_result_uses_fulltime_not_extratime() -> None:
     assert result.status is GameStatus.FINISHED
     assert result.stage is Stage.KNOCKOUT
     assert result.advancing_team_id == 10
+    assert result.home_goals_ht is None  # no halftime block in this score -> None
+    assert result.away_goals_ht is None
+
+
+def test_map_match_result_parses_halftime_score() -> None:
+    item: dict[str, Any] = {
+        "fixture": {"id": 3003, "status": {"short": "FT"}},
+        "league": {"round": "Group A"},
+        "teams": {"home": {"id": 10, "winner": True}, "away": {"id": 20, "winner": False}},
+        "goals": {"home": 2, "away": 1},
+        "score": {
+            "halftime": {"home": 1, "away": 0},
+            "fulltime": {"home": 2, "away": 1},
+        },
+    }
+    result = map_match_result(item, [])
+    assert (result.home_goals_ht, result.away_goals_ht) == (1, 0)
 
 
 # --- httpx client (MockTransport) -----------------------------------------------------------

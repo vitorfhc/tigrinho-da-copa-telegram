@@ -6,13 +6,14 @@ payloads). :func:`encode` round-trips with :func:`decode`.
 
 Opcodes:
   ``g:<fixture>``                     choose game (open the category step)
-  ``c:<fixture>:<E|F|B|W|O>``         choose category
+  ``c:<fixture>:<E|F|B|W|O|HT>``      choose category
   ``s:<fixture>:<0-10>``              exact-score: home goals chosen (opens the away pad)
   ``e:<fixture>:<home>:<away>``       exact-score: finalize (home baked in, stateless)
   ``w:<fixture>:<H|D|A>``             winner selection
   ``t:<fixture>:<B|H|A|N>``           both-teams-to-score selection
   ``o:<fixture>:<O|U>``               over/under selection
   ``f:<fixture>:<H|A>``               first-team-to-score selection
+  ``h:<fixture>:<H|D|A>``             half-time-result selection
   ``x:<bet_id>``                      delete a bet
   ``q``                               cancel/close the wizard
   ``bv:<g|s>``                        scoreboard view toggle (Geral / Semana)
@@ -35,7 +36,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, assert_never, cast
 
-from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
+from tigrinho.domain.bets import (
+    BetCategory,
+    BttsSel,
+    FirstTeamSel,
+    HalfTimeSel,
+    OverUnderSel,
+    WinnerSel,
+)
 
 BoardScope = Literal["geral", "semana"]
 _BOARD_SCOPE_TO_CODE: dict[BoardScope, str] = {"geral": "g", "semana": "s"}
@@ -54,6 +62,7 @@ _CATEGORY_TO_CODE: dict[BetCategory, str] = {
     BetCategory.BTTS: "B",
     BetCategory.WINNER: "W",
     BetCategory.OVER_UNDER: "O",
+    BetCategory.HALF_TIME_RESULT: "HT",
 }
 _CODE_TO_CATEGORY = {code: category for category, code in _CATEGORY_TO_CODE.items()}
 
@@ -80,6 +89,13 @@ _OVER_UNDER_TO_CODE: dict[OverUnderSel, str] = {
     OverUnderSel.UNDER: "U",
 }
 _CODE_TO_OVER_UNDER = {code: sel for sel, code in _OVER_UNDER_TO_CODE.items()}
+
+_HALF_TIME_TO_CODE: dict[HalfTimeSel, str] = {
+    HalfTimeSel.HOME: "H",
+    HalfTimeSel.DRAW: "D",
+    HalfTimeSel.AWAY: "A",
+}
+_CODE_TO_HALF_TIME = {code: sel for sel, code in _HALF_TIME_TO_CODE.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +144,12 @@ class OverUnderInput:
 class FirstTeamInput:
     fixture_id: int
     sel: FirstTeamSel
+
+
+@dataclass(frozen=True, slots=True)
+class HalfTimeResultInput:
+    fixture_id: int
+    sel: HalfTimeSel
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +265,7 @@ CallbackData = (
     | BttsInput
     | OverUnderInput
     | FirstTeamInput
+    | HalfTimeResultInput
     | DeleteBet
     | Cancel
     | BoardView
@@ -283,6 +306,8 @@ def encode(data: CallbackData) -> str:
             result = f"o:{fixture_id}:{_OVER_UNDER_TO_CODE[sel]}"
         case FirstTeamInput(fixture_id, sel):
             result = f"f:{fixture_id}:{_FIRST_TEAM_TO_CODE[sel]}"
+        case HalfTimeResultInput(fixture_id, sel):
+            result = f"h:{fixture_id}:{_HALF_TIME_TO_CODE[sel]}"
         case DeleteBet(bet_id):
             result = f"x:{bet_id}"
         case Cancel():
@@ -347,6 +372,8 @@ def decode(data: str) -> CallbackData:
             return OverUnderInput(int(parts[1]), _CODE_TO_OVER_UNDER[parts[2]])
         if op == "f":
             return FirstTeamInput(int(parts[1]), _CODE_TO_FIRST_TEAM[parts[2]])
+        if op == "h":
+            return HalfTimeResultInput(int(parts[1]), _CODE_TO_HALF_TIME[parts[2]])
         if op == "x":
             return DeleteBet(int(parts[1]))
         if op == "q":

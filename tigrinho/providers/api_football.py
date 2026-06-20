@@ -236,7 +236,9 @@ def advancing_team_id(teams: dict[str, Any]) -> int | None:
 def map_match_result(item: dict[str, Any], events: list[dict[str, Any]]) -> MatchResult:
     """Map a ``/fixtures`` item + its ``/fixtures/events`` to a MatchResult (90′ score)."""
     fixture = item.get("fixture") or {}
-    fulltime = (item.get("score") or {}).get("fulltime") or {}
+    score = item.get("score") or {}
+    fulltime = score.get("fulltime") or {}
+    halftime = score.get("halftime") or {}
     live = item.get("goals") or {}
     return MatchResult(
         fixture_id=int(fixture["id"]),
@@ -248,6 +250,8 @@ def map_match_result(item: dict[str, Any], events: list[dict[str, Any]]) -> Matc
         advancing_team_id=advancing_team_id(item.get("teams") or {}),
         live_home_goals=_opt_int(live.get("home")),
         live_away_goals=_opt_int(live.get("away")),
+        home_goals_ht=_opt_int(halftime.get("home")),
+        away_goals_ht=_opt_int(halftime.get("away")),
     )
 
 

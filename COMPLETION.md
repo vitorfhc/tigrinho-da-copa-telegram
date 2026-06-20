@@ -420,16 +420,35 @@ Live polling is the first thing to throttle/skip. Bet **closing never consumes b
 
 ### 8.1 Bet categories, payloads, and grading (PURE functions)
 
-> **Unchanged from the Discord build.** All score-based grading uses the **90′ result**
-> (`home_goals_90`, `away_goals_90`). `total90 = home_goals_90 + away_goals_90`.
+> Score-based grading uses the **90′ result** (`home_goals_90`, `away_goals_90`).
+> `total90 = home_goals_90 + away_goals_90`. `HALF_TIME_RESULT` reads the **regulation half-time
+> score** (`home_goals_ht`, `away_goals_ht`).
 
-| Category | `BetCategory` | Payload | Wins when | Points |
-|---|---|---|---|---|
-| Exact score | `EXACT_SCORE` | `{home:int, away:int}` | both equal the 90′ score | **5** |
-| First team to score | `FIRST_TEAM` | `{sel: HOME\|AWAY}` | that team scores the first genuine (non-own-goal) goal within 90′ | **2** |
-| Both teams to score | `BTTS` | `{sel: BOTH\|ONLY_HOME\|ONLY_AWAY\|NEITHER}` | the 90′ scoring pattern matches | **2** |
-| Winner | `WINNER` | `{sel: HOME\|DRAW\|AWAY}` | see knockout rule below | **2** |
-| Over/Under 2.5 | `OVER_UNDER` | `{sel: OVER\|UNDER}` | `OVER` ⇢ `total90 ≥ 3`; `UNDER` ⇢ `total90 ≤ 2` | **1** |
+**`BetCategory` is append-only.** A game *offers* one of two category sets, decided per game by
+`games.category_set` (`CategorySet.{LEGACY,V2}`) and surfaced by `offerable_for(category_set)`:
+
+- **`V2` (offered now — the orthogonal two-market set):** `EXACT_SCORE` + `HALF_TIME_RESULT`.
+- **`LEGACY` (still graded, no longer offered):** `EXACT_SCORE` + `FIRST_TEAM` + `BTTS` + `WINNER`
+  + `OVER_UNDER`. Games that already had bets when the V2 set deployed stay `LEGACY` so those bets
+  keep grading and rendering; every game with no bets yet (and all future games) is `V2`.
+
+| Category | `BetCategory` | Payload | Wins when | Points | Set |
+|---|---|---|---|---|---|
+| Exact score | `EXACT_SCORE` | `{home:int, away:int}` | both equal the 90′ score | **5** | both |
+| Half-time result | `HALF_TIME_RESULT` | `{sel: HOME\|DRAW\|AWAY}` | matches the sign of the **half-time** score (`HOME` if `ht_home>ht_away`, `DRAW` if equal, `AWAY` if `ht_away>ht_home`) | **2** | V2 |
+| First team to score | `FIRST_TEAM` | `{sel: HOME\|AWAY}` | that team scores the first genuine (non-own-goal) goal within 90′ | **2** | legacy |
+| Both teams to score | `BTTS` | `{sel: BOTH\|ONLY_HOME\|ONLY_AWAY\|NEITHER}` | the 90′ scoring pattern matches | **2** | legacy |
+| Winner | `WINNER` | `{sel: HOME\|DRAW\|AWAY}` | see knockout rule below | **2** | legacy |
+| Over/Under 2.5 | `OVER_UNDER` | `{sel: OVER\|UNDER}` | `OVER` ⇢ `total90 ≥ 3`; `UNDER` ⇢ `total90 ≤ 2` | **1** | legacy |
+
+**Half-time-result grading rule:** read the regulation half-time score `(ht_home, ht_away)`.
+`HOME` if `ht_home>ht_away`, `AWAY` if `ht_away>ht_home`, else `DRAW` (always a valid option — a
+half can be level, so unlike `WINNER` there is **no** knockout special-case and the UI always shows
+`DRAW`). In a knockout decided by ET/penalties this still grades the **regulation** half-time sign.
+If the half-time score is **missing** (walkover, backfill gap, CLI override without `--ht-*`), the
+market **voids for that fixture only** (those bets score 0) — it never fails the whole settlement,
+which may carry `EXACT_SCORE` bets that grade fine. A present half-time count that exceeds its 90′
+counterpart is corrupt data and fails fast (a `ValueError` in `build_context`).
 
 > **Decision (2026-06-15):** the first-scorer market is on the **team**, not the player
 > (`FIRST_TEAM`, `{sel: HOME|AWAY}`), and all squad infrastructure (the API `/players/squads` pull,
@@ -449,6 +468,24 @@ Live polling is the first thing to throttle/skip. Bet **closing never consumes b
 > (`EXACT_SCORE`/`FIRST_TEAM`/`BTTS`/`WINNER`/`OVER_UNDER`): points now move monotonically with rarity
 > and no category dominates on expected points. `FIRST_TEAM`/`BTTS`/`WINNER` tie at 2 because their
 > true difficulties sit within base-rate noise (~0.44–0.48); a manufactured spread would overstate it.
+
+> **Decision (2026-06-20): de-couple the bet set → offer only `EXACT_SCORE` + `HALF_TIME_RESULT`.**
+> The old five markets were **too coupled**: `WINNER`/`BTTS`/`OVER_UNDER` are deterministic
+> coarsenings of `EXACT_SCORE` and `FIRST_TEAM` is largely score-correlated, so forming one
+> scoreline opinion answered four of five markets. Real independence needs a *different axis*:
+> `HALF_TIME_RESULT` asks who leads at the break — a different random variable the final score does
+> not pin down (a 1×0 final leaves the break open to `DRAW` or `HOME`). It passes the no-easy-EV
+> rule: at WC level the half-time result is `DRAW` ~40–46% (a **minority** modal leg — "always pick
+> `DRAW`" loses >55% of the time), with `HOME`/`AWAY` ~27–28% each, the same fair profile as the
+> 3-way `WINNER`, so **2 pts** (monotonic with `EXACT_SCORE`'s modal ~10–11% → 5). A third "which
+> half has more goals" market was considered and **rejected**: `SECOND` is a known, structural ~45%
+> favourite (≈43% of WC goals in the 1st half vs ≈54% in the 2nd), i.e. a blind farm.
+> **Rollout is append-only and per-game** (`games.category_set`): `BetCategory` keeps every member
+> (payloads/grading/codecs intact), so bets already placed under the legacy five keep grading; the
+> migration backfills `LEGACY` for any game that already had a bet and `V2` for everything else, so
+> only games with no bets yet — and all future games — present the new set. This supersedes the
+> earlier "config cutoff" rollout idea (a `Game` has no creation timestamp; a per-game column is
+> finer-grained and needs no time config).
 
 **Winner grading rule:**
 - **Group stage:** compare to 90′ result — `HOME` if `home>away`, `DRAW` if equal, `AWAY` if `away>home`.
@@ -485,14 +522,17 @@ the appropriate **`BotCommandScope`** (`/apostar`, `/minhas_apostas` are DM-rele
 **The wizard (PTB `ConversationHandler` + `CallbackQueryHandler`, editing one message in place):**
 
 1. **Choose game** (if not already fixed by the deep-link).
-2. **Choose category** — inline keyboard of the 5 categories.
+2. **Choose category** — inline keyboard of the game's **offered** categories
+   (`offerable_for(game.category_set)`: 2 for `V2`, 5 for `LEGACY`).
 3. **Collect the category-specific input via inline keyboards** (no modals exist in Telegram):
    - **Exact score:** a **number-pad** keyboard — pick `home` goals (0–9, with a `+` for higher),
      then `away` goals; the message previews the building score.
-   - **First team to score:** a two-button keyboard with the home and away team names; each selects
-     `HOME`/`AWAY` (no squads required).
-   - **Winner:** `HOME`/`DRAW`/`AWAY` buttons — the `HOME`/`AWAY` buttons show the **real team
-     names** (not "Mandante"/"Visitante"); **DRAW hidden for knockout fixtures**.
+   - **Half-time result:** `HOME`/`Empate`/`AWAY` buttons — `HOME`/`AWAY` show the **real team
+     names**; `DRAW` (`Empate`) is **always shown** (a half can be level — no knockout hiding).
+   - **First team to score** *(legacy games)*: a two-button keyboard with the home and away team
+     names; each selects `HOME`/`AWAY` (no squads required).
+   - **Winner** *(legacy games)*: `HOME`/`DRAW`/`AWAY` buttons — the `HOME`/`AWAY` buttons show the
+     **real team names** (not "Mandante"/"Visitante"); **DRAW hidden for knockout fixtures**.
    - **BTTS:** `BOTH`/`ONLY_HOME`/`ONLY_AWAY`/`NEITHER` — the two "only" options name the **real
      teams** (e.g. "Só o Brasil" / "Só o Argentina"), consistent with the first-team/winner keyboards.
    - **Over/Under:** `OVER`/`UNDER`.
@@ -608,9 +648,10 @@ to bet ~1h before kickoff. Each sweep:
    If none, **return without posting**.
 2. Posts **one** consolidated reminder to the group (HTML, pt-BR), with one `🎯 Apostar` deep-link
    button per game in the slot — combining games that kick off at the **same time**. Each game line
-   is followed by a `👥` line naming **who has already bet and how many of the 5 categories** each
-   filled (e.g. `👥 Já palpitaram: Ana (5/5), Felipe (3/5)`), ordered most-complete first
-   (count desc, then name); when nobody has bet yet it reads `👥 Ninguém palpitou ainda 👀`.
+   is followed by a `👥` line naming **who has already bet and how many of the game's offered
+   categories** each filled — the denominator is `len(offerable_for(game.category_set))` (2 for the
+   V2 set, 5 for legacy), e.g. `👥 Já palpitaram: Ana (2/2), Felipe (1/2)`, ordered most-complete
+   first (count desc, then name); when nobody has bet yet it reads `👥 Ninguém palpitou ainda 👀`.
 3. Marks those games `reminded_at` **only on a successful send** (re-validated to skip games
    voided/rescheduled mid-flight); a failed send is retried on the next sweep and DMs the admin.
 
@@ -1005,11 +1046,13 @@ for **every bet category**, grounded in current web information.
 - **Grounding:** Google Search tool (`types.Tool(google_search=types.GoogleSearch())`) so the model
   uses up-to-date form/injuries/lineups.
 - **Validated JSON:** the prompt pins the model to the project's grading rules (everything on the
-  90′ result; knockout has no draw; first team ignores own goals; over = 3+ goals) and asks for a
-  single JSON object (`fixture_id`, `analysis`, the five category picks, and `curiosity`). The
-  Python backend **extracts and validates** it with pydantic (`PalpiteBatch` → `GamePalpite`,
-  reusing the domain bet enums) before storing — an out-of-range or unknown-fixture value can never
-  be saved.
+  90′ result; knockout has no draw; first team ignores own goals; over = 3+ goals; `half_time_result`
+  on the break, where a draw is valid) and asks for a single JSON object (`fixture_id`, `analysis`,
+  the category picks incl. `half_time_result`, and `curiosity`). The Python backend **extracts and
+  validates** it with pydantic (`PalpiteBatch` → `GamePalpite`, reusing the domain bet enums) before
+  storing — an out-of-range or unknown-fixture value can never be saved. The renderer shows only the
+  game's **offered** picks (`payloads(offerable_for(category_set))`); `half_time_result` is optional
+  on the model so palpites cached before it existed still load.
 - **Curiosity (grounded-only).** `curiosity` is a real, web-verified fact about the head-to-head;
   the model is told never to invent one and to return an empty string if none is found (empty →
   omitted from the message).

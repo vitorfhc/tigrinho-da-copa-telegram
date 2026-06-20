@@ -18,6 +18,7 @@ from tigrinho.bot.callbacks import (
     GameBoard,
     GamesBoardCompute,
     GamesBoardToggle,
+    HalfTimeResultInput,
     HomeScore,
     MyBetsHome,
     MyGameDetail,
@@ -36,7 +37,14 @@ from tigrinho.bot.callbacks import (
     decode,
     encode,
 )
-from tigrinho.domain.bets import BetCategory, BttsSel, FirstTeamSel, OverUnderSel, WinnerSel
+from tigrinho.domain.bets import (
+    BetCategory,
+    BttsSel,
+    FirstTeamSel,
+    HalfTimeSel,
+    OverUnderSel,
+    WinnerSel,
+)
 
 _CASES: list[CallbackData] = [
     ChooseGame(123456),
@@ -45,6 +53,7 @@ _CASES: list[CallbackData] = [
     ChooseCategory(123456, BetCategory.BTTS),
     ChooseCategory(123456, BetCategory.WINNER),
     ChooseCategory(123456, BetCategory.OVER_UNDER),
+    ChooseCategory(123456, BetCategory.HALF_TIME_RESULT),
     HomeScore(123456, 3),
     ExactScore(123456, 2, 10),
     WinnerInput(123456, WinnerSel.HOME),
@@ -58,6 +67,9 @@ _CASES: list[CallbackData] = [
     OverUnderInput(123456, OverUnderSel.UNDER),
     FirstTeamInput(123456, FirstTeamSel.HOME),
     FirstTeamInput(123456, FirstTeamSel.AWAY),
+    HalfTimeResultInput(123456, HalfTimeSel.HOME),
+    HalfTimeResultInput(123456, HalfTimeSel.DRAW),
+    HalfTimeResultInput(123456, HalfTimeSel.AWAY),
     DeleteBet(42),
     Cancel(),
     BoardView("geral"),

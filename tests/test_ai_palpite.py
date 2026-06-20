@@ -20,12 +20,15 @@ from tigrinho.domain.bets import (
     ExactScorePayload,
     FirstTeamPayload,
     FirstTeamSel,
+    HalfTimeResultPayload,
+    HalfTimeSel,
     OverUnderPayload,
     OverUnderSel,
     WinnerPayload,
     WinnerSel,
+    offerable_for,
 )
-from tigrinho.enums import Stage
+from tigrinho.enums import CategorySet, Stage
 
 _VALID_JSON = """
 {
@@ -59,12 +62,27 @@ def test_parse_valid_batch() -> None:
 def test_game_palpite_to_typed_payloads() -> None:
     game = parse_batch(_VALID_JSON).palpites[0]
     payloads = game.payloads()
+    # No half_time_result in this (old-style) JSON -> the legacy five, HT skipped.
     assert payloads == [
         ExactScorePayload(home=2, away=1),
         FirstTeamPayload(sel=FirstTeamSel.HOME),
         BttsPayload(sel=BttsSel.BOTH),
         WinnerPayload(sel=WinnerSel.HOME),
         OverUnderPayload(sel=OverUnderSel.OVER),
+    ]
+
+
+def test_game_palpite_v2_filter_includes_half_time() -> None:
+    json_with_ht = _VALID_JSON.replace(
+        '"over_under": "OVER",',
+        '"over_under": "OVER",\n      "half_time_result": "DRAW",',
+    )
+    game = parse_batch(json_with_ht).palpites[0]
+    assert game.half_time_result is HalfTimeSel.DRAW
+    # The V2 regime renders only EXACT_SCORE + HALF_TIME_RESULT, in that order.
+    assert game.payloads(offerable_for(CategorySet.V2)) == [
+        ExactScorePayload(home=2, away=1),
+        HalfTimeResultPayload(sel=HalfTimeSel.DRAW),
     ]
 
 

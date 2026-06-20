@@ -29,13 +29,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # Re-exported so existing imports (`from tigrinho.db.models import Stage, GameStatus`) keep working;
 # the canonical home is the dependency-free leaf module ``tigrinho.enums``.
-from tigrinho.enums import GameStatus, SplitwiseMode, Stage, TournamentStatus
+from tigrinho.enums import CategorySet, GameStatus, SplitwiseMode, Stage, TournamentStatus
 
 __all__ = [
     "AiPalpite",
     "ApiUsage",
     "Base",
     "Bet",
+    "CategorySet",
     "Game",
     "GameStatus",
     "Player",
@@ -91,6 +92,17 @@ class Game(Base):
     status: Mapped[GameStatus] = mapped_column(Enum(GameStatus, name="game_status"))
     home_goals_90: Mapped[int | None] = mapped_column(Integer, default=None)
     away_goals_90: Mapped[int | None] = mapped_column(Integer, default=None)
+    # Half-time (regulation) score, for HALF_TIME_RESULT grading + re-settle (§8.1). Nullable: not
+    # every finished game carries it (walkovers, backfill gaps, legacy CLI overrides).
+    home_goals_ht: Mapped[int | None] = mapped_column(Integer, default=None)
+    away_goals_ht: Mapped[int | None] = mapped_column(Integer, default=None)
+    # Which bet-category set this game *offers* (§8.1 rollout). New games default to V2 (the
+    # two-market set); the rollout migration backfills LEGACY for any game that already had bets.
+    category_set: Mapped[CategorySet] = mapped_column(
+        Enum(CategorySet, name="category_set"),
+        default=CategorySet.V2,
+        server_default=CategorySet.V2.value,
+    )
     advancing_team_id: Mapped[int | None] = mapped_column(Integer, default=None)
     first_scorer_player_id: Mapped[int | None] = mapped_column(Integer, default=None)
     announced_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
