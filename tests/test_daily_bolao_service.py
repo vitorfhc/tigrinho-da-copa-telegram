@@ -21,7 +21,6 @@ from tigrinho.db.repositories import TournamentRepository
 # America/Sao_Paulo (UTC-3): 2026-06-21 local day == [03:00 UTC 06-21, 03:00 UTC 06-22).
 _TARGET = date(2026, 6, 21)
 _NOW = datetime(2026, 6, 20, 21, 0)  # the evening before
-_IN_WINDOW = datetime(2026, 6, 21, 16, 0)  # 13:00 local, inside the day
 
 
 def _crit(**over: bool) -> dict[str, bool]:
@@ -124,6 +123,8 @@ async def test_creates_and_opens_top_two(app_context: AppContext) -> None:
         assert t.auto_created_for == _TARGET
         # top 2 by interest: fixtures 2 (3) and 3 (2)
         assert {g.fixture_id for g in TournamentRepository(s).list_games(t.id)} == {2, 3}
+    # returned ORM games stay usable after the session closed (expire_on_commit=False)
+    assert {g.fixture_id for g in result.games} == {2, 3}
     # one known player → at least one DM recipient passed back to the job
     assert 555 in {tid for tid, _ in result.mentions}
 
@@ -191,6 +192,17 @@ async def test_only_hallucinated_ids_raises_no_fallback(app_context: AppContext)
     _seed_game(app_context, 1, datetime(2026, 6, 21, 16, 0))
     scorer = FakeScorer(scores={999: _crit(decisive=True)})  # 999 not a candidate
     with pytest.raises(DailyBolaoError):
+        await create_daily_bolao(
+            app_context.session_factory, scorer, app_context.settings, now=_NOW, target_date=_TARGET
+        )
+    with app_context.session_factory() as s:
+        assert TournamentRepository(s).daily_auto_for(_TARGET) is None
+
+
+async def test_unparseable_response_raises_and_creates_nothing(app_context: AppContext) -> None:
+    _seed_game(app_context, 1, datetime(2026, 6, 21, 16, 0))
+    scorer = FakeScorer(raw="this is not json")
+    with pytest.raises(ValueError):
         await create_daily_bolao(
             app_context.session_factory, scorer, app_context.settings, now=_NOW, target_date=_TARGET
         )
