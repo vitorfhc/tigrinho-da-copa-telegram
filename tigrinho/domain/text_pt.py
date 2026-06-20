@@ -246,11 +246,6 @@ def kickoff_text(home_team: str, away_team: str) -> str:
     )
 
 
-def goal_minute_label(minute: int, extra: int | None) -> str:
-    """Render a goal minute, e.g. ``23'`` or ``90+3'`` (§9.4)."""
-    return f"{minute}+{extra}'" if extra else f"{minute}'"
-
-
 def goal_text(
     *,
     scoring_team: str,
@@ -258,80 +253,36 @@ def goal_text(
     away_team: str,
     home_score: int,
     away_score: int,
-    minute: int,
-    extra: int | None,
-    scorer: str | None,
-    is_penalty: bool,
-    is_own_goal: bool,
 ) -> str:
-    """Group post for one goal: running score + scorer + minute (§9.4)."""
-    tags: list[str] = []
-    if is_penalty:
-        tags.append("pênalti")
-    if is_own_goal:
-        tags.append("gol contra")
-    detail = goal_minute_label(minute, extra)
-    if tags:
-        detail = f"{', '.join(tags)}, {detail}"
-    scorer_part = f" — {escape(scorer)}" if scorer else ""
+    """Group post for one goal: scoring team + running score (§9.4).
+
+    Built straight from the live score feed (``get_live_results``) so it posts the moment the score
+    ticks. Scorer/minute/penalty/own-goal detail is intentionally dropped — that needs the slower
+    ``/fixtures/events`` feed, which lags the live score by minutes (§9.4).
+    """
     return (
         f"⚽ <b>GOL do {escape(scoring_team)}!</b> "
-        f"{escape(home_team)} {home_score} x {away_score} {escape(away_team)}"
-        f"{scorer_part} ({detail})"
+        f"{escape(home_team)} {home_score} x {away_score} {escape(away_team)} 🐯"
     )
-
-
-def cancellation_reason_pt(detail: str) -> str | None:
-    """Short pt-BR reason for a VAR goal cancellation, or ``None`` when not recognized (§9.4).
-
-    ``detail`` is the raw provider string (e.g. ``"Goal Disallowed - offside"``). Reasons are
-    matched loosely (substring) to tolerate the provider's free-text variants; an unknown reason
-    yields ``None`` so the message stays clean rather than echoing English back to the group.
-    """
-    lowered = detail.lower()
-    if "offside" in lowered:
-        return "impedimento"
-    if "hand" in lowered:
-        return "mão na bola"
-    if "foul" in lowered:
-        return "falta"
-    return None
 
 
 def goal_cancelled_text(
     *,
-    scoring_team: str | None,
+    scoring_team: str,
     home_team: str,
     away_team: str,
     home_score: int,
     away_score: int,
-    minute: int | None,
-    extra: int | None,
-    scorer: str | None,
-    reason: str | None,
 ) -> str:
-    """Group post when a previously-counted goal is disallowed/cancelled by VAR (§9.4).
+    """Group post when a counted goal is disallowed by VAR (§9.4).
 
-    ``scoring_team`` is ``None`` when the provider hasn't yet exposed the VAR event detail (the live
-    score already dropped): we still tell the group the goal was annulled, just without specifics.
+    The live score split tells us *which* team's tally dropped, so the team is always named.
     ``home_score`` / ``away_score`` are the **current** running score after the cancellation.
     """
-    lines = ["🚫 <b>Gol anulado pelo VAR!</b>"]
-    if scoring_team is not None:
-        bits: list[str] = []
-        if scorer:
-            bits.append(escape(scorer))
-        if minute is not None:
-            bits.append(goal_minute_label(minute, extra))
-        suffix = f" ({', '.join(bits)})" if bits else ""
-        sentence = f"Gol do {escape(scoring_team)}{suffix}"
-        if reason:
-            sentence += f" — {escape(reason)}"
-        lines.append(f"{sentence}.")
-    lines.append(
+    return (
+        f"🚫 <b>Gol anulado pelo VAR!</b> Era gol do {escape(scoring_team)}.\n"
         f"Placar segue: {escape(home_team)} {home_score} x {away_score} {escape(away_team)} 🐯"
     )
-    return "\n".join(lines)
 
 
 _MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}

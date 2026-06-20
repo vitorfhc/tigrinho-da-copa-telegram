@@ -96,7 +96,12 @@ class Game(Base):
     announced_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     reminded_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    # Live-goal cursor (§9.4). ``goals_announced`` is the running *total* already posted; the
+    # home/away split lets the live poll name the scoring team straight from the live score feed
+    # (``get_live_results``) without the slower ``/fixtures/events`` scorer lookup.
     goals_announced: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    home_goals_announced: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    away_goals_announced: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     settled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     # Last time the reconcile job re-checked this game's result post-settlement (§8.3/§9.2).
     last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)

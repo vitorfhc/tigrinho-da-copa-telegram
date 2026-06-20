@@ -26,13 +26,11 @@ from tigrinho.bot.alerts import alert_cap_reached, notify_admin
 from tigrinho.bot.runtime import AppContext, get_app_context
 from tigrinho.bot.tournament_announce import resolve_and_post
 from tigrinho.config import Settings
-from tigrinho.db.models import GameStatus, utcnow
+from tigrinho.db.models import Game, GameStatus, utcnow
 from tigrinho.db.repositories import BetRepository, GameRepository
 from tigrinho.domain.bets import BetCategory, parse_payload
-from tigrinho.domain.live import Side, goal_progression
 from tigrinho.domain.text_pt import (
     CATEGORY_LABELS,
-    cancellation_reason_pt,
     closed_bets_text,
     describe_bet_value,
     escape,
@@ -42,6 +40,7 @@ from tigrinho.domain.text_pt import (
     results_text,
 )
 from tigrinho.logging import get_logger
+from tigrinho.providers.base import MatchResult
 from tigrinho.providers.budget import BudgetExceeded
 from tigrinho.settlement_service import settle_fixture
 
@@ -118,8 +117,8 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
     finished: list[int] = []
     # (home, away, reveal_text) — reveal_text is the bet-reveal post (§9.4), or None if nobody bet.
     kickoffs: list[tuple[str, str, str | None]] = []
-    goal_fixtures: list[int] = []
-    cancel_fixtures: list[tuple[int, int, int]] = []  # (fixture_id, live_home, live_away)
+    goal_messages: list[str] = []
+    cancel_messages: list[str] = []
     with app_context.session_factory() as session:
         games = GameRepository(session)
         bet_repo = BetRepository(session)
@@ -155,16 +154,12 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
                     ],
                 )
                 kickoffs.append((game.home_team_name, game.away_team_name, reveal))
-            # Goals only after kickoff; same-cycle catch-up is fine (started_at just set above).
-            live_home = result.live_home_goals or 0
-            live_away = result.live_away_goals or 0
-            live_total = live_home + live_away
-            if live_total > game.goals_announced:
-                goal_fixtures.append(fixture_id)
-            elif live_total < game.goals_announced:
-                # Running total dropped → a counted goal was disallowed by VAR (§9.4). The cursor
-                # is resynced in the handler, after the retraction posts (so a failed send retries).
-                cancel_fixtures.append((fixture_id, live_home, live_away))
+            # Goals & VAR retractions come straight from the live score split (§9.4) — no extra
+            # /fixtures/events lookup, so each goal posts the moment the score ticks. Same-cycle
+            # catch-up is fine (started_at may have just been set above).
+            goals, cancels = _diff_live_score(game, result)
+            goal_messages.extend(goals)
+            cancel_messages.extend(cancels)
         session.commit()
 
     for home, away, reveal in kickoffs:
@@ -173,13 +168,11 @@ async def _run_poll(app_context: AppContext, context: ContextTypes.DEFAULT_TYPE)
         if reveal is not None:
             await _post_to_group(app_context, context, reveal, what="as apostas do jogo")
 
-    for fixture_id in goal_fixtures:
-        await _announce_goals(app_context, context, fixture_id)
+    for message in goal_messages:
+        await _post_to_group(app_context, context, message, what="um gol")
 
-    for fixture_id, live_home, live_away in cancel_fixtures:
-        await _announce_cancellations(
-            app_context, context, fixture_id, live_home=live_home, live_away=live_away
-        )
+    for message in cancel_messages:
+        await _post_to_group(app_context, context, message, what="um gol anulado")
 
     for fixture_id in finished:
         await _settle_and_announce(app_context, context, fixture_id)
@@ -202,109 +195,58 @@ async def _post_to_group(
         )
 
 
-async def _announce_goals(
-    app_context: AppContext, context: ContextTypes.DEFAULT_TYPE, fixture_id: int
-) -> None:
-    """Fetch the goal timeline and post one message per *new* goal (§9.4)."""
-    events = await app_context.budget.guarded(
-        lambda: app_context.provider.get_goal_events(fixture_id)
-    )
-    messages: list[str] = []
-    with app_context.session_factory() as session:
-        game = GameRepository(session).get(fixture_id)
-        if game is None:
-            return
-        progression = goal_progression(game.home_team_id, game.away_team_id, events)
-        for prog in progression[game.goals_announced :]:
-            scoring_team = (
-                game.home_team_name if prog.scoring_side is Side.HOME else game.away_team_name
-            )
-            messages.append(
-                goal_text(
-                    scoring_team=scoring_team,
-                    home_team=game.home_team_name,
-                    away_team=game.away_team_name,
-                    home_score=prog.home_score,
-                    away_score=prog.away_score,
-                    minute=prog.goal.minute,
-                    extra=prog.goal.extra,
-                    scorer=prog.goal.player_name,
-                    is_penalty=prog.goal.is_penalty,
-                    is_own_goal=prog.goal.is_own_goal,
-                )
-            )
-        game.goals_announced = len(progression)
-        session.commit()
+def _diff_live_score(game: Game, result: MatchResult) -> tuple[list[str], list[str]]:
+    """Diff the live score split against the announced cursor (§9.4).
 
-    for message in messages:
-        await _post_to_group(app_context, context, message, what="um gol")
-
-
-async def _announce_cancellations(
-    app_context: AppContext,
-    context: ContextTypes.DEFAULT_TYPE,
-    fixture_id: int,
-    *,
-    live_home: int,
-    live_away: int,
-) -> None:
-    """Post one retraction per goal disallowed by VAR since the last poll, then resync (§9.4).
-
-    The live score (authoritative, VAR-adjusted) tells us *how many* counted goals vanished; the
-    ``Var`` events feed enriches each retraction with the team/scorer/minute/reason when available
-    (the score often drops a poll or two before the event surfaces, so a generic notice is sent if
-    the detail isn't there yet). The cursor is resynced to the live total only after a successful
-    fetch, mirroring :func:`_announce_goals` so a failed cycle simply retries.
+    Returns ``(goal_posts, cancellation_posts)`` and advances ``game``'s per-side + total goal
+    cursor to the live score. The live feed's ``goals.{home,away}`` already credits own goals to the
+    correct side, so the team whose tally moved names the scoring team directly — no
+    ``/fixtures/events`` lookup, hence each goal posts the moment the score ticks. A side's tally
+    rising yields a goal post; falling (a VAR retraction) yields a cancellation post. The away side
+    is applied after the home side so a rare multi-goal cycle still shows a sensible running score.
     """
-    cancellations = await app_context.budget.guarded(
-        lambda: app_context.provider.get_goal_cancellations(fixture_id)
-    )
-    live_total = live_home + live_away
-    messages: list[str] = []
-    with app_context.session_factory() as session:
-        game = GameRepository(session).get(fixture_id)
-        if game is None:
-            return
-        dropped = game.goals_announced - live_total
-        if dropped <= 0:
-            return  # state moved on between cycles (re-counted) — nothing to retract
-        # Pair each vanished goal with the most-recent VAR events; any shortfall stays generic.
-        recent = cancellations[-dropped:]
-        offset = dropped - len(recent)
-        for index in range(dropped):
-            var = recent[index - offset] if index >= offset else None
-            scoring_team: str | None = None
-            scorer: str | None = None
-            minute: int | None = None
-            extra: int | None = None
-            reason: str | None = None
-            if var is not None:
-                if var.team_id == game.home_team_id:
-                    scoring_team = game.home_team_name
-                elif var.team_id == game.away_team_id:
-                    scoring_team = game.away_team_name
-                scorer = var.player_name
-                minute = var.minute
-                extra = var.extra
-                reason = cancellation_reason_pt(var.detail)
-            messages.append(
-                goal_cancelled_text(
-                    scoring_team=scoring_team,
-                    home_team=game.home_team_name,
-                    away_team=game.away_team_name,
-                    home_score=live_home,
-                    away_score=live_away,
-                    minute=minute,
-                    extra=extra,
-                    scorer=scorer,
-                    reason=reason,
-                )
-            )
-        game.goals_announced = live_total
-        session.commit()
+    live_home = result.live_home_goals or 0
+    live_away = result.live_away_goals or 0
+    home = game.home_goals_announced
+    away = game.away_goals_announced
+    goal_posts: list[str] = []
+    cancel_posts: list[str] = []
+    while live_home > home:
+        home += 1
+        goal_posts.append(_goal_post(game, home, away, scoring_team=game.home_team_name))
+    while live_home < home:
+        home -= 1
+        cancel_posts.append(_cancel_post(game, home, away, scoring_team=game.home_team_name))
+    while live_away > away:
+        away += 1
+        goal_posts.append(_goal_post(game, home, away, scoring_team=game.away_team_name))
+    while live_away < away:
+        away -= 1
+        cancel_posts.append(_cancel_post(game, home, away, scoring_team=game.away_team_name))
+    game.home_goals_announced = live_home
+    game.away_goals_announced = live_away
+    game.goals_announced = live_home + live_away
+    return goal_posts, cancel_posts
 
-    for message in messages:
-        await _post_to_group(app_context, context, message, what="um gol anulado")
+
+def _goal_post(game: Game, home_score: int, away_score: int, *, scoring_team: str) -> str:
+    return goal_text(
+        scoring_team=scoring_team,
+        home_team=game.home_team_name,
+        away_team=game.away_team_name,
+        home_score=home_score,
+        away_score=away_score,
+    )
+
+
+def _cancel_post(game: Game, home_score: int, away_score: int, *, scoring_team: str) -> str:
+    return goal_cancelled_text(
+        scoring_team=scoring_team,
+        home_team=game.home_team_name,
+        away_team=game.away_team_name,
+        home_score=home_score,
+        away_score=away_score,
+    )
 
 
 async def _settle_and_announce(

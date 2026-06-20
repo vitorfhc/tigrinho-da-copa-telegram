@@ -870,3 +870,25 @@ stays bookkeeping-only). Implemented end to end and merged to `main` for deploym
   goals alike). Documented the contract on `GoalEvent.team_id` and updated COMPLETION.md §9.4.
 - **Tests:** rewrote `test_goal_progression_own_goal_credited_to_event_team` to assert the grounded
   semantics (watched it fail first). All four gates green (690 tests, domain coverage 100%).
+
+### 2026-06-20 — Speed: live goal/VAR notifications post from the live score, not the events feed (§9.4)
+
+User request: goal notifications arrived too slowly because each goal was held until the
+`/fixtures/events` scorer feed caught up to the live score (an observed multi-minute lag). The user
+chose **less detail, delivered immediately**. The live-poll job now derives goal & VAR posts purely
+from the live score split — **no second API call**.
+- New `games.home_goals_announced` / `away_goals_announced` columns (append-only migration
+  `d4e5f6a7b8c9`) give a per-side cursor; `goals_announced` stays as the running total. `poll_job`
+  diffs the live `goals.{home,away}` split against the cursor (pure helper `_diff_live_score`): a side
+  rising → one **"⚽ GOL do <equipe>"** post (team + running score, **no scorer/minute/tags**); a side
+  falling → one **"🚫 Gol anulado pelo VAR"** retraction (team always named from the score drop, no
+  reason/scorer). Same-cycle goal-on-one-side + annulment-on-the-other is now handled correctly.
+- `goal_text` / `goal_cancelled_text` simplified to (team + running score); orphaned `goal_minute_label`
+  / `cancellation_reason_pt` removed. `_announce_goals` / `_announce_cancellations` (and their
+  budgeted `get_goal_events` / `get_goal_cancellations` calls) removed from the live path. Those
+  provider methods + `domain/live.goal_progression` are retained (still tested) but unused by the live
+  path; settlement still uses the ≤90′ timeline via `get_match_result`.
+- Supersedes the events-feed own-goal path (the same-day own-goal-flip fix above): the live score
+  already credits own goals correctly, so the score-split approach is own-goal-safe by construction.
+- Grading/settlement untouched. `/ajuda` unaffected (no command/category/scoring/grading change).
+  COMPLETION.md §9.4 rewritten + dated decision recorded. All four gates green (686 tests).

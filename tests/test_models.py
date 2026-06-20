@@ -160,6 +160,8 @@ def test_game_live_notification_defaults(session: Session) -> None:
     assert stored is not None
     assert stored.started_at is None
     assert stored.goals_announced == 0
+    assert stored.home_goals_announced == 0
+    assert stored.away_goals_announced == 0
 
 
 def test_game_last_reconciled_at_defaults_none_and_persists(session: Session) -> None:

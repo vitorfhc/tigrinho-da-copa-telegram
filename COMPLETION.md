@@ -637,29 +637,37 @@ fetches):
   `BetRepository.list_for_game()` + `describe_bet_value()` (`text_pt.closed_bets_text`); best-effort
   send like the other live posts. This is dedup'd by `games.started_at` (posted only the cycle the
   kickoff is first detected, never re-posted).
-- **Goals.** The live feed carries the running score (`MatchResult.live_home_goals` /
-  `live_away_goals` from `goals.{home,away}`). When a *started* game's running total exceeds
-  `games.goals_announced`, one budgeted `get_goal_events(fixture_id)` call fetches the **uncapped**
-  goal timeline (incl. extra time; penalty shootout excluded). Each new goal is posted with the
-  running score, scorer, and minute (`(pênalti)` / `(gol contra)` tags). **Own goals:** the
-  provider already attributes the event's `team` to the *benefiting* side (the own-goaler is the
-  event's `player`), so the running score uses `team_id` as-is — **no flip** (grounded against
-  API-Football live events: e.g. an own goal in USA 2–0 Australia is reported with
-  `team.id = USA`). The cursor `goals_announced` then advances to the timeline length. The events
-  endpoint is hit only when a game actually scores (~1 call per goal); cycles with no goal cost
-  nothing extra.
-- **VAR-disallowed goals.** When the running total *drops* below `goals_announced` (a counted goal
-  was annulled), one budgeted `get_goal_cancellations(fixture_id)` call fetches the `type:"Var"`
-  goal-cancellation events and the bot posts one **"🚫 Gol anulado pelo VAR"** retraction per
-  vanished goal — naming the team/scorer/minute and a short reason (impedimento / mão na bola /
-  falta) when the event is available, or a generic notice when the score dropped before the event
-  surfaced (an observed feed lag). The cursor then resyncs down to the live total *after* the
-  retraction posts, so a failed send retries and a synced game is never re-announced. Detection is
-  driven by the authoritative live score (not by parsing every poll); the cancellation matcher is
-  grounded against API-Football's live feed — it matches any `Var` detail naming a goal as
-  cancelled/disallowed (docs list `"Goal cancelled"`; the live feed also returns
-  `"Goal Disallowed - <reason>"`, which the docs omit — live docs win), excluding confirmations and
-  non-goal reversals. Doc: <https://www.api-football.com/news/post/var-events>.
+- **Goals (score-driven, no scorer/minute).** The live feed carries the running score
+  (`MatchResult.live_home_goals` / `live_away_goals` from `goals.{home,away}`, already VAR-adjusted
+  and with own goals credited to the right side — the live score, like `GoalEvent.team_id`,
+  attributes an own goal to the *benefiting* team, so no flip is ever needed; grounded against
+  API-Football, e.g. an own goal in USA 2–0 Australia is reported with `team = USA`). The poll keeps
+  a **per-side cursor** (`games.home_goals_announced` / `away_goals_announced`, plus the running total
+  `goals_announced` for continuity). Each cycle, every side whose live tally **rose** above its
+  cursor yields one **"⚽ GOL do &lt;equipe&gt;"** post — naming the scoring team and the running
+  score, and **nothing else**. There is **no scorer and no minute**: those need the slower
+  `/fixtures/events` feed, which lags the live score by minutes, so a goal would sit unposted until
+  that feed caught up. Dropping them is a deliberate trade for speed — the goal posts the moment the
+  score ticks, costing **no second API call** (only the `get_live_results()` the cycle already made).
+  Cold-start catch-up (the bot first sees a game already 2–0) posts each missed goal once.
+- **VAR-disallowed goals (score-driven).** When a side's live tally **drops** below its cursor, that
+  counted goal was annulled: the bot posts one **"🚫 Gol anulado pelo VAR"** retraction per vanished
+  goal, naming the team (the side whose tally fell) + the current running score. Because detection is
+  the same score-split diff, the team is **always** named with no events-feed lag, and **no
+  reason/scorer/minute** is shown. The cursor resyncs to the live total each cycle. A goal scored on
+  one side while the other side's goal is annulled in the same poll is handled correctly (one GOL +
+  one retraction).
+
+> **Decision (2026-06-20):** live goal & VAR posts are derived **purely from the live score feed**
+> (`get_live_results`), not the `/fixtures/events` scorer feed. Goal posts therefore show only the
+> scoring **team** + running score (no scorer, minute, `(pênalti)`/`(gol contra)` tags, or VAR
+> reason). Rationale: the events feed lags the live score by minutes, so the old design held each
+> goal notification until the scorer surfaced — too slow for a per-minute live feed. The user chose
+> **less detail, delivered immediately**. This also supersedes the events-feed own-goal handling (the
+> earlier 2026-06-20 own-goal-flip fix): the live score already credits own goals correctly. The
+> provider capabilities `get_goal_events` / `get_goal_cancellations` and `domain/live.goal_progression`
+> are retained (still tested) but are no longer used by the live path; settlement still uses the ≤90′
+> timeline via `get_match_result`.
 
 Best-effort group sends: a failure logs + DMs the admin and never crashes the bot (§14). Grading /
 settlement are **unchanged** — they still use the 90′ regulation score and the ≤90′ timeline; these
