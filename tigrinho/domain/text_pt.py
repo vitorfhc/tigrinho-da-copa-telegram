@@ -195,7 +195,7 @@ def results_text(
     lines.append("<b>Pontuação do jogo:</b>")
     for telegram_id, name, total, categories in players:
         marks = " · ".join(
-            f"{'✓' if ok else '✗'} {label}{f' (+{pts})' if ok else ''}"
+            f"{'✓' if ok else ('⚡' if pts > 0 else '✗')} {label}{f' (+{pts})' if pts > 0 else ''}"
             for label, ok, pts in categories
         )
         lines.append(f"{mention(telegram_id, name)} — <b>{total}</b> pts\n  {marks}")
@@ -235,7 +235,7 @@ def correction_text(
     lines.append("<b>Pontuação recalculada:</b>")
     for telegram_id, name, old_total, new_total, categories in players:
         marks = " · ".join(
-            f"{'✓' if ok else '✗'} {label}{f' (+{pts})' if ok else ''}"
+            f"{'✓' if ok else ('⚡' if pts > 0 else '✗')} {label}{f' (+{pts})' if pts > 0 else ''}"
             for label, ok, pts in categories
         )
         lines.append(
@@ -517,7 +517,7 @@ def my_game_detail_text(
     out = [f"🏆 <b>{escape(home)}{score}{escape(away)}</b>", ""]
     total = 0
     for description, is_correct, points in lines:
-        mark = "✓" if is_correct else "✗"
+        mark = "✓" if is_correct else ("⚡" if points > 0 else "✗")
         out.append(f"• {description} — {mark} {points} pts")
         total += points
     out.append("")
@@ -531,10 +531,16 @@ def points_table_text() -> str:
     Shows only the currently-offered two-market set so /ajuda matches what new games present;
     legacy in-progress games still grade their old categories at their stored point values.
     """
-    lines = [
-        f"• {CATEGORY_LABELS[category]}: <b>{POINTS[category]}</b> pts"
-        for category in offerable_for(CategorySet.V2)
-    ]
+    lines = []
+    for category in offerable_for(CategorySet.V2):
+        if category is BetCategory.EXACT_SCORE:
+            lines.append(
+                f"• {CATEGORY_LABELS[category]}: <b>+2</b> pts por cada placar certo "
+                "(casa e visitante separados), <b>+1</b> se o desfecho bate (vitória/empate) "
+                "— até <b>5</b> pts no total"
+            )
+        else:
+            lines.append(f"• {CATEGORY_LABELS[category]}: <b>{POINTS[category]}</b> pts")
     return "\n".join(lines)
 
 

@@ -89,6 +89,46 @@ def test_exact_score() -> None:
     assert is_correct(ExactScorePayload(home=2, away=1), _ctx(2, 0)) is False
 
 
+@pytest.mark.parametrize(
+    ("bet_home", "bet_away", "home", "away", "expected_pts"),
+    [
+        (2, 1, 2, 1, 5),  # exact — all three components
+        (1, 1, 2, 2, 1),  # draw outcome right, no score
+        (2, 1, 1, 1, 2),  # away score right only (2≠1, 1=1, predicted HOME but DRAW)
+        (2, 1, 2, 0, 3),  # home score right + home-win outcome (2=2, 1≠0, HOME=HOME)
+        (2, 1, 3, 1, 3),  # away score right + home-win outcome (2≠3, 1=1, HOME=HOME)
+        (2, 1, 0, 0, 0),  # nothing right
+        (0, 0, 0, 0, 5),  # 0-0 exact — both scores + draw outcome
+    ],
+)
+def test_exact_score_partial_points(
+    bet_home: int, bet_away: int, home: int, away: int, expected_pts: int
+) -> None:
+    from tigrinho.domain.scoring import grade as _grade
+
+    result = _grade(ExactScorePayload(home=bet_home, away=bet_away), _ctx(home, away))
+    assert result.points == expected_pts
+    assert result.is_correct is (expected_pts == 5)
+
+
+def test_exact_score_partial_knockout_uses_advancing_team() -> None:
+    """Outcome point in knockout uses the advancing team, not the 90' result."""
+    from tigrinho.domain.scoring import grade as _grade
+
+    ko = {"stage": Stage.KNOCKOUT, "home_id": 10, "away_id": 20}
+    # 90' draw 1-1, away (20) advances — bet was 2-1 (home win): away score right (+2),
+    # outcome wrong (predicted HOME, actual advancing=AWAY) → 2 pts only.
+    ctx = _ctx(1, 1, advancing=20, **ko)  # type: ignore[arg-type]
+    result = _grade(ExactScorePayload(home=2, away=1), ctx)
+    assert result.points == 2
+    assert result.is_correct is False
+
+    # Same 90' draw, but bet 1-1 → both scores right (+4), predicted DRAW, actual AWAY → no outcome
+    result2 = _grade(ExactScorePayload(home=1, away=1), ctx)
+    assert result2.points == 4
+    assert result2.is_correct is False
+
+
 # --- winner (group + knockout) --------------------------------------------------------------
 
 
@@ -247,6 +287,8 @@ def test_half_time_voids_when_score_missing(sel: HalfTimeSel) -> None:
     [
         (ExactScorePayload(home=2, away=1), _ctx(2, 1), True, 5),
         (ExactScorePayload(home=2, away=1), _ctx(0, 0), False, 0),
+        (ExactScorePayload(home=1, away=1), _ctx(2, 2), False, 1),  # draw outcome only
+        (ExactScorePayload(home=2, away=1), _ctx(1, 1), False, 2),  # away score only
         (FirstTeamPayload(sel=FirstTeamSel.HOME), _ctx(1, 0, goals=(_goal(5, 10, 100),)), True, 2),
         (BttsPayload(sel=BttsSel.BOTH), _ctx(1, 1), True, 2),
         (WinnerPayload(sel=WinnerSel.HOME), _ctx(3, 0), True, 2),

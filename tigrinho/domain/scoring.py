@@ -157,7 +157,37 @@ def is_correct(payload: Payload, ctx: GradingContext) -> bool:
     assert_never(payload)  # pragma: no cover
 
 
+def _exact_score_points(payload: ExactScorePayload, ctx: GradingContext) -> int:
+    """Partial-credit scoring: +2 per correct team score, +1 if the outcome (win/draw) matches.
+
+    Uses _winner_outcome so knockout advancing-team logic is identical to the WINNER bet.
+    Maximum is 5 (exact score ≡ all three components correct).
+    """
+    pts = 0
+    if payload.home == ctx.home_goals_90:
+        pts += 2
+    if payload.away == ctx.away_goals_90:
+        pts += 2
+    if payload.home > payload.away:
+        predicted_outcome: WinnerSel = WinnerSel.HOME
+    elif payload.away > payload.home:
+        predicted_outcome = WinnerSel.AWAY
+    else:
+        predicted_outcome = WinnerSel.DRAW
+    actual_outcome = _winner_outcome(ctx)
+    if actual_outcome is not None and predicted_outcome is actual_outcome:
+        pts += 1
+    return pts
+
+
 def grade(payload: Payload, ctx: GradingContext) -> BetGrade:
-    """Grade a bet and award its category's points if correct (§8.1)."""
+    """Grade a bet and award its category's points if correct (§8.1).
+
+    EXACT_SCORE uses partial-credit scoring (see _exact_score_points); all other categories
+    are all-or-nothing using the POINTS table.
+    """
+    if isinstance(payload, ExactScorePayload):
+        pts = _exact_score_points(payload, ctx)
+        return BetGrade(is_correct=pts == 5, points=pts)
     correct = is_correct(payload, ctx)
     return BetGrade(is_correct=correct, points=POINTS[payload.CATEGORY] if correct else 0)
