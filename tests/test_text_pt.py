@@ -180,7 +180,10 @@ def test_closed_bets_text_escapes_player_and_team_names() -> None:
 def test_points_table_reflects_scoring() -> None:
     # The points table shows only the offered (new) two-market set.
     text = points_table_text()
-    assert "Placar exato: <b>5</b> pts" in text
+    # EXACT_SCORE uses partial credit: +2 per team score, +1 outcome, up to 5 pts total
+    assert "Placar exato" in text
+    assert "<b>+2</b>" in text
+    assert "até <b>5</b> pts" in text
     assert "Quem está na frente no 1º tempo: <b>2</b> pts" in text
     assert "Mais/Menos 2.5 gols" not in text  # removed-from-offer category absent
 

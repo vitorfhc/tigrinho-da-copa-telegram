@@ -124,9 +124,10 @@ def test_exact_score_partial_knockout_uses_advancing_team() -> None:
     assert result.is_correct is False
 
     # Same 90' draw, but bet 1-1 → both scores right (+4), predicted DRAW, actual AWAY → no outcome
+    # is_correct is True because the exact 90' score was predicted correctly (4 pts, not 5)
     result2 = _grade(ExactScorePayload(home=1, away=1), ctx)
     assert result2.points == 4
-    assert result2.is_correct is False
+    assert result2.is_correct is True
 
 
 # --- winner (group + knockout) --------------------------------------------------------------

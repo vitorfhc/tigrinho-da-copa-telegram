@@ -161,7 +161,8 @@ def _exact_score_points(payload: ExactScorePayload, ctx: GradingContext) -> int:
     """Partial-credit scoring: +2 per correct team score, +1 if the outcome (win/draw) matches.
 
     Uses _winner_outcome so knockout advancing-team logic is identical to the WINNER bet.
-    Maximum is 5 (exact score ≡ all three components correct).
+    Maximum is 5 for group stage; knockout draws cap at 4 because _winner_outcome never
+    returns DRAW in knockout (advancing team decides), so a draw-score bet can't earn the +1.
     """
     pts = 0
     if payload.home == ctx.home_goals_90:
@@ -188,6 +189,7 @@ def grade(payload: Payload, ctx: GradingContext) -> BetGrade:
     """
     if isinstance(payload, ExactScorePayload):
         pts = _exact_score_points(payload, ctx)
-        return BetGrade(is_correct=pts == 5, points=pts)
+        exact = payload.home == ctx.home_goals_90 and payload.away == ctx.away_goals_90
+        return BetGrade(is_correct=exact, points=pts)
     correct = is_correct(payload, ctx)
     return BetGrade(is_correct=correct, points=POINTS[payload.CATEGORY] if correct else 0)

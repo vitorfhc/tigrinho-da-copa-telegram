@@ -434,7 +434,7 @@ Live polling is the first thing to throttle/skip. Bet **closing never consumes b
 
 | Category | `BetCategory` | Payload | Wins when | Points | Set |
 |---|---|---|---|---|---|
-| Exact score | `EXACT_SCORE` | `{home:int, away:int}` | **partial credit:** +2 if home score correct, +2 if away score correct, +1 if the outcome (win/draw/loss) matches (uses advancing team in knockout, same as WINNER bet); max **5**, `is_correct=True` only at 5 pts | both |
+| Exact score | `EXACT_SCORE` | `{home:int, away:int}` | **partial credit:** +2 if home score correct, +2 if away score correct, +1 if the outcome (win/draw/loss) matches (uses advancing team in knockout, same as WINNER bet); max **5** (group) or **4** (knockout draw, where no DRAW outcome exists); `is_correct=True` when both 90′ scores match exactly | both |
 | Half-time result | `HALF_TIME_RESULT` | `{sel: HOME\|DRAW\|AWAY}` | matches the sign of the **half-time** score (`HOME` if `ht_home>ht_away`, `DRAW` if equal, `AWAY` if `ht_away>ht_home`) | **2** | V2 |
 | First team to score | `FIRST_TEAM` | `{sel: HOME\|AWAY}` | that team scores the first genuine (non-own-goal) goal within 90′ | **2** | legacy |
 | Both teams to score | `BTTS` | `{sel: BOTH\|ONLY_HOME\|ONLY_AWAY\|NEITHER}` | the 90′ scoring pattern matches | **2** | legacy |
