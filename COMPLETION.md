@@ -839,6 +839,13 @@ CLI output MUST be readable tables; destructive commands MUST require a confirma
 - Scheduled jobs MUST catch their own exceptions, log with context, alert, and keep running (one bad
   cycle never kills the bot). Register a PTB **error handler** (`application.add_error_handler`) as a
   backstop for handler exceptions.
+- **The backstop suppresses admin DMs for transient network errors.** PTB wraps non-timeout `httpx`
+  failures (e.g. `ReadError`/`ConnectError`) and pool/read timeouts as `telegram.error.NetworkError`
+  / `TimedOut` (a `NetworkError` subclass); these self-heal on the next attempt or polling cycle and
+  are not actionable, so the handler logs them at **warning** level and returns without DMing. Note
+  `BadRequest` also subclasses `NetworkError` but is a genuine, un-retryable error — it is excluded
+  from this filter so it still alerts. (Polling `get_updates` network errors never reach this
+  handler — PTB retries them internally via its own network-retry loop.)
 
 ---
 

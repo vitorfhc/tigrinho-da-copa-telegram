@@ -11,7 +11,7 @@ from datetime import date
 
 from telegram import Bot
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
+from telegram.error import BadRequest, NetworkError, TelegramError
 from telegram.ext import ContextTypes
 
 from tigrinho.bot.runtime import AppContext, get_app_context
@@ -42,9 +42,27 @@ async def alert_cap_reached(app_context: AppContext, bot: Bot, budget_date: date
     )
 
 
+def _is_transient_network_error(error: BaseException | None) -> bool:
+    """A transient, self-healing connectivity blip that should NOT spam the admin (§14).
+
+    PTB wraps non-timeout ``httpx`` failures (e.g. ``ReadError``/``ConnectError``) and pool/read
+    timeouts as ``NetworkError``/``TimedOut`` (a ``NetworkError`` subclass). These recover on the
+    next attempt or polling cycle, so they are not actionable. ``BadRequest`` also subclasses
+    ``NetworkError`` but is a genuine, un-retryable error — exclude it so it still alerts.
+    """
+    return isinstance(error, NetworkError) and not isinstance(error, BadRequest)
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """PTB backstop: log any unhandled handler/job exception and alert the admin (§14)."""
+    """PTB backstop: log any unhandled handler/job exception and alert the admin (§14).
+
+    Transient network errors are logged at warning level but not DMed — the admin alert is reserved
+    for actionable failures (§14), and a connectivity blip self-heals on retry.
+    """
     error = context.error
+    if _is_transient_network_error(error):
+        _log.warning("transient_network_error", error=str(error), error_type=type(error).__name__)
+        return
     _log.error("unhandled_error", error=str(error), error_type=type(error).__name__)
     app_context = get_app_context(context.application)
     await notify_admin(

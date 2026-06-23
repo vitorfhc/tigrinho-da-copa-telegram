@@ -13,7 +13,7 @@ from telegram import (
     Update,
     User,
 )
-from telegram.error import TelegramError
+from telegram.error import BadRequest, NetworkError, TelegramError
 from telegram.ext import CommandHandler, ContextTypes
 
 from tigrinho.bot.alerts import error_handler
@@ -122,6 +122,28 @@ async def test_error_handler_notifies_admin(app_context: AppContext) -> None:
     assert (
         context.bot.send_message.await_args.kwargs["chat_id"] == app_context.settings.admin_user_id
     )
+
+
+async def test_error_handler_suppresses_transient_network_error(app_context: AppContext) -> None:
+    # A transient blip (PTB wraps httpx.ReadError as NetworkError) self-heals; no admin DM (§14).
+    application = build_application(app_context)
+    context = MagicMock()
+    context.error = NetworkError("httpx.ReadError: ")
+    context.application = application
+    context.bot = AsyncMock(spec=Bot)
+    await error_handler(object(), cast(ContextTypes.DEFAULT_TYPE, context))
+    context.bot.send_message.assert_not_awaited()
+
+
+async def test_error_handler_still_notifies_on_bad_request(app_context: AppContext) -> None:
+    # BadRequest subclasses NetworkError but is a genuine (un-retryable) error → still alert (§14).
+    application = build_application(app_context)
+    context = MagicMock()
+    context.error = BadRequest("message is not modified")
+    context.application = application
+    context.bot = AsyncMock(spec=Bot)
+    await error_handler(object(), cast(ContextTypes.DEFAULT_TYPE, context))
+    context.bot.send_message.assert_awaited_once()
 
 
 # --- post_init job scheduling ---------------------------------------------------------------
