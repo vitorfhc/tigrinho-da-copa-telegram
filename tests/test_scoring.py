@@ -93,6 +93,8 @@ def test_exact_score() -> None:
     ("bet_home", "bet_away", "home", "away", "expected_pts"),
     [
         (2, 1, 2, 1, 5),  # exact — all three components
+        (0, 2, 0, 2, 5),  # exact away win — both scores + away-win outcome
+        (1, 2, 0, 2, 3),  # away score right + away-win outcome (1≠0, 2=2, AWAY=AWAY)
         (1, 1, 2, 2, 1),  # draw outcome right, no score
         (2, 1, 1, 1, 2),  # away score right only (2≠1, 1=1, predicted HOME but DRAW)
         (2, 1, 2, 0, 3),  # home score right + home-win outcome (2=2, 1≠0, HOME=HOME)
